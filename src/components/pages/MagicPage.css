@@ -614,6 +614,187 @@
   box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.06);
 }
 
+.gods-revamp {
+  position: relative;
+  display: grid;
+  gap: 1.2rem;
+}
+
+.gods-hero {
+  position: relative;
+  min-height: 340px;
+  border-radius: 18px;
+  padding: clamp(1.4rem, 2vw, 2rem);
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 22px 50px rgba(0, 0, 0, 0.35);
+  background: linear-gradient(135deg, rgba(0, 0, 0, 0.35), rgba(255, 255, 255, 0.04));
+}
+
+.gods-revamp--kaya .gods-hero {
+  background: linear-gradient(135deg, rgba(255, 215, 120, 0.12), rgba(255, 143, 50, 0.08), rgba(255, 255, 255, 0.12));
+  color: #1f1305;
+}
+
+.gods-revamp--krovi .gods-hero {
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.08), rgba(2, 10, 24, 0.75));
+  color: #e5ecff;
+}
+
+.gods-hero__content {
+  max-width: 640px;
+  position: relative;
+  z-index: 1;
+}
+
+.gods-eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.22rem;
+  font-size: 0.85rem;
+  margin: 0 0 0.5rem;
+  color: var(--magic-accent, #cde9ff);
+}
+
+.gods-hero__title {
+  font-family: 'Cinzel', 'Georgia', serif;
+  font-size: clamp(3rem, 8vw, 5rem);
+  margin: 0 0 0.4rem;
+  letter-spacing: 0.18rem;
+}
+
+.gods-hero__lead {
+  margin: 0 0 0.8rem;
+  max-width: 560px;
+  line-height: 1.6;
+  color: var(--magic-muted, rgba(245, 229, 201, 0.82));
+}
+
+.gods-hero__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.gods-switch {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 18%;
+  min-width: 120px;
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #e5ecff;
+  text-transform: uppercase;
+  letter-spacing: 0.2rem;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+  opacity: 0.65;
+  cursor: pointer;
+  transition: opacity 180ms ease, transform 220ms ease;
+  z-index: 2;
+}
+
+.gods-switch--right {
+  right: 1rem;
+}
+
+.gods-switch--left {
+  left: 1rem;
+}
+
+.gods-switch:hover {
+  opacity: 0.95;
+  transform: translateY(-4px);
+}
+
+.gods-panels {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: 1rem;
+}
+
+@media (max-width: 960px) {
+  .gods-panels {
+    grid-template-columns: 1fr;
+  }
+
+  .gods-switch {
+    display: none;
+  }
+}
+
+.gods-panel {
+  border-radius: 16px;
+  padding: 1.1rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.25);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.32);
+}
+
+.gods-panel h3 {
+  margin: 0.2rem 0 0.5rem;
+  color: var(--magic-hero-title, #ffe7b2);
+}
+
+.gods-panel p {
+  margin: 0;
+  line-height: 1.65;
+  color: var(--magic-muted, rgba(245, 229, 201, 0.82));
+}
+
+.gods-dukes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.8rem;
+}
+
+.gods-duke-card {
+  border-radius: 14px;
+  padding: 0.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.25);
+}
+
+.gods-duke-card__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.gods-duke-card h4 {
+  margin: 0;
+  color: var(--magic-hero-title, #ffe7b2);
+}
+
+.gods-duke-card p {
+  margin: 0;
+  color: var(--magic-muted, rgba(245, 229, 201, 0.82));
+  line-height: 1.5;
+}
+
+.gods-revamp--kaya .gods-panel,
+.gods-revamp--kaya .gods-duke-card {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(240, 140, 20, 0.18);
+  color: #1f1305;
+  box-shadow: 0 14px 32px rgba(255, 140, 20, 0.16);
+}
+
+.gods-revamp--kaya .gods-panel p,
+.gods-revamp--kaya .gods-duke-card p {
+  color: #3b2410;
+}
+
+.gods-revamp--kaya .gods-duke-card h4,
+.gods-revamp--kaya .gods-panel h3 {
+  color: #8b4000;
+}
+
 .god-lore-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));

@@ -630,23 +630,25 @@ export default function MagicSystemPage() {
         </div>
       </div>
 
-      <section className="magic-section">
-        <div className="magic-section__header">
-          <p className="magic-eyebrow">Summary</p>
-          <h2 className="magic-title">{system.name}</h2>
-          <p className="magic-subtitle">{locked ? 'ᚱᚨᛉᛟᚾ ᚦᚺᛖ ᛋᛖᚨᛚ ᛁᛋ ᛋᛁᛚᛖᚾᚲᛖᛞ ᛒᛖᚾᛖᚨᛏᚺ ᛋᛖᚨᛚᛋ' : system.summary}</p>
-        </div>
-        {system.highlights && !locked && (
-          <div className="magic-grid magic-grid--highlights">
-            {system.highlights.map((item) => (
-              <div className="magic-card magic-card--inline" key={item} style={{ background: system.colors.card }}>
-                <div className="magic-card__dot" />
-                <p>{item}</p>
-              </div>
-            ))}
+      {!isGods && (
+        <section className="magic-section">
+          <div className="magic-section__header">
+            <p className="magic-eyebrow">Summary</p>
+            <h2 className="magic-title">{system.name}</h2>
+            <p className="magic-subtitle">{locked ? '????? ??? ???? ?? ???????? ??????? ?????' : system.summary}</p>
           </div>
-        )}
-      </section>
+          {system.highlights && !locked && (
+            <div className="magic-grid magic-grid--highlights">
+              {system.highlights.map((item) => (
+                <div className="magic-card magic-card--inline" key={item} style={{ background: system.colors.card }}>
+                  <div className="magic-card__dot" />
+                  <p>{item}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       {locked ? (
         <section className="magic-section">
@@ -662,89 +664,62 @@ export default function MagicSystemPage() {
             </div>
           </div>
         </section>
+      
       ) : isGods ? (
-        <section className="magic-section">
-          <div className="magic-section__header">
-            <p className="magic-eyebrow">Gods & Dukes</p>
-            <h2 className="magic-title">Divine power after Year 0</h2>
-            <p className="magic-subtitle">
-              Kaya and Krovi were mountain-sized dragons. Their death scream at Year 0 reset the calendar; their hill-sized dukes remain as lieutenants, temples, and fragments of power.
-            </p>
-          </div>
-          <div className="god-lore-grid">
-            <div className="god-lore-card">
-              <p className="gods-kicker">Ancient titans</p>
-              <h4>Dragons the size of mountains</h4>
-              <p>Two great dragon gods—Kaya and Krovi—once spanned mountain ranges. Their dukes, dragon lieutenants the size of hills, interpreted and enforced their power.</p>
+        <div className={`gods-revamp gods-revamp--${selectedGod}`}>
+          <div className="gods-hero">
+            <div className="gods-hero__content">
+              <p className="gods-eyebrow">
+                {selectedGod === 'kaya' ? 'Goddess of Light, Order, and Control' : 'God of Darkness, Freedom, and Defiance'}
+              </p>
+              <h1 className="gods-hero__title">{selectedGod === 'kaya' ? 'KAYA' : 'KROVI'}</h1>
+              <p className="gods-hero__lead">{activeGod?.description}</p>
+              <div className="gods-hero__meta">
+                <span className="gods-chip">{activeGod?.aura}</span>
+                <span className="gods-chip">{selectedGod === 'kaya' ? 'Radiant authority' : 'Shadowed rebellion'}</span>
+                <span className="gods-chip">Dukes: {(activeGod?.entries || []).length}</span>
+              </div>
             </div>
-            <div className="god-lore-card">
-              <p className="gods-kicker">Year 0</p>
-              <h4>The fall resets the calendar</h4>
-              <p>Their final clash killed them both. Year 0 marks their death; divine power shattered and scattered across Azterra.</p>
-            </div>
-            <div className="god-lore-card">
-              <p className="gods-kicker">Lingering relics</p>
-              <h4>Dukes as temples</h4>
-              <p>Duke bodies remain—some entombed, some weaponized, some turned into temples. Oaths to a duke channel fragments of the dead gods.</p>
-            </div>
+            <button
+              type="button"
+              className={`gods-switch gods-switch--${selectedGod === 'kaya' ? 'right' : 'left'}`}
+              onClick={() => setSelectedGod(selectedGod === 'kaya' ? 'krovi' : 'kaya')}
+              aria-label={`Show ${selectedGod === 'kaya' ? 'Krovi' : 'Kaya'}`}
+            >
+              <span>{selectedGod === 'kaya' ? 'KROVI' : 'KAYA'}</span>
+            </button>
           </div>
 
-          <div className="gods-overview">
-            <div className="gods-overview__col">
-              <p className="gods-kicker">Kaya — Light, Order, Control</p>
-              <h3 className="gods-overview__title">Radiant authority</h3>
-              <p className="magic-subtitle">
-                Amber radiance rewards formation, discipline, and domination. Peace through structure; strength against the faltering.
+          <div className="gods-panels">
+            <section className="gods-panel gods-panel--summary">
+              <p className="gods-kicker">After Year 0</p>
+              <h3>The fall of the dragon gods</h3>
+              <p>
+                Year 0 marks the duel where Kaya and Krovi killed each other. Their mountain-range bodies fell; their dukes?dragons the
+                size of hills?remain scattered. Some bones became temples, others weapons or sealed sanctuaries. Oaths to a duke channel
+                fragments of the dead gods, bending battles, morale, and fate itself.
               </p>
-              <div className="gods-chips">
-                <span className="gods-chip">Light</span>
-                <span className="gods-chip">Control</span>
-                <span className="gods-chip">Law</span>
-              </div>
-              <ul className="gods-list">
-                <li>Restraint: Hold position; steady allies; reduce damage.</li>
-                <li>Judgment: Mark the weak; strikes grow as foes falter.</li>
-                <li>Authority: Aura that disrupts fear and disorder.</li>
-              </ul>
-            </div>
-            <div className="gods-overview__col">
-              <p className="gods-kicker">Krovi — Darkness, Freedom, Defiance</p>
-              <h3 className="gods-overview__title">Shadowed rebellion</h3>
-              <p className="magic-subtitle">
-                Midnight power blooms when you refuse restraint. Strength through choice, escape, and breaking cages.
-              </p>
-              <div className="gods-chips">
-                <span className="gods-chip">Darkness</span>
-                <span className="gods-chip">Freedom</span>
-                <span className="gods-chip">Defiance</span>
-              </div>
-              <ul className="gods-list">
-                <li>Unbound: Break restraints; punish those who try to control you.</li>
-                <li>Ruin: Hit harder when wounded or cornered.</li>
-                <li>Nightcall: Amplify abilities in darkness or secrecy.</li>
-              </ul>
-            </div>
-          </div>
+            </section>
 
-          <div className="magic-god-panel">
-            <div className="magic-section__header magic-section__header--tight">
-              <p className="magic-eyebrow">{selectedGod === 'kaya' ? 'Kaya' : 'Krovi'}</p>
-              <h3 className="magic-title">{activeGod?.name}</h3>
-              <p className="magic-subtitle">{activeGod?.description}</p>
-            </div>
-            <div className="gods-grid">
-              {(activeGod?.entries || []).map((entry) => (
-                <div key={entry.name} className="gods-card">
-                  <div className="gods-card__dot" style={{ background: activeGod?.color || system.colors.primary }} />
-                  <div>
-                    <h4>{entry.name}</h4>
+            <section className="gods-panel gods-panel--dukes">
+              <div className="magic-section__header magic-section__header--tight">
+                <p className="magic-eyebrow">Dukes of {selectedGod === 'kaya' ? 'Kaya' : 'Krovi'}</p>
+                <h3 className="magic-title">Lieutenants of a fallen god</h3>
+              </div>
+              <div className="gods-dukes-grid">
+                {(activeGod?.entries || []).map((entry) => (
+                  <div key={entry.name} className="gods-duke-card">
+                    <div className="gods-duke-card__head">
+                      <div className="gods-card__dot" style={{ background: activeGod?.color || system.colors.primary }} />
+                      <h4>{entry.name}</h4>
+                    </div>
                     <p>{entry.effect}</p>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            </section>
           </div>
-        </section>
+        </div>
       ) : system.id === 'azterra' ? (
         <>
           <section className="magic-section nature-layout">
@@ -903,12 +878,6 @@ export default function MagicSystemPage() {
                     <li key={item}>{item}</li>
                   ))}
                 </ul>
-              </div>
-
-              <div className="spirit-card spirit-card--summary">
-                <p className="spirit-kicker">Summary</p>
-                <h3 className="spirit-card__title">Website-ready line</h3>
-                <p className="magic-subtitle">{system.summary}</p>
               </div>
             </div>
           </section>
