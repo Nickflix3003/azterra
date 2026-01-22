@@ -22,9 +22,9 @@ settings:
   auto_ignore_ai_pr_loop: true
   codex_model: ''
   codex_approval_mode: ''
-  codex_full_stdout: false
-  show_prompt: false
-  show_codex_output: false
+  codex_full_stdout: true
+  show_prompt: true
+  show_codex_output: true
   live_codex_output: true
 tasks:
 - id: audit-duplicate-content
