@@ -1,9 +1,8 @@
 project:
-  name: "Azterra Website"
-  base_branch: "main"
+  name: Azterra
+  base_branch: main
   default_verify:
-    - "npm run build"
-
+  - npm run build
 settings:
   max_attempts_per_task: 3
   pr_draft: true
@@ -17,32 +16,48 @@ settings:
   verify_timeout_seconds: 600
   max_verify_output_chars: 12000
   max_prompt_chars: 30000
-  codex_bin: "C:\\Users\\nickm\\AppData\\Roaming\\npm\\codex.cmd"
-  auto_commit_dirty: false
-  auto_commit_message: "chore: auto-commit before ai-pr-loop"
+  codex_bin: ''
+  auto_commit_dirty: true
+  auto_commit_message: 'chore: auto-commit before ai-pr-loop'
   auto_ignore_ai_pr_loop: true
-
+  codex_model: ''
+  codex_approval_mode: ''
+  codex_full_stdout: false
+  show_prompt: false
+  show_codex_output: false
+  live_codex_output: true
 tasks:
-  - id: "content-copy-cleanup"
-    title: "Clean up copy and headings on the Azterra homepage"
-    description: |
-      Review the Azterra homepage text and headings.
-      Fix obvious grammar issues, improve clarity, and tighten wording.
-      Do not change routes, layout structure, or add new sections.
-      Remove repetitive content only.
-    acceptance_criteria:
-      - "Homepage text reads cleaner and more consistent."
-      - "No layout or routing changes."
-      - "Build succeeds."
-
-  - id: "homepage-spacing-polish"
-    title: "Polish spacing and typography on the homepage"
-    description: |
-      Improve spacing and typography hierarchy on the homepage only.
-      Do not change content meaning, routing, or overall structure.
-      Keep styles consistent with the existing design system.
-    acceptance_criteria:
-      - "Spacing feels more intentional and readable."
-      - "Typography hierarchy is clearer."
-      - "No layout overflow on mobile."
-      - "Build succeeds."
+- id: audit-duplicate-content
+  title: Audit and Remove Duplicate Content
+  description: Review the React/Tailwind site to identify duplicated text, headings,
+    or sections and consolidate them into single authoritative components or pages.
+  acceptance_criteria:
+  - Duplicate content across pages is identified and consolidated.
+  - Consolidated content retains original intent and context.
+  - Site builds successfully (npm run build exits with code 0).
+- id: refine-visual-design
+  title: Refine and Enhance Visual Design
+  description: "Improve the site\u2019s look and feel by updating color palette, typography,\
+    \ spacing, and component styling for consistency and improved aesthetics."
+  acceptance_criteria:
+  - A consistent color palette, font scale, and spacing system are applied across
+    key pages and components.
+  - Visual improvements are demonstrated via updated screenshots or a live preview
+    link.
+  - Site builds successfully (npm run build exits with code 0).
+- id: optimize-tailwind-configuration
+  title: Optimize Tailwind CSS Configuration
+  description: Refactor Tailwind usage to remove unused utility classes, streamline
+    the tailwind.config.js, and minimize generated CSS bundle size.
+  acceptance_criteria:
+  - Unused CSS classes are removed from the codebase.
+  - tailwind.config.js is updated to purge unused styles and enable any needed optimizations.
+  - CSS bundle size is reduced compared to current baseline.
+  - Site builds successfully (npm run build exits with code 0).
+- id: verify-build
+  title: Verify Production Build
+  description: Execute npm run build to ensure that all recent changes integrate cleanly
+    and the production bundle is generated without errors.
+  acceptance_criteria:
+  - npm run build completes without errors or critical warnings.
+  - Generated build artifacts appear in the expected output directory.
