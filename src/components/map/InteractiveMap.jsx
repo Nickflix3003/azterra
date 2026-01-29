@@ -1523,8 +1523,8 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
 
     // Physics config
     const FRICTION = 0.92;           // How quickly velocity decays (higher = smoother coast)
-    const ACCELERATION = 0.02;       // How much each scroll tick adds to velocity (doubled)
-    const MAX_VELOCITY = 0.6;        // Cap on velocity (doubled)
+    const ACCELERATION = 0.01;       // How much each scroll tick adds to velocity (increased)
+    const MAX_VELOCITY = 0.3;        // Cap on velocity (increased)
     const STOP_THRESHOLD = 0.0001;   // When to stop the animation loop
 
     const handleWheel = (e) => {

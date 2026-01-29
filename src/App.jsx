@@ -28,6 +28,7 @@ import CharacterSheetPage from './components/pages/CharacterSheetPage';
 import CampaignPage from './components/pages/CampaignPage';
 import MagicHubPage from './components/pages/MagicHubPage';
 import MagicSystemPage from './components/pages/MagicSystemPage';
+import LoadingScreenDemo from './components/pages/LoadingScreenDemo';
 
 
 
@@ -111,6 +112,9 @@ function HashApp() {
 
             {/* Admin */}
             <Route path="/admin" element={<AdminDashboard />} />
+
+            {/* Loading Screen Demo */}
+            <Route path="/loading-demo" element={<LoadingScreenDemo />} />
           </Routes>
         </main>
       </div>
