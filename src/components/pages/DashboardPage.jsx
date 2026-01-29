@@ -10,7 +10,7 @@ function DashboardPage() {
   const [favorites, setFavorites] = useState([]);
   const [visibleIds, setVisibleIds] = useState([]);
   const [documents, setDocuments] = useState([]);
-  const [error, setError] = useState('');
+  const [error, _setError] = useState('');
 
   const charMap = useMemo(() => {
     const map = new Map();

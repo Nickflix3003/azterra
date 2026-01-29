@@ -21,23 +21,6 @@ export default function CharacterDetailView({ character: propCharacter, onClose,
   const contentRef = useRef(null);
   const modalCloseRef = useRef(null);
 
-  if (!propCharacter || !displayCharacter) return null;
-
-  const sheet = displayCharacter.sheet || {};
-  const abilityScores = sheet.abilityScores || displayCharacter.stats || {};
-  const proficiencies = sheet.proficiencies || {};
-  const combat = sheet.combat || {
-    armorClass: displayCharacter.ac,
-    initiative: '+0',
-    speed: `${displayCharacter.speed} ft`,
-    hitPoints: String(displayCharacter.hp),
-    hitDice: '',
-    passivePerception: displayCharacter.passivePerception,
-    proficiencyBonus: `+${displayCharacter.profBonus}`,
-  };
-  const spellsDetail = sheet.spellsDetail || {};
-  const equipmentDetail = sheet.equipmentDetail || { starting: displayCharacter.equipment || [], wealth: '' };
-
   const renderChips = (items = [], empty = 'None listed') => (
     <div className="detail-chip-row">
       {items.length > 0 ? items.map((item) => (
@@ -104,6 +87,23 @@ export default function CharacterDetailView({ character: propCharacter, onClose,
       modalCloseRef.current.focus({ preventScroll: true });
     }
   }, [expandedPanel]);
+
+  if (!propCharacter || !displayCharacter) return null;
+
+  const sheet = displayCharacter.sheet || {};
+  const abilityScores = sheet.abilityScores || displayCharacter.stats || {};
+  const proficiencies = sheet.proficiencies || {};
+  const combat = sheet.combat || {
+    armorClass: displayCharacter.ac,
+    initiative: '+0',
+    speed: `${displayCharacter.speed} ft`,
+    hitPoints: String(displayCharacter.hp),
+    hitDice: '',
+    passivePerception: displayCharacter.passivePerception,
+    proficiencyBonus: `+${displayCharacter.profBonus}`,
+  };
+  const spellsDetail = sheet.spellsDetail || {};
+  const equipmentDetail = sheet.equipmentDetail || { starting: displayCharacter.equipment || [], wealth: '' };
 
   const handlePrevTab = () => {
     if (isSwapLocked) return;

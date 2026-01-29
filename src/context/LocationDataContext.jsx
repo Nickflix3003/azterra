@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useMemo, useState, useCallback } from 'react';
 
 const LocationDataContext = createContext(null);

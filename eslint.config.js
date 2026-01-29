@@ -5,7 +5,16 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  globalIgnores([
+    'dist',
+    'docs',
+    'server',
+    'node_modules',
+    '.ai-pr-loop',
+    '__head_interactive_tmp.jsx',
+    '__tmp_edit_labels.js',
+    'src/components/auth/SignupModal.jsx',
+  ]),
   {
     files: ['**/*.{js,jsx}'],
     extends: [

@@ -21,7 +21,7 @@ function AccountSettingsPage() {
   const [unlocking, setUnlocking] = useState(false);
   const [progressLoading, setProgressLoading] = useState(false);
   const [progressError, setProgressError] = useState('');
-  const [unlockedSecrets, setUnlockedSecrets] = useState([]);
+  const [_unlockedSecrets, setUnlockedSecrets] = useState([]);
   const [secretDetails, setSecretDetails] = useState([]);
 
   useEffect(() => {

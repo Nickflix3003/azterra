@@ -40,7 +40,6 @@ function FilterToggle({ label, checked, onChange }) {
 
 function FilterHoverPanel({
   isOpen = false,
-  onToggleOpen = () => {},
   showMarkers,
   markerFilters = {},
   onToggleMarkers,

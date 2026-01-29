@@ -4,8 +4,8 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 export default function PageLayout({ title, tabs, renderBottomTabs = false }) {
     const location = useLocation();
 
-    const { activeIndex, prevTab, nextTab } = useMemo(() => {
-        if (!tabs || tabs.length === 0) return { activeIndex: -1, prevTab: null, nextTab: null };
+    const { prevTab, nextTab } = useMemo(() => {
+        if (!tabs || tabs.length === 0) return { prevTab: null, nextTab: null };
         const idx = tabs.findIndex((tab) => {
             const target = tab.to || '';
             if (tab.end) {
@@ -13,10 +13,10 @@ export default function PageLayout({ title, tabs, renderBottomTabs = false }) {
             }
             return location.pathname.startsWith(target.startsWith('/') ? target : `/${target}`) || location.pathname.startsWith(target);
         });
-        if (idx === -1) return { activeIndex: -1, prevTab: null, nextTab: null };
+        if (idx === -1) return { prevTab: null, nextTab: null };
         const prev = tabs[(idx - 1 + tabs.length) % tabs.length];
         const next = tabs[(idx + 1) % tabs.length];
-        return { activeIndex: idx, prevTab: prev, nextTab: next };
+        return { prevTab: prev, nextTab: next };
     }, [location.pathname, tabs]);
 
     return (

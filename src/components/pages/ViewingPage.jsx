@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import ShaderBackgroundDualCrossfade from '../visuals/ShaderBackgroundDualCrossfade';
 import characters from '../../data/characters_heroes';
 import npcsData from '../../data/npcs';
 import locationsData from '../../data/locations.json';
@@ -163,10 +162,6 @@ function PeoplePage() {
   const [npcTruesight, setNpcTruesight] = useState([]);
   const [locTruesight, setLocTruesight] = useState([]);
   const [players, setPlayers] = useState([]);
-  const [activeCard, setActiveCard] = useState(null);
-  const [colorA, setColorA] = useState([0, 0, 0, 1]);
-  const [colorB, setColorB] = useState([0, 0, 0, 1]);
-  const [fade, setFade] = useState(0);
   const [error, setError] = useState('');
   const [favPending, setFavPending] = useState(false);
   const [pendingNpcEdits, setPendingNpcEdits] = useState({});
@@ -247,14 +242,6 @@ function PeoplePage() {
     setAdminView(isAdmin);
   }, [isAdmin]);
 
-  const palette = useMemo(
-    () => [
-      [255, 213, 128, 0.8],
-      [247, 146, 86, 0.7],
-      [255, 215, 0, 0.75],
-    ],
-    []
-  );
 
   const passesVisibility = (entity, viewer) => {
     if (entity.truesight) return true;
@@ -365,13 +352,6 @@ function PeoplePage() {
     return [...arranged, ...extras];
   }, [cardOrder, currentList, tab]);
 
-  useEffect(() => {
-    if (!currentList.length) return;
-    const choice = palette[(activeCard ?? 0) % palette.length];
-    setColorA(colorB);
-    setColorB(choice);
-    setFade(0);
-  }, [activeCard, currentList.length, palette, colorB]);
 
   const toggleVisible = async (id, type) => {
     if (!isAdmin || !user) return;
@@ -600,7 +580,7 @@ function PeoplePage() {
   const saveLocation = async (id) => {
     if (!isAdmin || !user) return;
     const sanitizeLocation = (loc) => {
-      const { visible, truesight, ...rest } = loc;
+      const { visible: _visible, truesight: _truesight, ...rest } = loc;
       return {
         ...rest,
         campaign: loc.campaign || 'Main',
@@ -711,12 +691,11 @@ function PeoplePage() {
     }
   };
 
-  const renderCard = (item, index) => {
+  const renderCard = (item) => {
     const cardKey = `${tab}-${item.id}`;
     const isExpanded = Boolean(expanded[cardKey]);
     const isDragging = draggingCard === cardKey;
     const toggleExpanded = () => {
-      setActiveCard(index);
       const nextExpanded = !isExpanded;
       setExpanded((prev) => ({
         ...prev,
@@ -1327,8 +1306,8 @@ function PeoplePage() {
         {error && <p className="account-error">{error}</p>}
 
         <div className="view-grid">
-          {orderedList.map((item, idx) => (
-            <div key={`${tab}-${item.id}`}>{renderCard(item, idx)}</div>
+          {orderedList.map((item) => (
+            <div key={`${tab}-${item.id}`}>{renderCard(item)}</div>
           ))}
         </div>
       </div>

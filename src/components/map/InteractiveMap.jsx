@@ -247,6 +247,15 @@ const getTileCountForZoom = (z) => {
   };
 };
 
+const buildTileUrl = (z, x, y) => {
+  const counts = getTileCountForZoom(z);
+  if (x < 0 || y < 0 || x >= counts.x || y >= counts.y) {
+    return null;
+  }
+  const invertedY = counts.y - 1 - y;
+  return `${ASSET_BASE_URL}tiles/${z}/${x}/${invertedY}.jpg`;
+};
+
 function InvertedYTileLayer({
   minZoom,
   maxZoom,
@@ -291,21 +300,6 @@ function InvertedYTileLayer({
 
   return null;
 }
-
-// Marker with glow
-const createGlowingIcon = (color = '#FFD700', typeId = 'generic', isHovered = false) => (
-  L.divIcon({
-    className: `custom-marker custom-marker--${typeId}`,
-    html: `
-      <div class="marker-pin ${isHovered ? 'marker-hover' : ''}" 
-           style="--glow-color: ${color}">
-        <div class="marker-glow"></div>
-      </div>
-    `,
-    iconSize: [30, 30],
-    iconAnchor: [15, 30],
-  })
-);
 
 // Keyboard controls remain as-is
 function KeyboardControls() {
@@ -558,6 +552,14 @@ function LocationMarker({
 }
 
 function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFilters }) {
+  const allowDrag = false;
+  const tilePrefetchCacheRef = useRef(new Set());
+  const lastZoomRef = useRef(null);
+  const wheelDeltaRef = useRef(0);
+  const wheelFocusRef = useRef(null);
+  const wheelRafRef = useRef(null);
+  const wheelResetRef = useRef(null);
+  const zoomFocusRef = useRef(null);
   const { role, user } = useAuth();
   const { cloudsEnabled, fogEnabled, vignetteEnabled, heatmapMode, intensities, setIntensity } =
     useMapEffects();
@@ -618,7 +620,6 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
   const isAdmin = role === 'admin';
   const center = MAP_CENTER;
   const zoom = INTERACTIVE_MIN_ZOOM_LEVEL;
-  const activeMarkerType = MARKER_TYPES.find((type) => type.id === activePlacementTypeId) || null;
   const serializedLocations = useMemo(() => JSON.stringify(locations), [locations]);
   const serializedRegions = useMemo(() => JSON.stringify(regions), [regions]);
   const canAutoSave = role === 'editor' || role === 'admin';
@@ -1514,6 +1515,156 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
   }, [mapInstance, isEditorMode]);
 
   useEffect(() => {
+    if (!mapInstance) return;
+
+    const container = mapInstance.getContainer();
+    const basePx = 220;
+
+    const handleWheel = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      let deltaY = event.deltaY;
+      if (event.deltaMode === 1) {
+        deltaY *= 40;
+      } else if (event.deltaMode === 2) {
+        deltaY *= 120;
+      }
+
+      const speed = clamp(Math.abs(deltaY) / 120, 0.6, 4);
+      const accel = 0.5 + speed * 0.5;
+      let deltaZoom = (-deltaY / basePx) * accel;
+      deltaZoom = clamp(deltaZoom, -1.2, 1.2);
+
+      wheelDeltaRef.current += deltaZoom;
+      wheelFocusRef.current = mapInstance.mouseEventToLatLng(event);
+      zoomFocusRef.current = wheelFocusRef.current;
+      if (wheelResetRef.current) {
+        clearTimeout(wheelResetRef.current);
+      }
+      wheelResetRef.current = setTimeout(() => {
+        wheelDeltaRef.current = 0;
+        wheelResetRef.current = null;
+      }, 140);
+
+      if (!wheelRafRef.current) {
+        wheelRafRef.current = requestAnimationFrame(() => {
+          const current = mapInstance.getZoom();
+          const next = clamp(
+            current + wheelDeltaRef.current,
+            INTERACTIVE_MIN_ZOOM_LEVEL,
+            INTERACTIVE_MAX_ZOOM_LEVEL
+          );
+          const focus = wheelFocusRef.current || mapInstance.getCenter();
+          if (next !== current) {
+            mapInstance.setZoomAround(focus, next, { animate: true });
+          }
+          const residual = wheelDeltaRef.current - (next - current);
+          wheelDeltaRef.current = Math.abs(residual) < 0.002 ? 0 : residual * 0.85;
+          wheelRafRef.current = null;
+        });
+      }
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => {
+      container.removeEventListener('wheel', handleWheel);
+      if (wheelRafRef.current) cancelAnimationFrame(wheelRafRef.current);
+      if (wheelResetRef.current) clearTimeout(wheelResetRef.current);
+      wheelRafRef.current = null;
+      wheelResetRef.current = null;
+    };
+  }, [mapInstance]);
+
+  useEffect(() => {
+    if (!mapInstance) return;
+    const clearZoomFocus = () => {
+      zoomFocusRef.current = null;
+    };
+    mapInstance.on('zoomend', clearZoomFocus);
+    return () => {
+      mapInstance.off('zoomend', clearZoomFocus);
+    };
+  }, [mapInstance]);
+
+  useEffect(() => {
+    if (!mapInstance) return;
+
+    const prefetchZoomLevels = (levels, marginTiles = 2) => {
+      const cache = tilePrefetchCacheRef.current;
+      levels.forEach((targetZoom) => {
+        if (
+          targetZoom < INTERACTIVE_MIN_ZOOM_LEVEL ||
+          targetZoom > INTERACTIVE_MAX_ZOOM_LEVEL
+        ) {
+          return;
+        }
+        const bounds = mapInstance.getPixelBounds(targetZoom);
+        const tileSize = TILE_SIZE;
+        const min = bounds.min.divideBy(tileSize).floor();
+        const max = bounds.max.divideBy(tileSize).floor();
+        const counts = getTileCountForZoom(targetZoom);
+        const minX = Math.max(min.x - marginTiles, 0);
+        const minY = Math.max(min.y - marginTiles, 0);
+        const maxX = Math.min(max.x + marginTiles, counts.x - 1);
+        const maxY = Math.min(max.y + marginTiles, counts.y - 1);
+
+        for (let x = minX; x <= maxX; x += 1) {
+          for (let y = minY; y <= maxY; y += 1) {
+            const url = buildTileUrl(targetZoom, x, y);
+            if (!url || cache.has(url)) continue;
+            cache.add(url);
+            const img = new Image();
+            img.src = url;
+          }
+        }
+      });
+    };
+
+    const triggerPrefetch = (direction = 'neutral', targetZoom = null) => {
+      const currentZoom = mapInstance.getZoom();
+      const baseZoom = Math.round(
+        Number.isFinite(targetZoom) ? targetZoom : currentZoom
+      );
+      const zoomScale = clamp(
+        (baseZoom - INTERACTIVE_MIN_ZOOM_LEVEL) /
+          (INTERACTIVE_MAX_ZOOM_LEVEL - INTERACTIVE_MIN_ZOOM_LEVEL),
+        0,
+        1
+      );
+      const outMargin = Math.round(2 + zoomScale * 6);
+      const inMargin = Math.round(2 + zoomScale * 3);
+
+      if (direction === 'out') {
+        prefetchZoomLevels([baseZoom, baseZoom - 1], outMargin);
+      } else if (direction === 'in') {
+        prefetchZoomLevels([baseZoom, baseZoom + 1], inMargin);
+      } else {
+        prefetchZoomLevels([baseZoom + 1, baseZoom - 1], 2);
+      }
+    };
+
+    const handleZoomAnim = (event) => {
+      const previous = lastZoomRef.current ?? mapInstance.getZoom();
+      const direction = event.zoom < previous ? 'out' : 'in';
+      triggerPrefetch(direction, event.zoom);
+    };
+    const handleZoomEnd = () => {
+      lastZoomRef.current = mapInstance.getZoom();
+      triggerPrefetch('neutral');
+    };
+
+    triggerPrefetch();
+    mapInstance.on('zoomanim', handleZoomAnim);
+    mapInstance.on('zoomend', handleZoomEnd);
+
+    return () => {
+      mapInstance.off('zoomanim', handleZoomAnim);
+      mapInstance.off('zoomend', handleZoomEnd);
+    };
+  }, [mapInstance]);
+
+  useEffect(() => {
     if (!mapInstance || !mapInstance.doubleClickZoom) return;
     if (isRegionMode) {
       mapInstance.doubleClickZoom.disable();
@@ -1655,14 +1806,14 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
               maxBoundsViscosity={0}
               crs={TILESET_CRS}
               className="leaflet-map"
-              scrollWheelZoom={true}
-              dragging={true}
+              scrollWheelZoom={false}
+              dragging={allowDrag}
               doubleClickZoom={true}
               zoomControl={false}
-              zoomSnap={ZOOM_SNAP}
+              zoomSnap={0.25}
               zoomDelta={ZOOM_DELTA}
-              wheelPxPerZoomLevel={WHEEL_PX_PER_ZOOM_LEVEL}
-              wheelDebounceTime={0}
+              wheelPxPerZoomLevel={180}
+              wheelDebounceTime={40}
               zoomAnimation={true}
               zoomAnimationThreshold={8}
               markerZoomAnimation={true}
@@ -1677,7 +1828,7 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
                 maxZoom={INTERACTIVE_MAX_ZOOM_LEVEL}
                 maxNativeZoom={TILE_MAX_ZOOM_LEVEL}
                 minNativeZoom={TILE_MIN_ZOOM_LEVEL}
-                keepBuffer={6}
+                keepBuffer={10}
               />
               <EditorPlacementHandler
                 isEnabled={
@@ -1698,7 +1849,7 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
                 isActive={isEditorMode && isPlacingLabel}
                 onPlace={handlePlaceLabel}
               />
-              <KeyboardControls />
+              {allowDrag && <KeyboardControls />}
               <ZoomControls />
               {filteredLocations.map((location) => (
                 <LocationMarker
@@ -1737,6 +1888,7 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
                 enabled={cloudsEnabled}
                 intensity={intensities.clouds}
                 onDiagnostics={reportDiagnostics}
+                zoomFocusRef={zoomFocusRef}
               />
             </MapContainer>
             {isEditorMode && (

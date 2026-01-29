@@ -8,8 +8,6 @@ function MarkerPalette({
   categoryOptions = [],
   groupByCategory = false,
 }) {
-  if (!isEditorMode) return null;
-
   const categoryLookup = useMemo(
     () =>
       categoryOptions.reduce((acc, entry) => {
@@ -41,6 +39,8 @@ function MarkerPalette({
     }
     return result.filter((group) => group.options.length);
   }, [categoryOptions, groupByCategory, options]);
+
+  if (!isEditorMode) return null;
 
   const renderOption = (option) => (
     <button

@@ -47,7 +47,6 @@ const buildCurvedLabel = (region, bounds, zoomLevel) => {
   const baseFontSize = Math.min(Math.max(width / (6.3 - normalizedZoom * 0.35), 18), 52);
   const fontSize = Math.min(Math.max(baseFontSize * (region.labelSize || 1), 10), 80);
   const letterSpacing = Math.min(fontSize / 2.3, 10);
-  const strokeColor = region.borderColor || '#fef3c7';
   const textColor = region.labelColor || '#fef3c7';
   const shadowColor = 'rgba(0,0,0,0.45)';
   const pathId = `region-label-path-${region.id}`;
