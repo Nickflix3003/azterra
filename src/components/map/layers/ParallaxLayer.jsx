@@ -12,8 +12,6 @@ function ParallaxLayer({ enabled = true, map, containerRef, onDiagnostics }) {
   const applyOffsets = (offsets) => {
     const el = containerRef?.current;
     if (!el) return;
-    el.style.setProperty('--cloud-parallax-x', `${offsets.clouds.x.toFixed(2)}px`);
-    el.style.setProperty('--cloud-parallax-y', `${offsets.clouds.y.toFixed(2)}px`);
     el.style.setProperty('--fog-parallax-x', `${offsets.fog.x.toFixed(2)}px`);
     el.style.setProperty('--fog-parallax-y', `${offsets.fog.y.toFixed(2)}px`);
     el.style.setProperty('--vignette-parallax-x', `${offsets.vignette.x.toFixed(2)}px`);
@@ -23,7 +21,6 @@ function ParallaxLayer({ enabled = true, map, containerRef, onDiagnostics }) {
   useEffect(() => {
     if (!enabled) {
       applyOffsets({
-        clouds: { x: 0, y: 0 },
         fog: { x: 0, y: 0 },
         vignette: { x: 0, y: 0 },
       });
@@ -46,7 +43,6 @@ function ParallaxLayer({ enabled = true, map, containerRef, onDiagnostics }) {
 
       const zoomDampen = 1 - clamp((target.zoom - 3) * 0.08, 0, 0.6);
       const offsets = {
-        clouds: { x: next.x * 1.4 * zoomDampen, y: next.y * 1.2 * zoomDampen },
         fog: { x: next.x * 0.7 * zoomDampen, y: next.y * 0.6 * zoomDampen },
         vignette: { x: next.x * 0.25 * zoomDampen, y: next.y * 0.2 * zoomDampen },
       };
@@ -58,7 +54,7 @@ function ParallaxLayer({ enabled = true, map, containerRef, onDiagnostics }) {
         lastReportRef.current = now;
         onDiagnostics?.('parallax', {
           status: 'ok',
-          message: `Parallax offsets cloud (${offsets.clouds.x.toFixed(1)}, ${offsets.clouds.y.toFixed(1)})`,
+          message: `Parallax active (Fog/Vignette)`,
         });
       }
 

@@ -552,13 +552,9 @@ function LocationMarker({
 }
 
 function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFilters }) {
-  const allowDrag = false;
+  const allowDrag = true;
   const tilePrefetchCacheRef = useRef(new Set());
   const lastZoomRef = useRef(null);
-  const wheelDeltaRef = useRef(0);
-  const wheelFocusRef = useRef(null);
-  const wheelRafRef = useRef(null);
-  const wheelResetRef = useRef(null);
   const zoomFocusRef = useRef(null);
   const { role, user } = useAuth();
   const { cloudsEnabled, fogEnabled, vignetteEnabled, heatmapMode, intensities, setIntensity } =
@@ -1514,67 +1510,182 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
     mapInstance.invalidateSize();
   }, [mapInstance, isEditorMode]);
 
+  // ============================================================================
+  // VELOCITY-BASED SMOOTH ZOOM
+  // ============================================================================
   useEffect(() => {
     if (!mapInstance) return;
 
     const container = mapInstance.getContainer();
-    const basePx = 220;
+    let velocity = 0;
+    let animationFrameId = null;
+    let lastMouseEvent = null;
 
-    const handleWheel = (event) => {
-      event.preventDefault();
-      event.stopPropagation();
+    // Physics config
+    const FRICTION = 0.92;           // How quickly velocity decays (higher = smoother coast)
+    const ACCELERATION = 0.02;       // How much each scroll tick adds to velocity (doubled)
+    const MAX_VELOCITY = 0.6;        // Cap on velocity (doubled)
+    const STOP_THRESHOLD = 0.0001;   // When to stop the animation loop
 
-      let deltaY = event.deltaY;
-      if (event.deltaMode === 1) {
-        deltaY *= 40;
-      } else if (event.deltaMode === 2) {
-        deltaY *= 120;
+    const handleWheel = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Store mouse position for zoom focus
+      lastMouseEvent = e;
+
+      // Add to velocity based on scroll direction
+      const delta = -e.deltaY;
+      velocity += delta * ACCELERATION;
+
+      // Clamp velocity
+      velocity = Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, velocity));
+
+      // Start animation loop if not already running
+      if (!animationFrameId) {
+        startZoomLoop();
       }
+    };
 
-      const speed = clamp(Math.abs(deltaY) / 120, 0.6, 4);
-      const accel = 0.5 + speed * 0.5;
-      let deltaZoom = (-deltaY / basePx) * accel;
-      deltaZoom = clamp(deltaZoom, -1.2, 1.2);
+    const startZoomLoop = () => {
+      const loop = () => {
+        // Apply friction
+        velocity *= FRICTION;
 
-      wheelDeltaRef.current += deltaZoom;
-      wheelFocusRef.current = mapInstance.mouseEventToLatLng(event);
-      zoomFocusRef.current = wheelFocusRef.current;
-      if (wheelResetRef.current) {
-        clearTimeout(wheelResetRef.current);
-      }
-      wheelResetRef.current = setTimeout(() => {
-        wheelDeltaRef.current = 0;
-        wheelResetRef.current = null;
-      }, 140);
+        // Apply zoom change
+        if (Math.abs(velocity) > STOP_THRESHOLD) {
+          const currentZoom = mapInstance.getZoom();
+          let newZoom = currentZoom + velocity;
 
-      if (!wheelRafRef.current) {
-        wheelRafRef.current = requestAnimationFrame(() => {
-          const current = mapInstance.getZoom();
-          const next = clamp(
-            current + wheelDeltaRef.current,
-            INTERACTIVE_MIN_ZOOM_LEVEL,
-            INTERACTIVE_MAX_ZOOM_LEVEL
-          );
-          const focus = wheelFocusRef.current || mapInstance.getCenter();
-          if (next !== current) {
-            mapInstance.setZoomAround(focus, next, { animate: true });
+          // Clamp to bounds
+          newZoom = Math.max(INTERACTIVE_MIN_ZOOM_LEVEL, Math.min(INTERACTIVE_MAX_ZOOM_LEVEL, newZoom));
+
+          // Zoom around mouse position if available
+          if (lastMouseEvent && newZoom !== currentZoom) {
+            const point = mapInstance.mouseEventToContainerPoint(lastMouseEvent);
+            const latLng = mapInstance.containerPointToLatLng(point);
+            mapInstance.setZoomAround(latLng, newZoom, { animate: false });
+          } else if (newZoom !== currentZoom) {
+            mapInstance.setZoom(newZoom, { animate: false });
           }
-          const residual = wheelDeltaRef.current - (next - current);
-          wheelDeltaRef.current = Math.abs(residual) < 0.002 ? 0 : residual * 0.85;
-          wheelRafRef.current = null;
-        });
+
+          // Continue loop
+          animationFrameId = requestAnimationFrame(loop);
+        } else {
+          // Stop loop
+          velocity = 0;
+          animationFrameId = null;
+        }
+      };
+
+      animationFrameId = requestAnimationFrame(loop);
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+
+    return () => {
+      container.removeEventListener('wheel', handleWheel);
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
       }
+    };
+  }, [mapInstance]);
+
+
+
+
+  // ============================================================================
+  // CUSTOM INERTIAL ZOOM (RUNETERRA STYLE)
+  // ============================================================================
+  useEffect(() => {
+    if (!mapInstance) return;
+
+    const container = mapInstance.getContainer();
+
+    // Physics State
+    const state = {
+      velocity: 0,
+      targetZoom: mapInstance.getZoom(),
+      lastFrame: 0,
+      animating: false
+    };
+
+    // Config
+    const FRICTION = 0.88;      // How fast momentum dies (0.9 = fast stop, 0.99 = ice)
+    const SENSITIVITY = 0.0025;  // How much a single pixel of scroll affects speed
+    const MAX_SPEED = 0.25;      // Cap max zoom speed per frame
+    const STOP_THRESHOLD = 0.0001;
+
+    // Helper to clamp zoom
+    const clampZoom = (z) => Math.max(INTERACTIVE_MIN_ZOOM_LEVEL, Math.min(INTERACTIVE_MAX_ZOOM_LEVEL, z));
+
+    const handleWheel = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Normalize delta (different browsers/devices behave differently)
+      let delta = -e.deltaY;
+
+      // Add impetus to velocity
+      // We clamp the delta to prevent massive jumps from aggressive mice
+      const input = Math.sign(delta) * Math.min(Math.abs(delta), 100);
+
+      state.velocity += input * SENSITIVITY;
+
+      // Clamp velocity
+      state.velocity = Math.max(-MAX_SPEED, Math.min(MAX_SPEED, state.velocity));
+
+      // Capture focus point for this interaction
+      if (!state.animating) {
+        state.lastFrame = performance.now();
+        startLoop(e);
+      }
+    };
+
+    const startLoop = (e) => {
+      if (state.animating) return;
+      state.animating = true;
+
+      // Get strict focus point
+      const focusPoint = mapInstance.mouseEventToLatLng(e);
+
+      const loop = () => {
+        if (!mapInstance) return;
+
+        // physics step
+        state.velocity *= FRICTION;
+
+        const currentZoom = mapInstance.getZoom();
+        const nextZoom = currentZoom + state.velocity;
+
+        // Clamp hard bounds
+        const clampedZoom = clampZoom(nextZoom);
+
+        // Apply
+        if (Math.abs(state.velocity) > STOP_THRESHOLD) {
+          // animate: false is CRITICAL for instant per-frame updates without Leaflet fighting us
+          if (clampedZoom !== currentZoom) {
+            mapInstance.setZoomAround(focusPoint, clampedZoom, { animate: false });
+          } else {
+            // Hit wall
+            state.velocity = 0;
+          }
+          requestAnimationFrame(loop);
+        } else {
+          state.animating = false;
+          state.velocity = 0;
+        }
+      };
+      requestAnimationFrame(loop);
     };
 
     container.addEventListener('wheel', handleWheel, { passive: false });
     return () => {
       container.removeEventListener('wheel', handleWheel);
-      if (wheelRafRef.current) cancelAnimationFrame(wheelRafRef.current);
-      if (wheelResetRef.current) clearTimeout(wheelResetRef.current);
-      wheelRafRef.current = null;
-      wheelResetRef.current = null;
     };
   }, [mapInstance]);
+
+
 
   useEffect(() => {
     if (!mapInstance) return;
@@ -1628,7 +1739,7 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
       );
       const zoomScale = clamp(
         (baseZoom - INTERACTIVE_MIN_ZOOM_LEVEL) /
-          (INTERACTIVE_MAX_ZOOM_LEVEL - INTERACTIVE_MIN_ZOOM_LEVEL),
+        (INTERACTIVE_MAX_ZOOM_LEVEL - INTERACTIVE_MIN_ZOOM_LEVEL),
         0,
         1
       );
@@ -1806,14 +1917,14 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
               maxBoundsViscosity={0}
               crs={TILESET_CRS}
               className="leaflet-map"
-              scrollWheelZoom={false}
+              scrollWheelZoom={false}  // Using custom velocity-based zoom
               dragging={allowDrag}
               doubleClickZoom={true}
               zoomControl={false}
-              zoomSnap={0.25}
-              zoomDelta={ZOOM_DELTA}
-              wheelPxPerZoomLevel={180}
-              wheelDebounceTime={40}
+              zoomSnap={0}            // Smooth fractional zoom
+              zoomDelta={0.01}        // Ultra-fine steps
+              wheelPxPerZoomLevel={60} // Faster scroll response
+              wheelDebounceTime={0}   // No delay
               zoomAnimation={true}
               zoomAnimationThreshold={8}
               markerZoomAnimation={true}
@@ -1828,7 +1939,7 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
                 maxZoom={INTERACTIVE_MAX_ZOOM_LEVEL}
                 maxNativeZoom={TILE_MAX_ZOOM_LEVEL}
                 minNativeZoom={TILE_MIN_ZOOM_LEVEL}
-                keepBuffer={10}
+                keepBuffer={20}
               />
               <EditorPlacementHandler
                 isEnabled={
