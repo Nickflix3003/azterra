@@ -29,12 +29,7 @@ import CampaignPage from './components/pages/CampaignPage';
 import MagicHubPage from './components/pages/MagicHubPage';
 import MagicSystemPage from './components/pages/MagicSystemPage';
 
-// Placeholder components for missing tabs
-const Placeholder = ({ title }) => (
-  <div className="text-center p-10 text-2xl text-[#f5e5c980] italic border border-[#d4af3733] rounded-xl bg-[#00000033]">
-    {title} Content Coming Soon
-  </div>
-);
+
 
 function HashApp() {
   return (
@@ -61,23 +56,23 @@ function HashApp() {
 
             {/* 3. ATLAS (Promoted to its own top-level view) */}
             <Route path="/atlas" element={<PageLayout title="World Atlas" tabs={[
-                { to: "", label: "View Map", end: true },
-                { to: "editor", label: "Map Editor" },
+              { to: "", label: "View Map", end: true },
+              { to: "editor", label: "Map Editor" },
             ]} />}>
-                <Route index element={<LocationsAtlasPage />} />
-                <Route path="editor" element={<LocationsEditorPage />} />
+              <Route index element={<LocationsAtlasPage />} />
+              <Route path="editor" element={<LocationsEditorPage />} />
             </Route>
 
             {/* 4. COMPENDIUM (The Big Merge) */}
             {/* We merge People, Magic, and Almanac here to clean up the Sidebar */}
             <Route path="/compendium" element={<PageLayout title="Azterra Compendium" renderBottomTabs tabs={[
-                { to: "", label: "Almanac", end: true },
-                { to: "societies", label: "Societies" },
-                { to: "heroes", label: "Heroes" },
+              { to: "", label: "Almanac", end: true },
+              { to: "societies", label: "Societies" },
+              { to: "heroes", label: "Heroes" },
             ]} />}>
-                <Route index element={<AlmanacPage />} />
-                <Route path="societies" element={<WorldRaces />} />
-                <Route path="heroes" element={<CharactersPage />} />
+              <Route index element={<AlmanacPage />} />
+              <Route path="societies" element={<WorldRaces />} />
+              <Route path="heroes" element={<CharactersPage />} />
             </Route>
 
             {/* Magic Systems */}

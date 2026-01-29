@@ -313,7 +313,7 @@ function KeyboardControls() {
   useEffect(() => {
     const handleKeyDown = (e) => {
       const center = map.getCenter();
-      switch(e.key) {
+      switch (e.key) {
         case 'ArrowUp':
         case 'w':
         case 'W':
@@ -522,9 +522,8 @@ function LocationMarker({
       position={[location.lat, location.lng]}
       draggable={isEditorMode}
       icon={L.divIcon({
-        className: `custom-marker custom-marker--${location.type} ${
-          isSelected ? 'custom-marker--selected' : ''
-        }`,
+        className: `custom-marker custom-marker--${location.type} ${isSelected ? 'custom-marker--selected' : ''
+          }`,
         html: `
           <div class="custom-marker__wrapper ${isHovered ? 'is-hovered' : ''}">
             <img src="${iconSrc}" alt="${safeName}"
@@ -628,10 +627,10 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
       !showMarkers
         ? []
         : locations.filter((location) => {
-            const key = getMarkerFilterKey(location.type);
-            const flag = markerFilters[key];
-            return flag !== false;
-          }),
+          const key = getMarkerFilterKey(location.type);
+          const flag = markerFilters[key];
+          return flag !== false;
+        }),
     [locations, markerFilters, showMarkers]
   );
   const filteredRegions = useMemo(
@@ -639,11 +638,11 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
       !showRegionsLayer && !isRegionMode
         ? []
         : regions.filter((region) => {
-            if (isRegionMode && region.id === activeRegionId) return true;
-            const categoryId = normalizeCategoryId(region.category);
-            const flag = regionFilters[categoryId];
-            return flag !== false;
-          }),
+          if (isRegionMode && region.id === activeRegionId) return true;
+          const categoryId = normalizeCategoryId(region.category);
+          const flag = regionFilters[categoryId];
+          return flag !== false;
+        }),
     [regions, regionFilters, isRegionMode, activeRegionId, showRegionsLayer]
   );
   const regionLabelsEnabled = filteredRegions.some((region) => region.labelEnabled !== false);
@@ -793,9 +792,8 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
       else if (status === 'error') missing += 1;
       else pending += 1;
     });
-    const message = `${locations.length} markers; ${loaded}/${uniqueKeys.size} icons loaded${
-      missing ? `; ${missing} using fallback` : ''
-    }${pending ? `; ${pending} pending` : ''}`;
+    const message = `${locations.length} markers; ${loaded}/${uniqueKeys.size} icons loaded${missing ? `; ${missing} using fallback` : ''
+      }${pending ? `; ${pending} pending` : ''}`;
     const status = missing ? 'warn' : pending ? 'pending' : 'ok';
     reportDiagnostics('marker-icons', { status, message });
   }, [locations, iconStatuses, reportDiagnostics]);
@@ -902,14 +900,14 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
       prev.map((region) =>
         region.id === regionId
           ? {
-              ...region,
-              [field]:
-                field === 'opacity'
-                  ? Math.min(Math.max(Number(value) || 0, 0), 1)
-                  : field === 'labelEnabled'
+            ...region,
+            [field]:
+              field === 'opacity'
+                ? Math.min(Math.max(Number(value) || 0, 0), 1)
+                : field === 'labelEnabled'
                   ? Boolean(value)
                   : value,
-            }
+          }
           : region
       )
     );
@@ -1014,7 +1012,7 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
       ...prev,
       {
         id,
-                text: 'New Label',
+        text: 'New Label',
         color: '#fef3c7',
         font: "'Cinzel','Cormorant Garamond',serif",
         size: 1,
@@ -1034,7 +1032,7 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
   };
 
   const handleLabelFieldChange = (id, field, value) => {
-    const numericFields = ['size','zoomScale','fadeInStart','fadeInEnd'];
+    const numericFields = ['size', 'zoomScale', 'fadeInStart', 'fadeInEnd'];
     const booleanFields = ['scaleWithZoom'];
     setMapLabels((prev) =>
       prev.map((label) => {
@@ -1113,10 +1111,10 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
         .map((region) =>
           region.id === targetId
             ? {
-                ...region,
-                points: first,
-                parts: rest,
-              }
+              ...region,
+              points: first,
+              parts: rest,
+            }
             : region
         );
     });
@@ -1644,7 +1642,7 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
 
   return (
     <div className={`map-wrapper ${isIntroVisible ? 'map-wrapper--locked' : ''}`}>
-            <div className="map-layout">
+      <div className="map-layout">
         <div className="map-layout__canvas">
           <div className="map-container-wrapper" ref={mapContainerRef}>
             <MapContainer
@@ -1653,8 +1651,8 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
               zoom={zoom}
               minZoom={INTERACTIVE_MIN_ZOOM_LEVEL}
               maxZoom={INTERACTIVE_MAX_ZOOM_LEVEL}
-              maxBounds={isEditorMode ? undefined : MAP_BOUNDS}
-              maxBoundsViscosity={isEditorMode ? 0 : BOUNDS_VISCOSITY}
+              maxBounds={undefined}
+              maxBoundsViscosity={0}
               crs={TILESET_CRS}
               className="leaflet-map"
               scrollWheelZoom={true}
@@ -1730,6 +1728,16 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
                 showLabels={regionLabelsEnabled}
                 zoomLevel={mapZoom}
               />
+              <FogLayer
+                enabled={fogEnabled}
+                intensity={intensities.fog}
+                onDiagnostics={reportDiagnostics}
+              />
+              <CloudLayer
+                enabled={cloudsEnabled}
+                intensity={intensities.clouds}
+                onDiagnostics={reportDiagnostics}
+              />
             </MapContainer>
             {isEditorMode && (
               <div className="editor-zoom-bar" aria-hidden="true">
@@ -1744,18 +1752,7 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
               intensity={intensities.vignette}
               onDiagnostics={reportDiagnostics}
             />
-            <FogLayer
-              enabled={fogEnabled}
-              map={mapInstance}
-              intensity={intensities.fog}
-              onDiagnostics={reportDiagnostics}
-            />
-            <CloudLayer
-              enabled={cloudsEnabled}
-              map={mapInstance}
-              intensity={intensities.clouds}
-              onDiagnostics={reportDiagnostics}
-            />
+
             <HeatmapLayer
               enabled={heatmapMode !== 'none'}
               map={mapInstance}

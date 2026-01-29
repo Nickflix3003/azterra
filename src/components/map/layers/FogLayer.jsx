@@ -1,19 +1,35 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useMap } from 'react-leaflet';
 
-const FOG_TEXTURES = ['fog/fog-1.png', 'fog/fog-2.png', 'fog/fog-3.png'];
+const FOG_TEXTURES = ['fog/new_fog.png']; // New asset
+
+// ... (keep helper functions) ...
+
+
 
 const computeOpacity = (zoom = 0) => {
   if (zoom >= 6) return 0;
-  if (zoom >= 4) return 0.08;
-  return 0.14;
+  if (zoom >= 4) return 0.2; // Subtle fog
+  return 0.35; // Base fog (was 0.8)
+};
+
+const computeScale = (zoom = 0) => {
+  if (zoom < 3) return 1;
+  // More noticeable scale for fog too
+  return 1 + Math.pow(zoom - 3, 1.5) * 0.3;
 };
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
-function FogLayer({ enabled = true, map, intensity = 1, onDiagnostics }) {
+function FogLayer({ enabled = true, intensity = 1, onDiagnostics }) {
+  const map = useMap();
+  const containerRef = useRef(null);
   const layerRef = useRef(null);
+  const reqId = useRef(null);
+
+  // State for loading only
   const [loaded, setLoaded] = useState(false);
-  const [opacity, setOpacity] = useState(() => computeOpacity(map?.getZoom?.() ?? 0));
+
   const texture = useMemo(() => {
     const choice = FOG_TEXTURES[Math.floor(Math.random() * FOG_TEXTURES.length)];
     const base = import.meta.env.BASE_URL || '/';
@@ -25,6 +41,7 @@ function FogLayer({ enabled = true, map, intensity = 1, onDiagnostics }) {
     const img = new Image();
     img.onload = () => {
       setLoaded(true);
+      console.log('Fog texture loaded successfully:', texture);
       onDiagnostics?.('fog', { status: 'ok', message: 'Fog texture loaded', src: texture });
     };
     img.onerror = () => {
@@ -39,48 +56,74 @@ function FogLayer({ enabled = true, map, intensity = 1, onDiagnostics }) {
   }, [texture, onDiagnostics]);
 
   useEffect(() => {
-    if (!map) return undefined;
-    const handleZoom = () => setOpacity(computeOpacity(map.getZoom()));
-    map.on('zoomend', handleZoom);
-    return () => map.off('zoomend', handleZoom);
-  }, [map]);
+    if (!map || !enabled) return;
 
-  useEffect(() => {
-    if (!enabled) {
-      onDiagnostics?.('fog', { status: 'off', message: 'Fog layer disabled' });
-      return;
-    }
-    if (!map) {
-      onDiagnostics?.('fog', { status: 'pending', message: 'Fog layer waiting for map' });
-      return;
-    }
-    if (loaded) {
+    const loop = () => {
+      const zoom = map.getZoom();
+      const origin = map.getPixelOrigin();
+
+      const opacity = computeOpacity(zoom);
+      const scale = computeScale(zoom);
+
       const finalOpacity = clamp(opacity * intensity, 0, 1);
-      onDiagnostics?.('fog', {
-        status: 'ok',
-        message: `Fog layer active (opacity ${finalOpacity.toFixed(2)})`,
-      });
-    }
-  }, [enabled, loaded, opacity, intensity, onDiagnostics, map]);
+      const visibleOpacity = loaded ? finalOpacity : 0;
 
-  if (!enabled || !map) return null;
+      // Update Container (Scale & Visibility)
+      if (containerRef.current) {
+        containerRef.current.style.display = visibleOpacity <= 0.01 ? 'none' : 'block';
+        containerRef.current.style.transform = `scale(${scale})`;
+      }
 
-  const finalOpacity = clamp(opacity * intensity, 0, 1);
-  const visibleOpacity = loaded ? finalOpacity : 0;
+      // Update Layer (Opacity & Position)
+      if (layerRef.current) {
+        layerRef.current.style.opacity = visibleOpacity;
+        layerRef.current.style.backgroundPosition = `${-origin.x}px ${-origin.y}px`;
+        layerRef.current.style.setProperty('--layer-opacity', visibleOpacity);
+      }
+
+      reqId.current = requestAnimationFrame(loop);
+    };
+
+    reqId.current = requestAnimationFrame(loop);
+
+    return () => {
+      if (reqId.current) cancelAnimationFrame(reqId.current);
+    };
+  }, [map, enabled, intensity, loaded]);
+
+  if (!enabled) return null;
 
   return (
     <div
-      ref={layerRef}
-      className="map-layer map-layer--fog"
+      ref={containerRef}
       style={{
-        '--layer-opacity': visibleOpacity,
-        backgroundImage: `url(${texture}), radial-gradient(circle, rgba(255,255,255,0.12), transparent 65%)`,
-        backgroundSize: '1200px auto, cover',
-        backgroundRepeat: 'repeat, no-repeat',
-        opacity: visibleOpacity,
+        position: 'absolute',
+        inset: 0,
+        zIndex: 40,
+        pointerEvents: 'none',
+        transformOrigin: 'center center',
+        transition: 'none',
+        overflow: 'hidden',
+        willChange: 'transform',
+        opacity: 0, // Ensure initial invisible before JS syncs
       }}
-      aria-hidden="true"
-    />
+    >
+      <div
+        ref={layerRef}
+        className="map-layer map-layer--fog"
+        style={{
+          '--layer-opacity': 0, // Initial
+          backgroundImage: `url(${texture})`,
+          backgroundSize: 'cover',
+          backgroundRepeat: 'repeat, no-repeat',
+          mixBlendMode: 'screen',
+          opacity: 0, // Initial
+          transition: 'none',
+          willChange: 'opacity, background-position',
+        }}
+        aria-hidden="true"
+      />
+    </div>
   );
 }
 

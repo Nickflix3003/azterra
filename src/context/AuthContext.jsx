@@ -7,24 +7,35 @@ const AuthContext = createContext({
   role: 'guest',
   token: null,
   loading: false,
-  login: async () => {},
-  loginWithGoogle: async () => {},
-  loginWithEmail: async () => {},
-  signupWithGoogle: async () => {},
-  signupWithEmail: async () => {},
-  setPendingUsername: () => {},
-  loginGuest: () => {},
-  updateAccount: async () => {},
-  googleLogin: async () => {},
-  signup: async () => {},
-  logout: () => {},
-  refreshUser: async () => {},
+  login: async () => { },
+  loginWithGoogle: async () => { },
+  loginWithEmail: async () => { },
+  signupWithGoogle: async () => { },
+  signupWithEmail: async () => { },
+  setPendingUsername: () => { },
+  loginGuest: () => { },
+  updateAccount: async () => { },
+  googleLogin: async () => { },
+  signup: async () => { },
+  logout: () => { },
+  refreshUser: async () => { },
   isSecretUnlocked: () => false,
   canView: () => false,
 });
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
 const PENDING_USERNAME_KEY = 'azterra:pending-username';
+
+const GUEST_USER = {
+  id: 'guest',
+  username: 'Guest',
+  role: 'guest',
+  unlockedSecrets: [],
+  favorites: [],
+  friends: [],
+  friendRequests: { incoming: [], outgoing: [] },
+  profile: { bio: '', labelOne: '', labelTwo: '', documents: [], viewFavorites: [] }
+};
 
 function rememberPendingUsername(username) {
   if (typeof window === 'undefined') return;
