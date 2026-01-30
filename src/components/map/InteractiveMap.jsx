@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MapContainer, Marker, Popup, useMap, useMapEvent } from 'react-leaflet';
 import SidePanel from '../UI/SidePanel';
-import IntroOverlay from '../IntroOverlay';
+import IntroLoadingScreen from '../IntroLoadingScreen';
 import EditorInfoPanel from './EditorInfoPanel';
+
 import { useAuth } from '../../context/AuthContext';
 import { useMapEffects } from '../../context/MapEffectsContext';
 import { useLocationData } from '../../context/LocationDataContext';
@@ -1902,6 +1903,30 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
     }
   }, [mapInstance, isEditorMode]);
 
+  // ============================================================================
+  // LOADING STATE TRACKING (REAL PROGRESS)
+  // ============================================================================
+  const [loadProgress, setLoadProgress] = useState(0);
+
+  useEffect(() => {
+    if (!isIntroVisible) return;
+
+    let currentProgress = 0;
+
+    // 1. Auth Initialized (Fastest) - 30%
+    if (user !== undefined) currentProgress += 30;
+
+    // 2. Regions Data Loaded (Context) - 30%
+    // Assuming regions.length > 0 or array exists means data is handled
+    if (regions && Array.isArray(regions)) currentProgress += 30;
+
+    // 3. Map Engine Initialized (Slowest) - 40%
+    if (mapInstance) currentProgress += 40;
+
+    setLoadProgress(currentProgress);
+
+  }, [isIntroVisible, user, regions, mapInstance]);
+
   return (
     <div className={`map-wrapper ${isIntroVisible ? 'map-wrapper--locked' : ''}`}>
       <div className="map-layout">
@@ -1930,7 +1955,7 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
               markerZoomAnimation={true}
               inertia={true}
               inertiaDeceleration={1800}
-              whenCreated={setMapInstance}
+              ref={setMapInstance}
               style={{ height: '100%', width: '100%' }}
             >
               <InvertedYTileLayer
@@ -2088,7 +2113,11 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
         />
       )}
       {isIntroVisible && (
-        <IntroOverlay onFinish={handleIntroFinish} />
+        <IntroLoadingScreen
+          onFinish={handleIntroFinish}
+          manualProgress={loadProgress}
+          isReady={!!mapInstance}
+        />
       )}
       {isAdmin && (
         <DiagnosticsPanel
@@ -2119,7 +2148,6 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
 }
 
 export default InteractiveMap;
-
 
 
 
