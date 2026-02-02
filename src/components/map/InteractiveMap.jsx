@@ -266,9 +266,13 @@ function InvertedYTileLayer({
   keepBuffer,
 }) {
   const map = useMap();
+  const layerRef = useRef(null);
   const EMPTY_TILE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
 
   useEffect(() => {
+    // Only create layer once
+    if (layerRef.current) return;
+
     const LayerClass = L.TileLayer.extend({
       getTileUrl(coords) {
         const counts = getTileCountForZoom(coords.z);
@@ -277,6 +281,42 @@ function InvertedYTileLayer({
         }
         const invertedY = counts.y - 1 - coords.y;
         return `${ASSET_BASE_URL}tiles/${coords.z}/${coords.x}/${invertedY}.jpg`;
+      },
+      
+      // Override _removeTile to keep old tiles visible during zoom until replacements load
+      // Strategy: Zoom into lower quality (scaled tiles), then load higher quality over them
+      _removeTile(key) {
+        const tile = this._tiles[key];
+        if (!tile || !tile.el) {
+          L.TileLayer.prototype._removeTile.call(this, key);
+          return;
+        }
+        
+        // Never remove tiles that are still loading
+        if (tile.loading) {
+          return;
+        }
+        
+        const map = this._map;
+        if (!map) {
+          L.TileLayer.prototype._removeTile.call(this, key);
+          return;
+        }
+        
+        const currentZoom = map.getZoom();
+        const tileZoom = tile.coords.z;
+        const zoomDiff = Math.abs(tileZoom - currentZoom);
+        
+        // Check BOTH Leaflet's _zooming flag AND our custom _customZooming flag
+        // Our custom zoom handler sets _customZooming since it uses animate: false
+        const isZooming = map._zooming || map._customZooming || false;
+        if (isZooming && zoomDiff <= 1) {
+          // Keep adjacent zoom level tiles visible during zoom
+          return;
+        }
+        
+        // Safe to remove - either far from current zoom or not zooming
+        L.TileLayer.prototype._removeTile.call(this, key);
       },
     });
 
@@ -287,17 +327,40 @@ function InvertedYTileLayer({
       minNativeZoom,
       tileSize,
       noWrap: true,
-      keepBuffer,
+      keepBuffer: Math.max(keepBuffer, 3), // Larger buffer to keep more tiles during zoom
       reuseTiles: true,
-      updateWhenIdle: false,
-      updateWhenZooming: true,
+      updateWhenIdle: true, // Update when idle
+      updateWhenZooming: true, // Enable updates during zoom - new tiles load in background
+      fadeIn: true, // Fade in tiles as they load (smooth transition over scaled tiles)
+      opacity: 1.0,
+      unloadInvisibleTiles: false, // Keep tiles visible during zoom transitions
     });
     layer.addTo(map);
+    layerRef.current = layer;
 
     return () => {
-      layer.removeFrom(map);
+      if (layerRef.current) {
+        layerRef.current.removeFrom(map);
+        layerRef.current = null;
+      }
     };
-  }, [map, minZoom, maxZoom, maxNativeZoom, minNativeZoom, tileSize, keepBuffer]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map]); // Only depend on map instance - options updated separately
+
+  // Update layer options if they change (shouldn't happen often)
+  useEffect(() => {
+    if (!layerRef.current) return;
+    const layer = layerRef.current;
+    if (layer.options.minZoom !== minZoom) layer.options.minZoom = minZoom;
+    if (layer.options.maxZoom !== maxZoom) layer.options.maxZoom = maxZoom;
+    if (layer.options.maxNativeZoom !== maxNativeZoom) layer.options.maxNativeZoom = maxNativeZoom;
+    if (layer.options.minNativeZoom !== minNativeZoom) layer.options.minNativeZoom = minNativeZoom;
+    if (layer.options.tileSize !== tileSize) layer.options.tileSize = tileSize;
+    if (layer.options.keepBuffer !== keepBuffer) {
+      layer.options.keepBuffer = keepBuffer;
+      layer.redraw();
+    }
+  }, [minZoom, maxZoom, maxNativeZoom, minNativeZoom, tileSize, keepBuffer]);
 
   return null;
 }
@@ -471,21 +534,43 @@ function LabelPlacementHandler({ isActive, onPlace }) {
   return null;
 }
 
-function ZoomWatcher({ onZoomChange }) {
+function ZoomWatcher({ onZoomChange, debounceMs = 50 }) {
   const map = useMap();
+  const timeoutRef = useRef(null);
+  const lastValueRef = useRef(null);
+  
   useEffect(() => {
     if (!map || !onZoomChange) return;
-    const sync = () => onZoomChange(map.getZoom());
-    sync();
-    map.on('zoom', sync);
+    
+    const sync = () => {
+      const currentZoom = map.getZoom();
+      // Only update if zoom actually changed (avoid duplicate updates)
+      if (lastValueRef.current === currentZoom) return;
+      lastValueRef.current = currentZoom;
+      
+      // Debounce to prevent rapid-fire updates
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+      timeoutRef.current = setTimeout(() => {
+        onZoomChange(currentZoom);
+        timeoutRef.current = null;
+      }, debounceMs);
+    };
+    
+    sync(); // Initial sync
     map.on('zoomend', sync);
     map.on('zoomlevelschange', sync);
+    
     return () => {
-      map.off('zoom', sync);
       map.off('zoomend', sync);
       map.off('zoomlevelschange', sync);
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
     };
-  }, [map, onZoomChange]);
+  }, [map, onZoomChange, debounceMs]);
   return null;
 }
 
@@ -1466,17 +1551,7 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
       onDelete={handleDeleteLocation}
     />
   ) : null;
-  useEffect(() => {
-    if (!mapInstance) return;
-    const syncZoom = () => setMapZoom(mapInstance.getZoom());
-    syncZoom();
-    mapInstance.on('zoom', syncZoom);
-    mapInstance.on('zoomend', syncZoom);
-    return () => {
-      mapInstance.off('zoom', syncZoom);
-      mapInstance.off('zoomend', syncZoom);
-    };
-  }, [mapInstance]);
+  // Zoom sync is handled by ZoomWatcher component - removed duplicate watcher
 
   useEffect(() => {
     const node = mapContainerRef.current;
@@ -1512,109 +1587,28 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
   }, [mapInstance, isEditorMode]);
 
   // ============================================================================
-  // VELOCITY-BASED SMOOTH ZOOM
+  // CUSTOM INERTIAL ZOOM (SMOOTH VELOCITY-BASED)
   // ============================================================================
   useEffect(() => {
     if (!mapInstance) return;
 
     const container = mapInstance.getContainer();
-    let velocity = 0;
     let animationFrameId = null;
-    let lastMouseEvent = null;
-
-    // Physics config
-    const FRICTION = 0.92;           // How quickly velocity decays (higher = smoother coast)
-    const ACCELERATION = 0.01;       // How much each scroll tick adds to velocity (increased)
-    const MAX_VELOCITY = 0.3;        // Cap on velocity (increased)
-    const STOP_THRESHOLD = 0.0001;   // When to stop the animation loop
-
-    const handleWheel = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-
-      // Store mouse position for zoom focus
-      lastMouseEvent = e;
-
-      // Add to velocity based on scroll direction
-      const delta = -e.deltaY;
-      velocity += delta * ACCELERATION;
-
-      // Clamp velocity
-      velocity = Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, velocity));
-
-      // Start animation loop if not already running
-      if (!animationFrameId) {
-        startZoomLoop();
-      }
-    };
-
-    const startZoomLoop = () => {
-      const loop = () => {
-        // Apply friction
-        velocity *= FRICTION;
-
-        // Apply zoom change
-        if (Math.abs(velocity) > STOP_THRESHOLD) {
-          const currentZoom = mapInstance.getZoom();
-          let newZoom = currentZoom + velocity;
-
-          // Clamp to bounds
-          newZoom = Math.max(INTERACTIVE_MIN_ZOOM_LEVEL, Math.min(INTERACTIVE_MAX_ZOOM_LEVEL, newZoom));
-
-          // Zoom around mouse position if available
-          if (lastMouseEvent && newZoom !== currentZoom) {
-            const point = mapInstance.mouseEventToContainerPoint(lastMouseEvent);
-            const latLng = mapInstance.containerPointToLatLng(point);
-            mapInstance.setZoomAround(latLng, newZoom, { animate: false });
-          } else if (newZoom !== currentZoom) {
-            mapInstance.setZoom(newZoom, { animate: false });
-          }
-
-          // Continue loop
-          animationFrameId = requestAnimationFrame(loop);
-        } else {
-          // Stop loop
-          velocity = 0;
-          animationFrameId = null;
-        }
-      };
-
-      animationFrameId = requestAnimationFrame(loop);
-    };
-
-    container.addEventListener('wheel', handleWheel, { passive: false });
-
-    return () => {
-      container.removeEventListener('wheel', handleWheel);
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-      }
-    };
-  }, [mapInstance]);
-
-
-
-
-  // ============================================================================
-  // CUSTOM INERTIAL ZOOM (RUNETERRA STYLE)
-  // ============================================================================
-  useEffect(() => {
-    if (!mapInstance) return;
-
-    const container = mapInstance.getContainer();
+    const isZoomingRef = { current: false };
 
     // Physics State
     const state = {
       velocity: 0,
       targetZoom: mapInstance.getZoom(),
       lastFrame: 0,
-      animating: false
+      animating: false,
+      focusPoint: null
     };
 
     // Config
     const FRICTION = 0.88;      // How fast momentum dies (0.9 = fast stop, 0.99 = ice)
-    const SENSITIVITY = 0.0025;  // How much a single pixel of scroll affects speed
-    const MAX_SPEED = 0.25;      // Cap max zoom speed per frame
+    const SENSITIVITY = 0.000833;  // How much a single pixel of scroll affects speed (reduced 3x)
+    const MAX_SPEED = 0.083;      // Cap max zoom speed per frame (reduced 3x)
     const STOP_THRESHOLD = 0.0001;
 
     // Helper to clamp zoom
@@ -1639,19 +1633,28 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
       // Capture focus point for this interaction
       if (!state.animating) {
         state.lastFrame = performance.now();
-        startLoop(e);
+        state.focusPoint = mapInstance.mouseEventToLatLng(e);
+        isZoomingRef.current = true;
+        // Set custom zooming flag on map so tile layer knows we're zooming
+        mapInstance._customZooming = true;
+        startLoop();
+      } else {
+        // Update focus point if still animating
+        state.focusPoint = mapInstance.mouseEventToLatLng(e);
       }
     };
 
-    const startLoop = (e) => {
+    const startLoop = () => {
       if (state.animating) return;
       state.animating = true;
 
-      // Get strict focus point
-      const focusPoint = mapInstance.mouseEventToLatLng(e);
-
       const loop = () => {
-        if (!mapInstance) return;
+        if (!mapInstance) {
+          state.animating = false;
+          isZoomingRef.current = false;
+          animationFrameId = null;
+          return;
+        }
 
         // physics step
         state.velocity *= FRICTION;
@@ -1666,23 +1669,40 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
         if (Math.abs(state.velocity) > STOP_THRESHOLD) {
           // animate: false is CRITICAL for instant per-frame updates without Leaflet fighting us
           if (clampedZoom !== currentZoom) {
-            mapInstance.setZoomAround(focusPoint, clampedZoom, { animate: false });
+            if (state.focusPoint) {
+              mapInstance.setZoomAround(state.focusPoint, clampedZoom, { animate: false });
+            } else {
+              mapInstance.setZoom(clampedZoom, { animate: false });
+            }
           } else {
             // Hit wall
             state.velocity = 0;
           }
-          requestAnimationFrame(loop);
+          animationFrameId = requestAnimationFrame(loop);
         } else {
           state.animating = false;
+          isZoomingRef.current = false;
           state.velocity = 0;
+          animationFrameId = null;
+          // Clear custom zooming flag when zoom animation ends
+          mapInstance._customZooming = false;
         }
       };
-      requestAnimationFrame(loop);
+      animationFrameId = requestAnimationFrame(loop);
     };
 
     container.addEventListener('wheel', handleWheel, { passive: false });
     return () => {
       container.removeEventListener('wheel', handleWheel);
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
+      state.animating = false;
+      isZoomingRef.current = false;
+      state.velocity = 0;
+      // Clear flag on cleanup
+      if (mapInstance) mapInstance._customZooming = false;
     };
   }, [mapInstance]);
 
@@ -1950,9 +1970,9 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
               zoomDelta={0.01}        // Ultra-fine steps
               wheelPxPerZoomLevel={60} // Faster scroll response
               wheelDebounceTime={0}   // No delay
-              zoomAnimation={true}
+              zoomAnimation={false}   // Disabled - using custom smooth zoom
               zoomAnimationThreshold={8}
-              markerZoomAnimation={true}
+              markerZoomAnimation={false} // Disabled to prevent flashing
               inertia={true}
               inertiaDeceleration={1800}
               ref={setMapInstance}
