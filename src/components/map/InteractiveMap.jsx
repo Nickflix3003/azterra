@@ -211,7 +211,7 @@ const TILE_SIZE = 256;
 const TILE_MIN_ZOOM_LEVEL = 0;
 const TILE_MAX_ZOOM_LEVEL = 8; // matches tilemapresource (orders 0..8)
 const INTERACTIVE_MAX_ZOOM_LEVEL = 8; // allow native res at max zoom
-const INTERACTIVE_MIN_ZOOM_LEVEL = 3;
+const INTERACTIVE_MIN_ZOOM_LEVEL = 3; // Constrain zoom out to keep focus
 // Native raster size derived from z=8 folder (160 x 160 tiles @256px = 40,960px square).
 const MAP_PIXEL_WIDTH = TILE_SIZE * 160;
 const MAP_PIXEL_HEIGHT = TILE_SIZE * 160;
@@ -282,42 +282,31 @@ function InvertedYTileLayer({
         const invertedY = counts.y - 1 - coords.y;
         return `${ASSET_BASE_URL}tiles/${coords.z}/${coords.x}/${invertedY}.jpg`;
       },
-      
-      // Override _removeTile to keep old tiles visible during zoom until replacements load
-      // Strategy: Zoom into lower quality (scaled tiles), then load higher quality over them
+
+      // Custom retention strategy to prevent flashing during physics zoom (animate: false)
+      // We keep tiles that are "close enough" to the current zoom level to serve as placeholders.
       _removeTile(key) {
         const tile = this._tiles[key];
-        if (!tile || !tile.el) {
-          L.TileLayer.prototype._removeTile.call(this, key);
-          return;
-        }
-        
-        // Never remove tiles that are still loading
-        if (tile.loading) {
-          return;
-        }
-        
+        if (!tile) { return L.TileLayer.prototype._removeTile.call(this, key); }
+
         const map = this._map;
-        if (!map) {
-          L.TileLayer.prototype._removeTile.call(this, key);
-          return;
+        if (map) {
+          const currentZoom = map.getZoom();
+          const tileZoom = tile.coords.z;
+          const diff = Math.abs(currentZoom - tileZoom);
+
+          // User Request: "Stop unrendering layers if we zoom in"
+          // We keep tiles within 2 zoom levels. This ensures that when zooming in (e.g. 3 -> 4), 
+          // the z3 tiles stay visible under the z4 tiles until we are far enough away.
+          if (diff < 3) { // Increased to 3 for extra safety
+            // console.log(`[Retention] KEPT: z${tileZoom} (Current: ${currentZoom})`);
+            return;
+          }
+          // console.log(`[Retention] REMOVED: z${tileZoom} (Current: ${currentZoom}) Diff: ${diff.toFixed(2)} > 3`);
         }
-        
-        const currentZoom = map.getZoom();
-        const tileZoom = tile.coords.z;
-        const zoomDiff = Math.abs(tileZoom - currentZoom);
-        
-        // Check BOTH Leaflet's _zooming flag AND our custom _customZooming flag
-        // Our custom zoom handler sets _customZooming since it uses animate: false
-        const isZooming = map._zooming || map._customZooming || false;
-        if (isZooming && zoomDiff <= 1) {
-          // Keep adjacent zoom level tiles visible during zoom
-          return;
-        }
-        
-        // Safe to remove - either far from current zoom or not zooming
+
         L.TileLayer.prototype._removeTile.call(this, key);
-      },
+      }
     });
 
     const layer = new LayerClass('', {
@@ -327,13 +316,15 @@ function InvertedYTileLayer({
       minNativeZoom,
       tileSize,
       noWrap: true,
-      keepBuffer: Math.max(keepBuffer, 3), // Larger buffer to keep more tiles during zoom
+      keepBuffer: 10, // User said: "window slightly bigger then what the user sees" - standard is 2, 10 is huge safety
       reuseTiles: true,
-      updateWhenIdle: true, // Update when idle
-      updateWhenZooming: true, // Enable updates during zoom - new tiles load in background
-      fadeIn: true, // Fade in tiles as they load (smooth transition over scaled tiles)
+      updateWhenIdle: false,
+      updateWhenZooming: true,
+      updateInterval: 50,
+      fadeIn: true,
       opacity: 1.0,
-      unloadInvisibleTiles: false, // Keep tiles visible during zoom transitions
+      unloadInvisibleTiles: false, // CRITICAL: Do not remove off-screen tiles
+      bounds: null
     });
     layer.addTo(map);
     layerRef.current = layer;
@@ -538,16 +529,16 @@ function ZoomWatcher({ onZoomChange, debounceMs = 50 }) {
   const map = useMap();
   const timeoutRef = useRef(null);
   const lastValueRef = useRef(null);
-  
+
   useEffect(() => {
     if (!map || !onZoomChange) return;
-    
+
     const sync = () => {
       const currentZoom = map.getZoom();
       // Only update if zoom actually changed (avoid duplicate updates)
       if (lastValueRef.current === currentZoom) return;
       lastValueRef.current = currentZoom;
-      
+
       // Debounce to prevent rapid-fire updates
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
@@ -557,11 +548,11 @@ function ZoomWatcher({ onZoomChange, debounceMs = 50 }) {
         timeoutRef.current = null;
       }, debounceMs);
     };
-    
+
     sync(); // Initial sync
     map.on('zoomend', sync);
     map.on('zoomlevelschange', sync);
-    
+
     return () => {
       map.off('zoomend', sync);
       map.off('zoomlevelschange', sync);
@@ -1674,6 +1665,15 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
             } else {
               mapInstance.setZoom(clampedZoom, { animate: false });
             }
+
+            // Manually trigger tile prefetch since we're bypassing Leaflet's animation
+            if (mapInstance._triggerPrefetch && Math.random() < 0.2) {
+              const direction = state.velocity > 0 ? 'in' : 'out';
+              mapInstance._triggerPrefetch(direction, clampedZoom);
+            }
+            // CRITICAL Fix: Force Leaflet to think it moved so it calculates new tiles
+            // This is required because animate: false disables the usual move events
+            mapInstance._onMove();
           } else {
             // Hit wall
             state.velocity = 0;
@@ -1685,7 +1685,15 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
           state.velocity = 0;
           animationFrameId = null;
           // Clear custom zooming flag when zoom animation ends
-          mapInstance._customZooming = false;
+          // Delay this slightly to ensure final tiles are loaded before we let Leaflet prune the old ones
+          setTimeout(() => {
+            // Only clear if we haven't started animating again
+            if (!state.animating && mapInstance) {
+              mapInstance._customZooming = false;
+              // Force a final prune once we are safe
+              mapInstance.fire('zoomend');
+            }
+          }, 800); // 800ms persistence
         }
       };
       animationFrameId = requestAnimationFrame(loop);
@@ -1731,11 +1739,25 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
         ) {
           return;
         }
-        const bounds = mapInstance.getPixelBounds(targetZoom);
+        // Fix: Manual bounds calculation because map.getPixelBounds(zoom) checks current view only
+        // effectively ignoring the "zoom" argument for viewport dimension calculation in many versions
+        const center = mapInstance.getCenter();
+        const centerPoint = mapInstance.project(center, targetZoom);
+        const size = mapInstance.getSize();
+
+        // At lower zooms, the Viewport assumes the SAME pixel size, but covers MORE world
+        // So we need to calculate the bounds centered on the projected point
+        const pixelBounds = L.bounds(
+          centerPoint.subtract(size.divideBy(2)),
+          centerPoint.add(size.divideBy(2))
+        );
+
         const tileSize = TILE_SIZE;
-        const min = bounds.min.divideBy(tileSize).floor();
-        const max = bounds.max.divideBy(tileSize).floor();
+        const min = pixelBounds.min.divideBy(tileSize).floor();
+        const max = pixelBounds.max.divideBy(tileSize).floor();
         const counts = getTileCountForZoom(targetZoom);
+
+        // Expand range significantly
         const minX = Math.max(min.x - marginTiles, 0);
         const minY = Math.max(min.y - marginTiles, 0);
         const maxX = Math.min(max.x + marginTiles, counts.x - 1);
@@ -1764,11 +1786,14 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
         0,
         1
       );
-      const outMargin = Math.round(2 + zoomScale * 6);
-      const inMargin = Math.round(2 + zoomScale * 3);
+      // CRITICAL: When zooming out, we need a MUCh larger margin because one parent tile covers a huge area
+      // If we don't load the parent tile, we get a giant grey void
+      const outMargin = Math.round(4 + zoomScale * 8); // Increased from 2 + zoomScale*6
+      const inMargin = Math.round(3 + zoomScale * 4);
 
       if (direction === 'out') {
-        prefetchZoomLevels([baseZoom, baseZoom - 1], outMargin);
+        // Prefetch explicit parent zoom levels aggressively
+        prefetchZoomLevels([baseZoom, baseZoom - 1, baseZoom - 2], outMargin);
       } else if (direction === 'in') {
         prefetchZoomLevels([baseZoom, baseZoom + 1], inMargin);
       } else {
@@ -1786,7 +1811,9 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
       triggerPrefetch('neutral');
     };
 
-    triggerPrefetch();
+    // mapInstance._triggerPrefetch = triggerPrefetch; // Removed custom prefetch exposure
+
+    // triggerPrefetch(); // Let Leaflet handle it
     mapInstance.on('zoomanim', handleZoomAnim);
     mapInstance.on('zoomend', handleZoomEnd);
 
@@ -1914,12 +1941,14 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
       if (enforceMaxBounds) mapInstance._enforceMaxBounds = enforceMaxBounds;
       if (getBoundsOffset) mapInstance._getBoundsOffset = getBoundsOffset;
       if (panInsideBounds) mapInstance.panInsideBounds = panInsideBounds;
-      mapInstance.setMaxBounds(MAP_BOUNDS);
-      mapInstance.options.maxBounds = MAP_BOUNDS;
-      mapInstance.options.maxBoundsViscosity = BOUNDS_VISCOSITY;
-      if (typeof mapInstance.panInsideBounds === 'function') {
-        mapInstance.panInsideBounds(MAP_BOUNDS, { animate: true, duration: 0.35 });
-      }
+
+      // CRITICAL: Force unlimited bounds even in view mode to fix "missing parts" on zoom out
+      // User requested free panning and smooth infinite map feel
+      mapInstance.setMaxBounds(null);
+      mapInstance.options.maxBounds = null;
+      mapInstance.options.maxBoundsViscosity = 0;
+
+      // Removed panInsideBounds call
     }
   }, [mapInstance, isEditorMode]);
 
@@ -1970,9 +1999,9 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
               zoomDelta={0.01}        // Ultra-fine steps
               wheelPxPerZoomLevel={60} // Faster scroll response
               wheelDebounceTime={0}   // No delay
-              zoomAnimation={false}   // Disabled - using custom smooth zoom
-              zoomAnimationThreshold={8}
-              markerZoomAnimation={false} // Disabled to prevent flashing
+              zoomAnimation={true}    // CRITICAL for fractional scaling
+              zoomAnimationThreshold={4}
+              markerZoomAnimation={true} // Smoother markers
               inertia={true}
               inertiaDeceleration={1800}
               ref={setMapInstance}
@@ -1980,11 +2009,11 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
             >
               <InvertedYTileLayer
                 tileSize={TILE_SIZE}
-                minZoom={INTERACTIVE_MIN_ZOOM_LEVEL}
+                minZoom={TILE_MIN_ZOOM_LEVEL} // CRITICAL: Always allow tiles to render from 0, even if interactive min is 3
                 maxZoom={INTERACTIVE_MAX_ZOOM_LEVEL}
                 maxNativeZoom={TILE_MAX_ZOOM_LEVEL}
                 minNativeZoom={TILE_MIN_ZOOM_LEVEL}
-                keepBuffer={20}
+                keepBuffer={2}
               />
               <EditorPlacementHandler
                 isEnabled={
