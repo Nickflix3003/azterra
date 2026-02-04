@@ -219,13 +219,11 @@ const BASE_TILE_COLS = MAP_PIXEL_WIDTH / TILE_SIZE;
 const BASE_TILE_ROWS = MAP_PIXEL_HEIGHT / TILE_SIZE;
 const MAP_CENTER = [MAP_PIXEL_HEIGHT / 2, MAP_PIXEL_WIDTH / 2];
 const PAN_STEP = 200;
-const MAP_PADDING = TILE_SIZE * 0.75; // allow slight drift before bounce
+// Map boundary configuration
 const MAP_BOUNDS = L.latLngBounds(
-  [-MAP_PADDING, -MAP_PADDING],
-  [MAP_PIXEL_HEIGHT + MAP_PADDING, MAP_PIXEL_WIDTH + MAP_PADDING]
+  [0, 0],
+  [MAP_PIXEL_HEIGHT, MAP_PIXEL_WIDTH]
 );
-const EDITOR_MAX_BOUNDS = null;
-const BOUNDS_VISCOSITY = 0.35; // gentle resistance for a boomerang effect
 const ZOOM_SNAP = 0.5;
 const ZOOM_DELTA = 0.5;
 const WHEEL_PX_PER_ZOOM_LEVEL = 240;
@@ -248,15 +246,6 @@ const getTileCountForZoom = (z) => {
   };
 };
 
-const buildTileUrl = (z, x, y) => {
-  const counts = getTileCountForZoom(z);
-  if (x < 0 || y < 0 || x >= counts.x || y >= counts.y) {
-    return null;
-  }
-  const invertedY = counts.y - 1 - y;
-  return `${ASSET_BASE_URL}tiles/${z}/${x}/${invertedY}.jpg`;
-};
-
 function InvertedYTileLayer({
   minZoom,
   maxZoom,
@@ -266,13 +255,9 @@ function InvertedYTileLayer({
   keepBuffer,
 }) {
   const map = useMap();
-  const layerRef = useRef(null);
   const EMPTY_TILE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
 
   useEffect(() => {
-    // Only create layer once
-    if (layerRef.current) return;
-
     const LayerClass = L.TileLayer.extend({
       getTileUrl(coords) {
         const counts = getTileCountForZoom(coords.z);
@@ -282,31 +267,6 @@ function InvertedYTileLayer({
         const invertedY = counts.y - 1 - coords.y;
         return `${ASSET_BASE_URL}tiles/${coords.z}/${coords.x}/${invertedY}.jpg`;
       },
-
-      // Custom retention strategy to prevent flashing during physics zoom (animate: false)
-      // We keep tiles that are "close enough" to the current zoom level to serve as placeholders.
-      _removeTile(key) {
-        const tile = this._tiles[key];
-        if (!tile) { return L.TileLayer.prototype._removeTile.call(this, key); }
-
-        const map = this._map;
-        if (map) {
-          const currentZoom = map.getZoom();
-          const tileZoom = tile.coords.z;
-          const diff = Math.abs(currentZoom - tileZoom);
-
-          // User Request: "Stop unrendering layers if we zoom in"
-          // We keep tiles within 2 zoom levels. This ensures that when zooming in (e.g. 3 -> 4), 
-          // the z3 tiles stay visible under the z4 tiles until we are far enough away.
-          if (diff < 3) { // Increased to 3 for extra safety
-            // console.log(`[Retention] KEPT: z${tileZoom} (Current: ${currentZoom})`);
-            return;
-          }
-          // console.log(`[Retention] REMOVED: z${tileZoom} (Current: ${currentZoom}) Diff: ${diff.toFixed(2)} > 3`);
-        }
-
-        L.TileLayer.prototype._removeTile.call(this, key);
-      }
     });
 
     const layer = new LayerClass('', {
@@ -316,42 +276,17 @@ function InvertedYTileLayer({
       minNativeZoom,
       tileSize,
       noWrap: true,
-      keepBuffer: 10, // User said: "window slightly bigger then what the user sees" - standard is 2, 10 is huge safety
+      keepBuffer,
       reuseTiles: true,
       updateWhenIdle: false,
       updateWhenZooming: true,
-      updateInterval: 50,
-      fadeIn: true,
-      opacity: 1.0,
-      unloadInvisibleTiles: false, // CRITICAL: Do not remove off-screen tiles
-      bounds: null
     });
     layer.addTo(map);
-    layerRef.current = layer;
 
     return () => {
-      if (layerRef.current) {
-        layerRef.current.removeFrom(map);
-        layerRef.current = null;
-      }
+      layer.removeFrom(map);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [map]); // Only depend on map instance - options updated separately
-
-  // Update layer options if they change (shouldn't happen often)
-  useEffect(() => {
-    if (!layerRef.current) return;
-    const layer = layerRef.current;
-    if (layer.options.minZoom !== minZoom) layer.options.minZoom = minZoom;
-    if (layer.options.maxZoom !== maxZoom) layer.options.maxZoom = maxZoom;
-    if (layer.options.maxNativeZoom !== maxNativeZoom) layer.options.maxNativeZoom = maxNativeZoom;
-    if (layer.options.minNativeZoom !== minNativeZoom) layer.options.minNativeZoom = minNativeZoom;
-    if (layer.options.tileSize !== tileSize) layer.options.tileSize = tileSize;
-    if (layer.options.keepBuffer !== keepBuffer) {
-      layer.options.keepBuffer = keepBuffer;
-      layer.redraw();
-    }
-  }, [minZoom, maxZoom, maxNativeZoom, minNativeZoom, tileSize, keepBuffer]);
+  }, [map, minZoom, maxZoom, maxNativeZoom, minNativeZoom, tileSize, keepBuffer]);
 
   return null;
 }
@@ -525,43 +460,130 @@ function LabelPlacementHandler({ isActive, onPlace }) {
   return null;
 }
 
-function ZoomWatcher({ onZoomChange, debounceMs = 50 }) {
+// ============================================================================
+// BOUNDS ENFORCER - Keeps map within defined boundaries
+// ============================================================================
+function BoundsEnforcer({ bounds, enabled = true, debug = false }) {
   const map = useMap();
-  const timeoutRef = useRef(null);
-  const lastValueRef = useRef(null);
+  const isCorrectingRef = useRef(false);
+  
+  // Log initial setup
+  useEffect(() => {
+    if (debug) {
+      console.log('[BoundsEnforcer] Mounted, enabled:', enabled);
+      console.log('[BoundsEnforcer] Bounds:', {
+        south: bounds.getSouth(),
+        north: bounds.getNorth(), 
+        west: bounds.getWest(),
+        east: bounds.getEast()
+      });
+    }
+  }, [bounds, enabled, debug]);
 
+  // Use useMapEvent for proper react-leaflet integration
+  useMapEvent('move', () => {
+    if (!enabled || isCorrectingRef.current) return;
+    
+    const center = map.getCenter();
+    let needsCorrection = false;
+    let newLat = center.lat;
+    let newLng = center.lng;
+    
+    // Check each boundary
+    if (center.lat < bounds.getSouth()) {
+      newLat = bounds.getSouth();
+      needsCorrection = true;
+    } else if (center.lat > bounds.getNorth()) {
+      newLat = bounds.getNorth();
+      needsCorrection = true;
+    }
+    
+    if (center.lng < bounds.getWest()) {
+      newLng = bounds.getWest();
+      needsCorrection = true;
+    } else if (center.lng > bounds.getEast()) {
+      newLng = bounds.getEast();
+      needsCorrection = true;
+    }
+    
+    if (needsCorrection) {
+      if (debug) {
+        console.log('[BoundsEnforcer] Correcting:', { from: center, to: { lat: newLat, lng: newLng } });
+      }
+      isCorrectingRef.current = true;
+      map.panTo([newLat, newLng], { animate: false });
+      // Reset flag after a short delay
+      requestAnimationFrame(() => {
+        isCorrectingRef.current = false;
+      });
+    }
+  });
+
+  // Also check on drag end for inertia
+  useMapEvent('moveend', () => {
+    if (!enabled || isCorrectingRef.current) return;
+    
+    const center = map.getCenter();
+    let needsCorrection = false;
+    let newLat = center.lat;
+    let newLng = center.lng;
+    
+    if (center.lat < bounds.getSouth()) {
+      newLat = bounds.getSouth();
+      needsCorrection = true;
+    } else if (center.lat > bounds.getNorth()) {
+      newLat = bounds.getNorth();
+      needsCorrection = true;
+    }
+    
+    if (center.lng < bounds.getWest()) {
+      newLng = bounds.getWest();
+      needsCorrection = true;
+    } else if (center.lng > bounds.getEast()) {
+      newLng = bounds.getEast();
+      needsCorrection = true;
+    }
+    
+    if (needsCorrection) {
+      if (debug) {
+        console.log('[BoundsEnforcer] Correcting on moveend:', { from: center, to: { lat: newLat, lng: newLng } });
+      }
+      isCorrectingRef.current = true;
+      map.panTo([newLat, newLng], { animate: true, duration: 0.2 });
+      setTimeout(() => { isCorrectingRef.current = false; }, 250);
+    }
+  });
+
+  return null;
+}
+
+// Gets the map instance from react-leaflet context and passes it to parent
+function MapInstanceProvider({ onMapReady }) {
+  const map = useMap();
+  useEffect(() => {
+    if (map && onMapReady) {
+      console.log('[MapInstanceProvider] Map instance ready');
+      onMapReady(map);
+    }
+  }, [map, onMapReady]);
+  return null;
+}
+
+function ZoomWatcher({ onZoomChange }) {
+  const map = useMap();
   useEffect(() => {
     if (!map || !onZoomChange) return;
-
-    const sync = () => {
-      const currentZoom = map.getZoom();
-      // Only update if zoom actually changed (avoid duplicate updates)
-      if (lastValueRef.current === currentZoom) return;
-      lastValueRef.current = currentZoom;
-
-      // Debounce to prevent rapid-fire updates
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-      timeoutRef.current = setTimeout(() => {
-        onZoomChange(currentZoom);
-        timeoutRef.current = null;
-      }, debounceMs);
-    };
-
-    sync(); // Initial sync
+    const sync = () => onZoomChange(map.getZoom());
+    sync();
+    map.on('zoom', sync);
     map.on('zoomend', sync);
     map.on('zoomlevelschange', sync);
-
     return () => {
+      map.off('zoom', sync);
       map.off('zoomend', sync);
       map.off('zoomlevelschange', sync);
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
-      }
     };
-  }, [map, onZoomChange, debounceMs]);
+  }, [map, onZoomChange]);
   return null;
 }
 
@@ -629,10 +651,6 @@ function LocationMarker({
 }
 
 function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFilters }) {
-  const allowDrag = true;
-  const tilePrefetchCacheRef = useRef(new Set());
-  const lastZoomRef = useRef(null);
-  const zoomFocusRef = useRef(null);
   const { role, user } = useAuth();
   const { cloudsEnabled, fogEnabled, vignetteEnabled, heatmapMode, intensities, setIntensity } =
     useMapEffects();
@@ -1542,7 +1560,17 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
       onDelete={handleDeleteLocation}
     />
   ) : null;
-  // Zoom sync is handled by ZoomWatcher component - removed duplicate watcher
+  useEffect(() => {
+    if (!mapInstance) return;
+    const syncZoom = () => setMapZoom(mapInstance.getZoom());
+    syncZoom();
+    mapInstance.on('zoom', syncZoom);
+    mapInstance.on('zoomend', syncZoom);
+    return () => {
+      mapInstance.off('zoom', syncZoom);
+      mapInstance.off('zoomend', syncZoom);
+    };
+  }, [mapInstance]);
 
   useEffect(() => {
     const node = mapContainerRef.current;
@@ -1576,252 +1604,6 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
     if (!mapInstance) return;
     mapInstance.invalidateSize();
   }, [mapInstance, isEditorMode]);
-
-  // ============================================================================
-  // CUSTOM INERTIAL ZOOM (SMOOTH VELOCITY-BASED)
-  // ============================================================================
-  useEffect(() => {
-    if (!mapInstance) return;
-
-    const container = mapInstance.getContainer();
-    let animationFrameId = null;
-    const isZoomingRef = { current: false };
-
-    // Physics State
-    const state = {
-      velocity: 0,
-      targetZoom: mapInstance.getZoom(),
-      lastFrame: 0,
-      animating: false,
-      focusPoint: null
-    };
-
-    // Config
-    const FRICTION = 0.88;      // How fast momentum dies (0.9 = fast stop, 0.99 = ice)
-    const SENSITIVITY = 0.000833;  // How much a single pixel of scroll affects speed (reduced 3x)
-    const MAX_SPEED = 0.083;      // Cap max zoom speed per frame (reduced 3x)
-    const STOP_THRESHOLD = 0.0001;
-
-    // Helper to clamp zoom
-    const clampZoom = (z) => Math.max(INTERACTIVE_MIN_ZOOM_LEVEL, Math.min(INTERACTIVE_MAX_ZOOM_LEVEL, z));
-
-    const handleWheel = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-
-      // Normalize delta (different browsers/devices behave differently)
-      let delta = -e.deltaY;
-
-      // Add impetus to velocity
-      // We clamp the delta to prevent massive jumps from aggressive mice
-      const input = Math.sign(delta) * Math.min(Math.abs(delta), 100);
-
-      state.velocity += input * SENSITIVITY;
-
-      // Clamp velocity
-      state.velocity = Math.max(-MAX_SPEED, Math.min(MAX_SPEED, state.velocity));
-
-      // Capture focus point for this interaction
-      if (!state.animating) {
-        state.lastFrame = performance.now();
-        state.focusPoint = mapInstance.mouseEventToLatLng(e);
-        isZoomingRef.current = true;
-        // Set custom zooming flag on map so tile layer knows we're zooming
-        mapInstance._customZooming = true;
-        startLoop();
-      } else {
-        // Update focus point if still animating
-        state.focusPoint = mapInstance.mouseEventToLatLng(e);
-      }
-    };
-
-    const startLoop = () => {
-      if (state.animating) return;
-      state.animating = true;
-
-      const loop = () => {
-        if (!mapInstance) {
-          state.animating = false;
-          isZoomingRef.current = false;
-          animationFrameId = null;
-          return;
-        }
-
-        // physics step
-        state.velocity *= FRICTION;
-
-        const currentZoom = mapInstance.getZoom();
-        const nextZoom = currentZoom + state.velocity;
-
-        // Clamp hard bounds
-        const clampedZoom = clampZoom(nextZoom);
-
-        // Apply
-        if (Math.abs(state.velocity) > STOP_THRESHOLD) {
-          // animate: false is CRITICAL for instant per-frame updates without Leaflet fighting us
-          if (clampedZoom !== currentZoom) {
-            if (state.focusPoint) {
-              mapInstance.setZoomAround(state.focusPoint, clampedZoom, { animate: false });
-            } else {
-              mapInstance.setZoom(clampedZoom, { animate: false });
-            }
-
-            // Manually trigger tile prefetch since we're bypassing Leaflet's animation
-            if (mapInstance._triggerPrefetch && Math.random() < 0.2) {
-              const direction = state.velocity > 0 ? 'in' : 'out';
-              mapInstance._triggerPrefetch(direction, clampedZoom);
-            }
-            // CRITICAL Fix: Force Leaflet to think it moved so it calculates new tiles
-            // This is required because animate: false disables the usual move events
-            mapInstance._onMove();
-          } else {
-            // Hit wall
-            state.velocity = 0;
-          }
-          animationFrameId = requestAnimationFrame(loop);
-        } else {
-          state.animating = false;
-          isZoomingRef.current = false;
-          state.velocity = 0;
-          animationFrameId = null;
-          // Clear custom zooming flag when zoom animation ends
-          // Delay this slightly to ensure final tiles are loaded before we let Leaflet prune the old ones
-          setTimeout(() => {
-            // Only clear if we haven't started animating again
-            if (!state.animating && mapInstance) {
-              mapInstance._customZooming = false;
-              // Force a final prune once we are safe
-              mapInstance.fire('zoomend');
-            }
-          }, 800); // 800ms persistence
-        }
-      };
-      animationFrameId = requestAnimationFrame(loop);
-    };
-
-    container.addEventListener('wheel', handleWheel, { passive: false });
-    return () => {
-      container.removeEventListener('wheel', handleWheel);
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-        animationFrameId = null;
-      }
-      state.animating = false;
-      isZoomingRef.current = false;
-      state.velocity = 0;
-      // Clear flag on cleanup
-      if (mapInstance) mapInstance._customZooming = false;
-    };
-  }, [mapInstance]);
-
-
-
-  useEffect(() => {
-    if (!mapInstance) return;
-    const clearZoomFocus = () => {
-      zoomFocusRef.current = null;
-    };
-    mapInstance.on('zoomend', clearZoomFocus);
-    return () => {
-      mapInstance.off('zoomend', clearZoomFocus);
-    };
-  }, [mapInstance]);
-
-  useEffect(() => {
-    if (!mapInstance) return;
-
-    const prefetchZoomLevels = (levels, marginTiles = 2) => {
-      const cache = tilePrefetchCacheRef.current;
-      levels.forEach((targetZoom) => {
-        if (
-          targetZoom < INTERACTIVE_MIN_ZOOM_LEVEL ||
-          targetZoom > INTERACTIVE_MAX_ZOOM_LEVEL
-        ) {
-          return;
-        }
-        // Fix: Manual bounds calculation because map.getPixelBounds(zoom) checks current view only
-        // effectively ignoring the "zoom" argument for viewport dimension calculation in many versions
-        const center = mapInstance.getCenter();
-        const centerPoint = mapInstance.project(center, targetZoom);
-        const size = mapInstance.getSize();
-
-        // At lower zooms, the Viewport assumes the SAME pixel size, but covers MORE world
-        // So we need to calculate the bounds centered on the projected point
-        const pixelBounds = L.bounds(
-          centerPoint.subtract(size.divideBy(2)),
-          centerPoint.add(size.divideBy(2))
-        );
-
-        const tileSize = TILE_SIZE;
-        const min = pixelBounds.min.divideBy(tileSize).floor();
-        const max = pixelBounds.max.divideBy(tileSize).floor();
-        const counts = getTileCountForZoom(targetZoom);
-
-        // Expand range significantly
-        const minX = Math.max(min.x - marginTiles, 0);
-        const minY = Math.max(min.y - marginTiles, 0);
-        const maxX = Math.min(max.x + marginTiles, counts.x - 1);
-        const maxY = Math.min(max.y + marginTiles, counts.y - 1);
-
-        for (let x = minX; x <= maxX; x += 1) {
-          for (let y = minY; y <= maxY; y += 1) {
-            const url = buildTileUrl(targetZoom, x, y);
-            if (!url || cache.has(url)) continue;
-            cache.add(url);
-            const img = new Image();
-            img.src = url;
-          }
-        }
-      });
-    };
-
-    const triggerPrefetch = (direction = 'neutral', targetZoom = null) => {
-      const currentZoom = mapInstance.getZoom();
-      const baseZoom = Math.round(
-        Number.isFinite(targetZoom) ? targetZoom : currentZoom
-      );
-      const zoomScale = clamp(
-        (baseZoom - INTERACTIVE_MIN_ZOOM_LEVEL) /
-        (INTERACTIVE_MAX_ZOOM_LEVEL - INTERACTIVE_MIN_ZOOM_LEVEL),
-        0,
-        1
-      );
-      // CRITICAL: When zooming out, we need a MUCh larger margin because one parent tile covers a huge area
-      // If we don't load the parent tile, we get a giant grey void
-      const outMargin = Math.round(4 + zoomScale * 8); // Increased from 2 + zoomScale*6
-      const inMargin = Math.round(3 + zoomScale * 4);
-
-      if (direction === 'out') {
-        // Prefetch explicit parent zoom levels aggressively
-        prefetchZoomLevels([baseZoom, baseZoom - 1, baseZoom - 2], outMargin);
-      } else if (direction === 'in') {
-        prefetchZoomLevels([baseZoom, baseZoom + 1], inMargin);
-      } else {
-        prefetchZoomLevels([baseZoom + 1, baseZoom - 1], 2);
-      }
-    };
-
-    const handleZoomAnim = (event) => {
-      const previous = lastZoomRef.current ?? mapInstance.getZoom();
-      const direction = event.zoom < previous ? 'out' : 'in';
-      triggerPrefetch(direction, event.zoom);
-    };
-    const handleZoomEnd = () => {
-      lastZoomRef.current = mapInstance.getZoom();
-      triggerPrefetch('neutral');
-    };
-
-    // mapInstance._triggerPrefetch = triggerPrefetch; // Removed custom prefetch exposure
-
-    // triggerPrefetch(); // Let Leaflet handle it
-    mapInstance.on('zoomanim', handleZoomAnim);
-    mapInstance.on('zoomend', handleZoomEnd);
-
-    return () => {
-      mapInstance.off('zoomanim', handleZoomAnim);
-      mapInstance.off('zoomend', handleZoomEnd);
-    };
-  }, [mapInstance]);
 
   useEffect(() => {
     if (!mapInstance || !mapInstance.doubleClickZoom) return;
@@ -1903,78 +1685,47 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
     setIsIntroVisible(false);
   };
 
-  useEffect(() => {
-    if (!mapInstance) return;
-
-    if (!mapInstance.__origLimitFns) {
-      mapInstance.__origLimitFns = {
-        limitCenter: mapInstance._limitCenter,
-        limitOffset: mapInstance._limitOffset,
-        limitBounds: mapInstance._limitBounds,
-        enforceMaxBounds: mapInstance._enforceMaxBounds,
-        getBoundsOffset: mapInstance._getBoundsOffset,
-        panInsideBounds: mapInstance.panInsideBounds,
-      };
-    }
-
-    if (isEditorMode) {
-      // Clear bounds and bypass limiters for free panning.
-      mapInstance.setMaxBounds(null);
-      mapInstance.options.maxBounds = null;
-      mapInstance.options.maxBoundsViscosity = 0;
-      mapInstance._bounds = null;
-      if (mapInstance.dragging && mapInstance.dragging._draggable) {
-        mapInstance.dragging._draggable._bounds = null;
-      }
-      mapInstance._limitCenter = (center) => center;
-      mapInstance._limitOffset = (offset) => offset;
-      mapInstance._limitBounds = (bounds) => bounds;
-      mapInstance._enforceMaxBounds = () => mapInstance;
-      mapInstance._getBoundsOffset = () => L.point(0, 0);
-      mapInstance.panInsideBounds = () => mapInstance;
-    } else {
-      // Restore normal limiting behavior.
-      const { limitCenter, limitOffset, limitBounds, enforceMaxBounds, getBoundsOffset, panInsideBounds } = mapInstance.__origLimitFns || {};
-      if (limitCenter) mapInstance._limitCenter = limitCenter;
-      if (limitOffset) mapInstance._limitOffset = limitOffset;
-      if (limitBounds) mapInstance._limitBounds = limitBounds;
-      if (enforceMaxBounds) mapInstance._enforceMaxBounds = enforceMaxBounds;
-      if (getBoundsOffset) mapInstance._getBoundsOffset = getBoundsOffset;
-      if (panInsideBounds) mapInstance.panInsideBounds = panInsideBounds;
-
-      // CRITICAL: Force unlimited bounds even in view mode to fix "missing parts" on zoom out
-      // User requested free panning and smooth infinite map feel
-      mapInstance.setMaxBounds(null);
-      mapInstance.options.maxBounds = null;
-      mapInstance.options.maxBoundsViscosity = 0;
-
-      // Removed panInsideBounds call
-    }
-  }, [mapInstance, isEditorMode]);
-
   // ============================================================================
   // LOADING STATE TRACKING (REAL PROGRESS)
   // ============================================================================
+  // Set to true to see loading condition diagnostics in console
+  const LOADING_DEBUG = true;
+  const loadStartTimeRef = useRef(performance.now());
   const [loadProgress, setLoadProgress] = useState(0);
 
   useEffect(() => {
     if (!isIntroVisible) return;
 
-    let currentProgress = 0;
-
-    // 1. Auth Initialized (Fastest) - 30%
-    if (user !== undefined) currentProgress += 30;
-
-    // 2. Regions Data Loaded (Context) - 30%
-    // Assuming regions.length > 0 or array exists means data is handled
-    if (regions && Array.isArray(regions)) currentProgress += 30;
-
-    // 3. Map Engine Initialized (Slowest) - 40%
-    if (mapInstance) currentProgress += 40;
-
-    setLoadProgress(currentProgress);
-
-  }, [isIntroVisible, user, regions, mapInstance]);
+    const elapsed = ((performance.now() - loadStartTimeRef.current) / 1000).toFixed(2);
+    
+    // Calculate progress based on what's actually loaded
+    // mapInstance is the main indicator - once it's ready, we're mostly done
+    if (mapInstance) {
+      // Map is initialized - that's 100% for practical purposes
+      if (LOADING_DEBUG) {
+        console.log(`[InteractiveMap] ✅ mapInstance ready at ${elapsed}s → 100%`);
+      }
+      setLoadProgress(100);
+    } else {
+      // Map not ready yet - show partial progress
+      let currentProgress = 10; // Start at 10% to show activity
+      
+      // Data contexts ready adds progress
+      if (Array.isArray(locations)) currentProgress += 20;
+      if (Array.isArray(regions)) currentProgress += 20;
+      
+      if (LOADING_DEBUG) {
+        console.log(`[InteractiveMap] Loading at ${elapsed}s:`, {
+          mapInstance: !!mapInstance,
+          locationsReady: Array.isArray(locations),
+          regionsReady: Array.isArray(regions),
+          progress: currentProgress
+        });
+      }
+      
+      setLoadProgress(currentProgress);
+    }
+  }, [isIntroVisible, locations, regions, mapInstance]);
 
   return (
     <div className={`map-wrapper ${isIntroVisible ? 'map-wrapper--locked' : ''}`}>
@@ -1987,33 +1738,36 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
               zoom={zoom}
               minZoom={INTERACTIVE_MIN_ZOOM_LEVEL}
               maxZoom={INTERACTIVE_MAX_ZOOM_LEVEL}
-              maxBounds={undefined}
-              maxBoundsViscosity={0}
               crs={TILESET_CRS}
               className="leaflet-map"
-              scrollWheelZoom={false}  // Using custom velocity-based zoom
-              dragging={allowDrag}
+              scrollWheelZoom={true}
+              dragging={true}
               doubleClickZoom={true}
               zoomControl={false}
-              zoomSnap={0}            // Smooth fractional zoom
-              zoomDelta={0.01}        // Ultra-fine steps
-              wheelPxPerZoomLevel={60} // Faster scroll response
-              wheelDebounceTime={0}   // No delay
-              zoomAnimation={true}    // CRITICAL for fractional scaling
-              zoomAnimationThreshold={4}
-              markerZoomAnimation={true} // Smoother markers
+              zoomSnap={ZOOM_SNAP}
+              zoomDelta={ZOOM_DELTA}
+              wheelPxPerZoomLevel={WHEEL_PX_PER_ZOOM_LEVEL}
+              wheelDebounceTime={0}
+              zoomAnimation={true}
+              zoomAnimationThreshold={8}
+              markerZoomAnimation={true}
               inertia={true}
               inertiaDeceleration={1800}
-              ref={setMapInstance}
               style={{ height: '100%', width: '100%' }}
             >
               <InvertedYTileLayer
                 tileSize={TILE_SIZE}
-                minZoom={TILE_MIN_ZOOM_LEVEL} // CRITICAL: Always allow tiles to render from 0, even if interactive min is 3
+                minZoom={INTERACTIVE_MIN_ZOOM_LEVEL}
                 maxZoom={INTERACTIVE_MAX_ZOOM_LEVEL}
                 maxNativeZoom={TILE_MAX_ZOOM_LEVEL}
                 minNativeZoom={TILE_MIN_ZOOM_LEVEL}
-                keepBuffer={2}
+                keepBuffer={6}
+              />
+              <MapInstanceProvider onMapReady={setMapInstance} />
+              <BoundsEnforcer
+                bounds={MAP_BOUNDS}
+                enabled={!isEditorMode}
+                debug={true}
               />
               <EditorPlacementHandler
                 isEnabled={
@@ -2034,7 +1788,7 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
                 isActive={isEditorMode && isPlacingLabel}
                 onPlace={handlePlaceLabel}
               />
-              {allowDrag && <KeyboardControls />}
+              <KeyboardControls />
               <ZoomControls />
               {filteredLocations.map((location) => (
                 <LocationMarker
@@ -2073,7 +1827,6 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
                 enabled={cloudsEnabled}
                 intensity={intensities.clouds}
                 onDiagnostics={reportDiagnostics}
-                zoomFocusRef={zoomFocusRef}
               />
             </MapContainer>
             {isEditorMode && (

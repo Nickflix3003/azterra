@@ -8,9 +8,9 @@ const FOG_TEXTURES = ['fog/new_fog.png']; // New asset
 
 
 const computeOpacity = (zoom = 0) => {
-  if (zoom >= 6) return 0;
-  if (zoom >= 4) return 0.2; // Subtle fog
-  return 0.35; // Base fog (was 0.8)
+  if (zoom >= 5) return 0;
+  if (zoom >= 3) return 0.15; // Very subtle at mid zoom
+  return 0.25; // Reduced base fog - edges only via mask
 };
 
 const computeScale = (zoom = 0) => {
@@ -120,6 +120,10 @@ function FogLayer({ enabled = true, intensity = 1, onDiagnostics }) {
           opacity: 0, // Initial
           transition: 'none',
           willChange: 'opacity, background-position',
+          pointerEvents: 'none',
+          // Radial mask: clear center, fog around edges
+          WebkitMaskImage: 'radial-gradient(ellipse 70% 70% at 50% 50%, transparent 30%, black 100%)',
+          maskImage: 'radial-gradient(ellipse 70% 70% at 50% 50%, transparent 30%, black 100%)',
         }}
         aria-hidden="true"
       />

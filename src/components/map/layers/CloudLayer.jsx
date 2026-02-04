@@ -5,54 +5,55 @@ import L from 'leaflet';
 // ============================================================================
 // CLOUD SYSTEM CONFIGURATION
 // ============================================================================
-// Layers are ordered from "Highest" (Closest to Camera) to "Lowest" (Closest to Map).
+// Layers are ordered from HIGHEST (top, closest to camera) to LOWEST (bottom, closest to map).
+//
 // parallax: How much the layer moves relative to the map.
 //    1.0 = Moves exactly with the map (glued to ground).
 //    >1.0 = Moves faster than map (appears ABOVE ground).
-//    <1.0 = Moves slower than map (appears BELOW ground/background).
-// zoomScale: How fast it scales up. >1.0 = Expands faster (diving effect).
+//    <1.0 = Moves slower than map (appears in background).
+//
+// zoomScale: How fast it scales when zooming. >1.0 = Expands faster (diving effect).
+// fadeOnZoom: Whether this layer fades out during zoom transitions.
+//
 const LAYERS = [
+  // TOP LAYER: Large, sparse, slow-moving clouds - distinct and visible
   {
-    id: 'primary',
+    id: 'top',
     texture: 'new_cloud.png',
-    baseSize: 2400,        // LARGE clouds
-    parallax: 1.20,        // Highest layer, moves fastest
+    baseSize: 4000,        // Very large = fewer clouds visible
+    parallax: 1.20,        // Highest layer, slow movement
     zoomScale: 1.15,
-    baseOpacity: 0.5,      // Sparse, so slightly lower opacity
+    baseOpacity: 0.55,     // More visible/distinct
     blend: 'normal',
-    minZoom: 0,            // Always visible
-    maxZoom: 10
+    minZoom: 0,
+    maxZoom: 10,
+    fadeOnZoom: true,
   },
+  // BOTTOM LAYER: Medium clouds, more apparent
   {
-    id: 'secondary',
+    id: 'bottom',
     texture: 'scatter_1.png',
-    baseSize: 1400,        // MEDIUM clouds
-    parallax: 1.10,        // Mid layer
-    zoomScale: 1.10,
-    baseOpacity: 0.55,
+    baseSize: 2400,        // Larger = fewer clouds
+    parallax: 1.08,        // Closer to map movement
+    zoomScale: 1.06,
+    baseOpacity: 0.65,     // Higher opacity - more distinct
     blend: 'normal',
-    minZoom: 0,            // Always visible
-    maxZoom: 10
-  },
-  {
-    id: 'tertiary',
-    texture: 'scatter_2.png',
-    baseSize: 600,         // SMALL detail clouds
-    parallax: 1.03,        // Low layer, close to ground
-    zoomScale: 1.05,
-    baseOpacity: 0.65,     // More visible for detail
-    blend: 'normal',
-    minZoom: 5.5,          // Only visible when zoomed in
-    maxZoom: 10
+    minZoom: 3,            // Only visible when zoomed in a bit
+    maxZoom: 10,
+    fadeOnZoom: false,     // Stays visible for continuity
   }
 ];
 
-const POSITION_SMOOTHING = 0.12; // Lerp factor for smoother movement (0.1 = loose, 1.0 = rigid)
+// Zoom fade configuration
+const ZOOM_FADE_OUT_DURATION = 150; // ms - quick fade out
+const ZOOM_FADE_IN_DURATION = 300;  // ms - slightly slower fade in
 
 function CloudLayer({ enabled = true, intensity = 1, onDiagnostics }) {
   const map = useMap();
   const containerRef = useRef(null);
   const reqId = useRef(null);
+  const [isZooming, setIsZooming] = useState(false);
+  const zoomTimeoutRef = useRef(null);
 
   // State to track current visual position (for smoothing)
   const visualState = useRef(LAYERS.map(() => ({ x: 0, y: 0, scale: 1 })));
@@ -63,6 +64,60 @@ function CloudLayer({ enabled = true, intensity = 1, onDiagnostics }) {
   useEffect(() => {
     onDiagnostics?.('clouds', { status: 'ok', message: 'Active (Parallax 2.0)' });
   }, [onDiagnostics]);
+
+  // Handle zoom fade effect
+  useEffect(() => {
+    if (!map || !enabled) return;
+
+    const handleZoomStart = () => {
+      // Clear any pending fade-in
+      if (zoomTimeoutRef.current) {
+        clearTimeout(zoomTimeoutRef.current);
+        zoomTimeoutRef.current = null;
+      }
+      setIsZooming(true);
+    };
+
+    const handleZoomEnd = () => {
+      // Delay the fade-in slightly to let the map settle
+      zoomTimeoutRef.current = setTimeout(() => {
+        setIsZooming(false);
+        zoomTimeoutRef.current = null;
+      }, 50);
+    };
+
+    map.on('zoomstart', handleZoomStart);
+    map.on('zoomend', handleZoomEnd);
+
+    return () => {
+      map.off('zoomstart', handleZoomStart);
+      map.off('zoomend', handleZoomEnd);
+      if (zoomTimeoutRef.current) {
+        clearTimeout(zoomTimeoutRef.current);
+      }
+    };
+  }, [map, enabled]);
+
+  // Restore opacity for fadeOnZoom layers after zoom ends
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const layerDivs = containerRef.current.children;
+
+    LAYERS.forEach((layer, index) => {
+      if (!layer.fadeOnZoom) return;
+      const div = layerDivs[index];
+      if (!div) return;
+
+      if (isZooming) {
+        // Fade out
+        div.style.opacity = '0';
+      } else {
+        // Fade back to target opacity (stored by animation loop)
+        const targetOpacity = div.dataset.targetOpacity || layer.baseOpacity;
+        div.style.opacity = targetOpacity;
+      }
+    });
+  }, [isZooming, intensity]);
 
   useEffect(() => {
     if (!map || !enabled) return;
@@ -105,22 +160,29 @@ function CloudLayer({ enabled = true, intensity = 1, onDiagnostics }) {
         // 2. Calculate Opacity with zoom-based visibility
         let opacity = layer.baseOpacity * intensity;
 
-        // Check zoom bounds
+        // Check zoom bounds - fade in/out based on zoom level
         if (layer.minZoom !== undefined && zoom < layer.minZoom) {
-          // Fade in smoothly as we approach minZoom
-          const fadeRange = 0.5; // Fade over 0.5 zoom levels
+          const fadeRange = 0.5;
           const fadeProgress = Math.max(0, Math.min(1, (zoom - (layer.minZoom - fadeRange)) / fadeRange));
           opacity *= fadeProgress;
         }
 
         if (layer.maxZoom !== undefined && zoom > layer.maxZoom) {
-          // Fade out smoothly as we exceed maxZoom
           const fadeRange = 0.5;
           const fadeProgress = Math.max(0, Math.min(1, 1 - (zoom - layer.maxZoom) / fadeRange));
           opacity *= fadeProgress;
         }
 
-        div.style.opacity = Math.max(0, opacity);
+        // Store the target opacity as a data attribute for the CSS transition to use
+        div.dataset.targetOpacity = opacity;
+
+        // Only set opacity directly if this layer doesn't fade on zoom,
+        // or if we're not currently zooming
+        // (layers with fadeOnZoom have their opacity controlled by CSS transition)
+        if (!layer.fadeOnZoom) {
+          div.style.opacity = Math.max(0, opacity);
+        }
+
         if (opacity <= 0.01) {
           div.style.display = 'none';
           return;
@@ -129,36 +191,19 @@ function CloudLayer({ enabled = true, intensity = 1, onDiagnostics }) {
         }
 
         // 3. Calculate Position
-        // We use modular arithmetic to wrap the texture
         const patternSize = layer.baseSize * scale;
-
-        // World position in pixels at current zoom
-        // We use map.project(center) to get absolute pixel coords of center
         const worldX = centerPoint.x;
         const worldY = centerPoint.y;
-
-        // Calculate offset (Center of screen - WorldPos * Parallax)
-        // We center the pattern at the screen center initially
         const screenCenterX = size.x / 2;
         const screenCenterY = size.y / 2;
 
-        // Parallax shift:
-        // shift = worldPos * factor
+        // Parallax shift
         const shiftX = worldX * layer.parallax;
         const shiftY = worldY * layer.parallax;
 
-        // Modulo to keep it within bounds (Infinite tiling)
-        // We subtract shift from center to simulate camera moving right -> layer moving left
-        // But we want parallax differential.
-        // Actually, for background-position:
-        // bgPos = -shift + constant
-
-        // Wrap logic
+        // Wrap with modulo for infinite tiling
         const bgX = ((-shiftX) % patternSize);
         const bgY = ((-shiftY) % patternSize);
-
-        // Smoothing: REMOVED for tight sync with map (prevents jerky catch-up)
-        // We apply scale and position DIRECTLY from the map's current state.
 
         div.style.backgroundSize = `${layer.baseSize * scale}px ${layer.baseSize * scale}px`;
         div.style.backgroundPosition = `${bgX + screenCenterX}px ${bgY + screenCenterY}px`;
@@ -188,20 +233,32 @@ function CloudLayer({ enabled = true, intensity = 1, onDiagnostics }) {
         overflow: 'hidden',
       }}
     >
-      {LAYERS.map((layer) => (
-        <div
-          key={layer.id}
-          style={{
-            position: 'absolute',
-            inset: -100, // Margin for wrapping safety
-            backgroundRepeat: 'repeat',
-            backgroundImage: `url(${cleanBase}/clouds/${layer.texture})`,
-            mixBlendMode: layer.blend,
-            willChange: 'background-position, background-size, opacity',
-            transition: 'opacity 0.5s ease',
-          }}
-        />
-      ))}
+      {LAYERS.map((layer) => {
+        // Apply zoom fade only to layers that have fadeOnZoom enabled
+        const shouldFade = layer.fadeOnZoom && isZooming;
+        return (
+          <div
+            key={layer.id}
+            data-layer={layer.id}
+            style={{
+              position: 'absolute',
+              inset: -100, // Margin for wrapping safety
+              backgroundRepeat: 'repeat',
+              backgroundImage: `url(${cleanBase}/clouds/${layer.texture})`,
+              mixBlendMode: layer.blend,
+              willChange: 'background-position, background-size, opacity',
+              pointerEvents: 'none',
+              // Per-layer zoom fade
+              opacity: shouldFade ? 0 : undefined, // undefined lets the animation loop control it
+              transition: layer.fadeOnZoom
+                ? (isZooming 
+                    ? `opacity ${ZOOM_FADE_OUT_DURATION}ms ease-out` 
+                    : `opacity ${ZOOM_FADE_IN_DURATION}ms ease-in`)
+                : 'none',
+            }}
+          />
+        );
+      })}
     </div>
   );
 }
