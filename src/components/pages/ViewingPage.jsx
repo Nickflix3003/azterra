@@ -600,7 +600,8 @@ function PeoplePage() {
                 />
               ))}
             </div>
-          </section>
+          )}
+        </section>
       )}
     </div>
   );
