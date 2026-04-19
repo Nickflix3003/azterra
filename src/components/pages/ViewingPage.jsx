@@ -600,3 +600,10 @@ function PeoplePage() {
                 />
               ))}
             </div>
+          </section>
+      )}
+    </div>
+  );
+}
+
+export default PeoplePage;
