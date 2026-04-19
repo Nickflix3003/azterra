@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { fetchWithRetry } from '../../utils/fetchWithRetry';
 import './PeoplePage.css';
 
 const API = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -479,9 +480,9 @@ function PeoplePage() {
     setError('');
     try {
       const [hRes, nRes, lRes] = await Promise.all([
-        fetch(`${API}/heroes`, { credentials: 'include' }),
-        fetch(`${API}/entities/npcs`, { credentials: 'include' }),
-        fetch(`${API}/locations`, { credentials: 'include' }),
+        fetchWithRetry(`${API}/heroes`, { credentials: 'include' }),
+        fetchWithRetry(`${API}/entities/npcs`, { credentials: 'include' }),
+        fetchWithRetry(`${API}/locations`, { credentials: 'include' }),
       ]);
       if (hRes.ok) { const j = await hRes.json(); setHeroes(j.heroes || []); }
       if (nRes.ok) { const j = await nRes.json(); setNpcs(j.items || []); }

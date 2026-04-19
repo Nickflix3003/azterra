@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabaseClient';
+import { fetchWithRetry } from '../../utils/fetchWithRetry';
+
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
 
 // This page receives the OAuth redirect from Supabase (via the frontend
 // redirect_to URL). Supabase resolves the PKCE/implicit flow in the browser
@@ -26,7 +29,9 @@ function AuthCallback() {
 
       try {
         setStatus('Verifying with server…');
-        const res = await fetch('/api/auth/session', {
+        // Use absolute URL so the session cookie is set on the API domain
+        // (azterra-api.onrender.com), not on the Vercel proxy domain.
+        const res = await fetchWithRetry(`${API_BASE_URL}/auth/session`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
