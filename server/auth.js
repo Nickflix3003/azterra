@@ -41,7 +41,13 @@ function requireSupabase(res) {
 }
 
 function getCookieOptions() {
-  const isProd = process.env.NODE_ENV === 'production';
+  // isProd is true when NODE_ENV=production OR when deployed on Render (RENDER=true).
+  // Both conditions mean we're cross-origin (Vercel frontend → Render API), so we
+  // MUST use SameSite=None;Secure or browsers will block the cookie entirely.
+  const isProd =
+    process.env.NODE_ENV === 'production' ||
+    process.env.RENDER === 'true' ||
+    Boolean(process.env.ALLOWED_ORIGINS);
   const opts = {
     httpOnly: true,
     secure: isProd,
