@@ -28,7 +28,7 @@ import { useLocationData } from '../../context/LocationDataContext';
 import { useRegions } from '../../context/RegionDataContext';
 import './LocationsAtlasPage.css';
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API = '/api';
 
 // --- Emblem catalogue ---
 const EMBLEMS = [

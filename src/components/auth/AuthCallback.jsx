@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabaseClient';
 import { fetchWithRetry } from '../../utils/fetchWithRetry';
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
+const API_BASE_URL = '/api';
 
 // This page receives the OAuth redirect from Supabase (via the frontend
 // redirect_to URL). Supabase resolves the PKCE/implicit flow in the browser

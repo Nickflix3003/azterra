@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { fetchWithRetry } from '../../utils/fetchWithRetry';
 import './PeoplePage.css';
 
-const API = import.meta.env.VITE_API_BASE_URL || '/api';
+const API = '/api';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -600,11 +600,3 @@ function PeoplePage() {
                 />
               ))}
             </div>
-          )}
-        </section>
-      )}
-    </div>
-  );
-}
-
-export default PeoplePage;

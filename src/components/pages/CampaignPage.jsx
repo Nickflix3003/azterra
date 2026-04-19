@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import './CampaignPage.css';
 
-const API = import.meta.env.VITE_API_BASE_URL || '/api';
+const API = '/api';
 
 // ── D&D 5e constants ─────────────────────────────────────────────────────────
 

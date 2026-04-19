@@ -12,7 +12,7 @@ import fallbackContent from '../data/content.json';
 import { fetchWithRetry } from '../utils/fetchWithRetry';
 
 const ContentContext = createContext(null);
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+const API_BASE_URL = '/api';
 
 export function ContentProvider({ children }) {
   const [entries, setEntries] = useState([]);

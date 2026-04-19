@@ -14,7 +14,7 @@
 
 import { fetchWithRetry } from './fetchWithRetry';
 
-const BASE = import.meta.env.VITE_API_BASE_URL || '/api';
+const BASE = '/api';
 
 async function request(method, path, body) {
   const url = `${BASE}${path}`;

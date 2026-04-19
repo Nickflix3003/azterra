@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import characters from '../../data/characters_heroes';
 import { Link } from 'react-router-dom';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+const API_BASE_URL = '/api';
 const normalizeIds = (list) => (Array.isArray(list) ? list.map((val) => Number(val)).filter((val) => Number.isFinite(val)) : []);
 const parseJsonResponse = async (res) => {
   const text = await res.text();

@@ -15,7 +15,7 @@ import {
 // ─── Asset paths ────────────────────────────────────────────────────────────
 export const ASSET_BASE_URL = import.meta.env.BASE_URL || '/';
 export const ICON_BASE_URL = `${ASSET_BASE_URL}icons/cities/`;
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+export const API_BASE_URL = '/api';
 
 // ─── Marker types ────────────────────────────────────────────────────────────
 export const MARKER_TYPES = [
