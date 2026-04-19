@@ -11,6 +11,7 @@ const AuthContext = createContext({
   login: async () => { },
   loginWithGoogle: async () => { },
   loginWithEmail: async () => { },
+  loginWithPassword: async () => { },
   signupWithGoogle: async () => { },
   signupWithEmail: async () => { },
   setPendingUsername: () => { },
@@ -26,23 +27,11 @@ const AuthContext = createContext({
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
 const PENDING_USERNAME_KEY = 'azterra:pending-username';
-const FORCE_ADMIN = true;
 
 const GUEST_USER = {
   id: 'guest',
   username: 'Guest',
   role: 'guest',
-  unlockedSecrets: [],
-  favorites: [],
-  friends: [],
-  friendRequests: { incoming: [], outgoing: [] },
-  profile: { bio: '', labelOne: '', labelTwo: '', documents: [], viewFavorites: [] }
-};
-
-const DEV_ADMIN_USER = {
-  id: 'dev-admin',
-  username: 'Admin',
-  role: 'admin',
   unlockedSecrets: [],
   favorites: [],
   friends: [],
@@ -117,14 +106,6 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     let isMounted = true;
     setLoading(true);
-    if (FORCE_ADMIN) {
-      setUser(normalizeUser(DEV_ADMIN_USER));
-      setToken('dev-admin');
-      setLoading(false);
-      return () => {
-        isMounted = false;
-      };
-    }
     request({ path: '/auth/me' })
       .then((data) => {
         if (isMounted) {
@@ -184,6 +165,18 @@ export function AuthProvider({ children }) {
     },
     []
   );
+
+  const loginWithPassword = useCallback(async ({ email, password }) => {
+    setError(null);
+    const data = await request({
+      path: '/auth/login/password',
+      method: 'POST',
+      body: { email, password },
+    });
+    setUser(normalizeUser(data.user));
+    setToken('session-cookie');
+    return data.user;
+  }, []);
 
   const loginWithGoogle = useCallback(() => startOAuth({ provider: 'google' }), [startOAuth]);
   const signupWithGoogle = loginWithGoogle;
@@ -253,6 +246,7 @@ export function AuthProvider({ children }) {
       login,
       loginWithGoogle,
       loginWithEmail,
+      loginWithPassword,
       signupWithGoogle,
       signupWithEmail,
       setPendingUsername: rememberPendingUsername,
@@ -277,6 +271,7 @@ export function AuthProvider({ children }) {
       loginGuest,
       updateAccount,
       loginWithEmail,
+      loginWithPassword,
       loginWithGoogle,
       signupWithGoogle,
       signupWithEmail,

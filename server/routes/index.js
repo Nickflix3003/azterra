@@ -1,6 +1,7 @@
 import adminRoutes from '../admin.js';
 import authRoutes from '../auth.js';
 import campaignsRoutes from '../campaigns.js';
+import heroesRoutes from '../heroes.js';
 import charactersRoutes from '../characters.js';
 import contentRoutes from '../content.js';
 import entitiesRoutes from '../entities.js';
@@ -26,6 +27,7 @@ const routes = [
   { path: '/api/portraits', router: portraitsRoutes },
   { path: '/api/users', router: usersRoutes },
   { path: '/api/campaigns', router: campaignsRoutes },
+  { path: '/api/heroes',    router: heroesRoutes    },
 ];
 
 export function registerRoutes(app) {

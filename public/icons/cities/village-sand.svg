@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <radialGradient id="bg-s" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#2e2010"/>
+      <stop offset="100%" stop-color="#1a1008"/>
+    </radialGradient>
+    <radialGradient id="sun-s" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#f0b840"/>
+      <stop offset="100%" stop-color="#c87a10"/>
+    </radialGradient>
+    <filter id="drop-s" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#000" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+
+  <!-- Background disc -->
+  <circle cx="32" cy="32" r="30" fill="url(#bg-s)"/>
+  <circle cx="32" cy="32" r="29.5" fill="none" stroke="#d4901a" stroke-width="1" opacity="0.5"/>
+
+  <!-- Sand ground -->
+  <ellipse cx="32" cy="52" rx="24" ry="5" fill="#c89040" opacity="0.5"/>
+
+  <!-- Adobe dome dwelling — main dome (half ellipse) -->
+  <ellipse cx="32" cy="36" rx="18" ry="16" fill="#c8a060" filter="url(#drop-s)"/>
+  <!-- Clip the lower half away with a rect painted background color -->
+  <rect x="12" y="44" width="40" height="12" fill="#1a1008"/>
+  <!-- Repaint sand ground over top -->
+  <ellipse cx="32" cy="52" rx="24" ry="5" fill="#c89040" opacity="0.5"/>
+
+  <!-- Dome shading — darker area on one side -->
+  <ellipse cx="26" cy="34" rx="10" ry="12" fill="#a07840" opacity="0.4"/>
+
+  <!-- Walls below dome -->
+  <rect x="18" y="42" width="28" height="8" rx="1" fill="#b89050" filter="url(#drop-s)"/>
+
+  <!-- Door arch (filled dark shape) -->
+  <ellipse cx="32" cy="46" rx="5" ry="6" fill="#1a1008"/>
+  <rect x="27" y="46" width="10" height="6" fill="#1a1008"/>
+
+  <!-- Door frame accent -->
+  <ellipse cx="32" cy="46" rx="4" ry="5" fill="#0d0804"/>
+
+  <!-- Small window circles -->
+  <circle cx="22" cy="40" r="2.5" fill="#0d0804" opacity="0.8"/>
+  <circle cx="42" cy="40" r="2.5" fill="#0d0804" opacity="0.8"/>
+
+  <!-- Sun accent top -->
+  <circle cx="32" cy="18" r="5" fill="url(#sun-s)" opacity="0.85" filter="url(#drop-s)"/>
+  <!-- Sun rays (filled diamond shapes) -->
+  <polygon points="32,10 31,7 33,7" fill="#f0b840" opacity="0.7"/>
+  <polygon points="32,26 31,29 33,29" fill="#f0b840" opacity="0.7"/>
+  <polygon points="24,18 21,17 21,19" fill="#f0b840" opacity="0.7"/>
+  <polygon points="40,18 43,17 43,19" fill="#f0b840" opacity="0.7"/>
+  <polygon points="25.5,12.5 23,10 24.5,11.5" fill="#f0b840" opacity="0.5"/>
+  <polygon points="38.5,12.5 41,10 39.5,11.5" fill="#f0b840" opacity="0.5"/>
+
+  <!-- Decorative trim line on wall (thin filled rect) -->
+  <rect x="18" y="42" width="28" height="1.5" rx="0.5" fill="#d4b070" opacity="0.6"/>
+</svg>

@@ -1,13 +1,33 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { MapContainer, Marker, Popup, useMap, useMapEvent } from 'react-leaflet';
-import SidePanel from '../UI/SidePanel';
-import IntroLoadingScreen from '../IntroLoadingScreen';
-import EditorInfoPanel from './EditorInfoPanel';
+/**
+ * InteractiveMap.jsx
+ *
+ * The main Leaflet-based world map.  Constants, utilities, and sub-components
+ * have been extracted into dedicated modules to keep this file manageable:
+ *
+ *   ../../constants/mapConstants   — tile config, CRS, marker types, icon lists
+ *   ../../utils/markerUtils        — icon resolution, location normalisation
+ *   ./MapControls                  — Leaflet child components (tile layer, zoom, etc.)
+ *   ./LocationMarker               — individual marker component
+ */
 
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { MapContainer } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import './Map.css';
+
+// ─── Context & auth ──────────────────────────────────────────────────────────
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { useMapEffects } from '../../context/MapEffectsContext';
 import { useLocationData } from '../../context/LocationDataContext';
 import { useContent } from '../../context/ContentContext';
+import { useRegions } from '../../context/RegionDataContext';
+
+// ─── Layers & UI components ───────────────────────────────────────────────────
+import SidePanel from '../UI/SidePanel';
+import IntroLoadingScreen from '../IntroLoadingScreen';
+import EditorInfoPanel from './EditorInfoPanel';
 import VignetteLayer from './layers/VignetteLayer';
 import FogLayer from './layers/FogLayer';
 import CloudLayer from './layers/CloudLayer';
@@ -17,342 +37,97 @@ import LabelLayer from './layers/LabelLayer';
 import ParallaxLayer from './layers/ParallaxLayer';
 import DiagnosticsPanel from './DiagnosticsPanel';
 import MarkerPalette from './MarkerPalette';
-import RegionInfoPanel from './RegionInfoPanel';
+import ConfirmModal from './ConfirmModal';
 import EditorSidePanel from './EditorSidePanel';
 import FilterHoverPanel from './FilterHoverPanel';
-import { useRegions } from '../../context/RegionDataContext';
+
+// ─── Map sub-components ───────────────────────────────────────────────────────
+import LocationMarker from './LocationMarker';
+import {
+  InvertedYTileLayer,
+  KeyboardControls,
+  ZoomControls,
+  BoundsEnforcer,
+  MapInstanceProvider,
+  ZoomWatcher,
+  EditorPlacementHandler,
+  RegionDrawingHandler,
+  LabelPlacementHandler,
+} from './MapControls';
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+import {
+  API_BASE_URL,
+  MARKER_TYPES,
+  MARKER_ICON_OPTIONS,
+  DEFAULT_TYPE_ICON,
+  TILE_SIZE,
+  TILE_MIN_ZOOM_LEVEL,
+  TILE_MAX_ZOOM_LEVEL,
+  INTERACTIVE_MIN_ZOOM_LEVEL,
+  INTERACTIVE_MAX_ZOOM_LEVEL,
+  MAP_CENTER,
+  MAP_BOUNDS,
+  TILESET_CRS,
+  ZOOM_SNAP,
+  ZOOM_DELTA,
+  WHEEL_PX_PER_ZOOM_LEVEL,
+  clamp,
+  getTypeConfig,
+  resolveIconKey,
+  buildIconSrc,
+  createDefaultRegionFilters,
+  normalizeCategoryId,
+} from '../../constants/mapConstants';
+
+// ─── Utilities ────────────────────────────────────────────────────────────────
+import {
+  normalizeLocationEntry,
+  normalizeLocations,
+  getMarkerFilterKey,
+  getPlaceholderMarkerSrc,
+  getPlacementConfig,
+} from '../../utils/markerUtils';
+
+// ─── Region constants ─────────────────────────────────────────────────────────
 import {
   DEFAULT_REGION_CATEGORY,
-  REGION_CATEGORIES,
   normalizeRegionEntry,
 } from '../../constants/regionConstants';
+
+// ─── Content diagnostics ──────────────────────────────────────────────────────
 import { evaluateContentHealth } from '../../utils/contentDiagnostics';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
-import './Map.css';
+
+// ─── Static data ──────────────────────────────────────────────────────────────
 import locationsData from '../../data/locations.json';
 
-const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
-const ASSET_BASE_URL = import.meta.env.BASE_URL || '/';
-const ICON_BASE_URL = `${ASSET_BASE_URL}icons/cities/`;
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
-const getFallbackLocations = () => locationsData.map((location) => ({ ...location }));
-
-// Fix for default marker icons
+// ─── Leaflet default icon fix ─────────────────────────────────────────────────
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
-  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+  iconUrl:       'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl:     'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
 
-// Demo locations
-const DEMO_LOCATIONS = [
-  { id: 1, name: 'London', lat: 51.505, lng: -0.09, glowColor: '#FFD700' },
-  { id: 2, name: 'Paris', lat: 48.8566, lng: 2.3522, glowColor: '#74c2e1' }
-  // Add more if desired
-];
+// ─── Module-level helpers ─────────────────────────────────────────────────────
 
-const MARKER_TYPES = [
-  { id: 'city', label: 'City', glowColor: '#F7B267' },
-  { id: 'town', label: 'Town', glowColor: '#74c2e1' },
-  { id: 'dungeon', label: 'Dungeon', glowColor: '#8E7CC3' },
-  { id: 'landmark', label: 'Landmark', glowColor: '#FFDAB9' },
-];
-
-const GENERIC_MARKER_TYPE = { id: 'generic', label: 'Generic', glowColor: '#9ca3af' };
-const TYPE_CONFIG = MARKER_TYPES.reduce(
-  (acc, type) => ({ ...acc, [type.id]: type }),
-  { [GENERIC_MARKER_TYPE.id]: GENERIC_MARKER_TYPE }
-);
-
-const LOCATION_FILTER_OPTIONS = [
-  ...MARKER_TYPES.map((type) => ({ id: type.id, label: type.label })),
-  { id: GENERIC_MARKER_TYPE.id, label: GENERIC_MARKER_TYPE.label },
-];
-
-const DEFAULT_TYPE_ICON = {
-  city: 'city-gold',
-  town: 'town-oak',
-  dungeon: 'dungeon-abyss',
-  landmark: 'landmark-spire',
-  generic: 'city-gold',
+/** Returns a fresh copy of the bundled static locations.
+ *  locations.json may be a bare array OR { locations: [...] } — handle both. */
+const getFallbackLocations = () => {
+  const arr = Array.isArray(locationsData)
+    ? locationsData
+    : (locationsData.locations ?? []);
+  return arr.map((location) => ({ ...location }));
 };
 
-const MARKER_ICON_OPTIONS = [
-  { iconKey: 'city-gold', label: 'Gilded City', type: 'city' },
-  { iconKey: 'city-blue', label: 'Azure City', type: 'city' },
-  { iconKey: 'city-crimson', label: 'Crimson City', type: 'city' },
-  { iconKey: 'city-emerald', label: 'Emerald City', type: 'city' },
-  { iconKey: 'town-oak', label: 'Oak Town', type: 'town' },
-  { iconKey: 'town-harbor', label: 'Harbor Town', type: 'town' },
-  { iconKey: 'town-river', label: 'River Town', type: 'town' },
-  { iconKey: 'dungeon-abyss', label: 'Abyss Dungeon', type: 'dungeon' },
-  { iconKey: 'dungeon-ember', label: 'Ember Dungeon', type: 'dungeon' },
-  { iconKey: 'landmark-spire', label: 'Sun Spire', type: 'landmark' },
-  { iconKey: 'landmark-obelisk', label: 'Obelisk', type: 'landmark' },
-  { iconKey: 'port-azure', label: 'Azure Port', type: 'city' },
-  { iconKey: 'port-sunset', label: 'Sunset Port', type: 'city' },
-  { iconKey: 'citadel-iron', label: 'Iron Citadel', type: 'city' },
-  { iconKey: 'citadel-sun', label: 'Sun Citadel', type: 'city' },
-  { iconKey: 'village-meadow', label: 'Meadow Village', type: 'town' },
-  { iconKey: 'village-sand', label: 'Sand Village', type: 'town' },
-  { iconKey: 'camp-northern', label: 'Northern Camp', type: 'landmark' },
-  { iconKey: 'camp-jungle', label: 'Jungle Camp', type: 'landmark' },
-  { iconKey: 'academy-star', label: 'Star Academy', type: 'landmark' },
-];
-
-const REGION_FILTER_OPTIONS = REGION_CATEGORIES.map((category) => ({
-  id: category,
-  label: category.charAt(0).toUpperCase() + category.slice(1),
-}));
-
-const createDefaultRegionFilters = () =>
-  REGION_FILTER_OPTIONS.reduce((acc, option) => {
-    acc[option.id] = true;
-    return acc;
-  }, {});
-
-const normalizeCategoryId = (value) => {
-  if (!value || typeof value !== 'string') return DEFAULT_REGION_CATEGORY;
-  return value.toLowerCase();
-};
-
-const getDefaultIconKey = (typeId) => DEFAULT_TYPE_ICON[typeId] || DEFAULT_TYPE_ICON.generic;
-
-const getTypeConfig = (type) => {
-  if (!type) return GENERIC_MARKER_TYPE;
-  const key = typeof type === 'string' ? type.toLowerCase() : type;
-  return TYPE_CONFIG[key] || GENERIC_MARKER_TYPE;
-};
-
-const resolveIconKey = (location) => location.iconKey || getDefaultIconKey(location.type);
-const buildIconSrc = (iconKey) => `${ICON_BASE_URL}${iconKey}.png`;
-
-const MARKER_PLACEHOLDER_COLORS = {
-  city: '#facc15',
-  town: '#93c5fd',
-  dungeon: '#c084fc',
-  landmark: '#fb923c',
-  generic: '#e5e7eb',
-};
-
-const buildNavStyleMarker = (color, letter) => {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 40"><path d="M16 3C9.4 3 4 8.4 4 15c0 8.7 12 20 12 20s12-11.3 12-20C28 8.4 22.6 3 16 3Z" fill="white" stroke="${color}" stroke-width="2" /><circle cx="16" cy="15" r="7" fill="${color}" stroke="#0f172a" stroke-width="2"/><text x="16" y="19" text-anchor="middle" font-family="Inter,Arial,sans-serif" font-size="9" font-weight="700" fill="#0f172a">${letter}</text></svg>`;
-  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
-};
-
-const PLACEHOLDER_MARKER_SRC = {
-  city: buildNavStyleMarker(MARKER_PLACEHOLDER_COLORS.city, 'C'),
-  town: buildNavStyleMarker(MARKER_PLACEHOLDER_COLORS.town, 'T'),
-  dungeon: buildNavStyleMarker(MARKER_PLACEHOLDER_COLORS.dungeon, 'D'),
-  landmark: buildNavStyleMarker(MARKER_PLACEHOLDER_COLORS.landmark, 'L'),
-  generic: buildNavStyleMarker(MARKER_PLACEHOLDER_COLORS.generic, 'M'),
-};
-
-const getPlaceholderMarkerSrc = (type) => {
-  const typeConfig = getTypeConfig(type);
-  return PLACEHOLDER_MARKER_SRC[typeConfig.id] || PLACEHOLDER_MARKER_SRC.generic;
-};
-
-const normalizeLocationEntry = (location) => {
-  const typeConfig = getTypeConfig(location.type);
-  const iconKey = location.iconKey || getDefaultIconKey(typeConfig.id);
-  const lat = location.lat ?? location.x ?? 0;
-  const lng = location.lng ?? location.y ?? 0;
-  return {
-    id: location.id,
-    name: location.name || `${typeConfig.label}`,
-    type: typeConfig.id,
-    iconKey,
-    lat,
-    lng,
-    x: location.x ?? lat,
-    y: location.y ?? lng,
-    description: location.description ?? '',
-    category: location.category ?? typeConfig.label,
-    tags: Array.isArray(location.tags) ? location.tags : [],
-    regionId: location.regionId ?? null,
-    glowColor: location.glowColor || typeConfig.glowColor,
-  };
-};
-
-const normalizeLocations = (locations) => locations.map((location) => normalizeLocationEntry(location));
-
-const getMarkerFilterKey = (typeId) => {
-  const normalized = (typeId || '').toLowerCase();
-  if (['city', 'town', 'dungeon', 'ruins', 'landmark', 'npc'].includes(normalized)) {
-    return normalized;
-  }
-  if (normalized === 'generic') return 'generic';
-  return 'custom';
-};
-
-const getPlacementConfig = ({ paletteItem, activeTypeId }) => {
-  if (paletteItem) {
-    return {
-      typeId: paletteItem.type,
-      label: paletteItem.label,
-      iconKey: paletteItem.iconKey,
-    };
-  }
-  if (activeTypeId) {
-    const typeConfig = getTypeConfig(activeTypeId);
-    return {
-      typeId: typeConfig.id,
-      label: typeConfig.label,
-      iconKey: getDefaultIconKey(typeConfig.id),
-    };
-  }
-  return null;
-};
-
-const TILE_SIZE = 256;
-const TILE_MIN_ZOOM_LEVEL = 0;
-const TILE_MAX_ZOOM_LEVEL = 8; // matches tilemapresource (orders 0..8)
-const INTERACTIVE_MAX_ZOOM_LEVEL = 8; // allow native res at max zoom
-const INTERACTIVE_MIN_ZOOM_LEVEL = 3; // Constrain zoom out to keep focus
-// Native raster size derived from z=8 folder (160 x 160 tiles @256px = 40,960px square).
-const MAP_PIXEL_WIDTH = TILE_SIZE * 160;
-const MAP_PIXEL_HEIGHT = TILE_SIZE * 160;
-const BASE_TILE_COLS = MAP_PIXEL_WIDTH / TILE_SIZE;
-const BASE_TILE_ROWS = MAP_PIXEL_HEIGHT / TILE_SIZE;
-const MAP_CENTER = [MAP_PIXEL_HEIGHT / 2, MAP_PIXEL_WIDTH / 2];
-const PAN_STEP = 200;
-// Map boundary configuration
-const MAP_BOUNDS = L.latLngBounds(
-  [0, 0],
-  [MAP_PIXEL_HEIGHT, MAP_PIXEL_WIDTH]
-);
-const ZOOM_SNAP = 0.5;
-const ZOOM_DELTA = 0.5;
-const WHEEL_PX_PER_ZOOM_LEVEL = 240;
-const MAX_SCALE = Math.pow(2, TILE_MAX_ZOOM_LEVEL);
-const TILESET_CRS = L.extend({}, L.CRS.Simple, {
-  scale: (zoom) => Math.pow(2, zoom) / MAX_SCALE,
-  zoom: (scale) => Math.log(scale * MAX_SCALE) / Math.LN2,
-  // Use a top-left origin; tile Y inversion is handled in InvertedYTileLayer.
-  transformation: new L.Transformation(1, 0, 1, 0),
-});
-
+/** Tracks whether the intro has already been shown in this browser session. */
 let introShownThisSession = false;
 
-// Helpers to invert tile Y when Leaflet requests top-origin rows against bottom-origin tiles.
-const getTileCountForZoom = (z) => {
-  const factor = Math.pow(2, TILE_MAX_ZOOM_LEVEL - z);
-  return {
-    x: Math.ceil(BASE_TILE_COLS / factor),
-    y: Math.ceil(BASE_TILE_ROWS / factor),
-  };
-};
-
-function InvertedYTileLayer({
-  minZoom,
-  maxZoom,
-  maxNativeZoom,
-  minNativeZoom,
-  tileSize,
-  keepBuffer,
-}) {
-  const map = useMap();
-  const EMPTY_TILE = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
-
-  useEffect(() => {
-    const LayerClass = L.TileLayer.extend({
-      getTileUrl(coords) {
-        const counts = getTileCountForZoom(coords.z);
-        if (coords.x < 0 || coords.y < 0 || coords.x >= counts.x || coords.y >= counts.y) {
-          return EMPTY_TILE;
-        }
-        const invertedY = counts.y - 1 - coords.y;
-        return `${ASSET_BASE_URL}tiles/${coords.z}/${coords.x}/${invertedY}.jpg`;
-      },
-    });
-
-    const layer = new LayerClass('', {
-      minZoom,
-      maxZoom,
-      maxNativeZoom,
-      minNativeZoom,
-      tileSize,
-      noWrap: true,
-      keepBuffer,
-      reuseTiles: true,
-      updateWhenIdle: false,
-      updateWhenZooming: true,
-    });
-    layer.addTo(map);
-
-    return () => {
-      layer.removeFrom(map);
-    };
-  }, [map, minZoom, maxZoom, maxNativeZoom, minNativeZoom, tileSize, keepBuffer]);
-
-  return null;
-}
-
-// Keyboard controls remain as-is
-function KeyboardControls() {
-  const map = useMap();
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      const center = map.getCenter();
-      switch (e.key) {
-        case 'ArrowUp':
-        case 'w':
-        case 'W':
-          map.panTo([center.lat - PAN_STEP, center.lng]);
-          break;
-        case 'ArrowDown':
-        case 's':
-        case 'S':
-          map.panTo([center.lat + PAN_STEP, center.lng]);
-          break;
-        case 'ArrowLeft':
-        case 'a':
-        case 'A':
-          map.panTo([center.lat, center.lng - PAN_STEP]);
-          break;
-        case 'ArrowRight':
-        case 'd':
-        case 'D':
-          map.panTo([center.lat, center.lng + PAN_STEP]);
-          break;
-        default:
-          break;
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [map]);
-  return null;
-}
-
-function ZoomControls() {
-  const map = useMap();
-
-  return (
-    <div className="zoom-controls">
-      <button
-        className="zoom-button"
-        type="button"
-        aria-label="Zoom in"
-        onClick={() => map.zoomIn()}
-      >
-        +
-      </button>
-      <button
-        className="zoom-button"
-        type="button"
-        aria-label="Zoom out"
-        onClick={() => map.zoomOut()}
-      >
-        -
-      </button>
-    </div>
-  );
-}
-
+// ─── EditorToolbox ────────────────────────────────────────────────────────────
+/**
+ * A small editor-only panel for type selection and JSON import/export.
+ * Rendered as a slot inside EditorSidePanel via InteractiveMap.
+ */
 function EditorToolbox({
   isEditorMode,
   selectedTypeId,
@@ -429,229 +204,17 @@ function EditorToolbox({
   );
 }
 
-function EditorPlacementHandler({ isEnabled, onPlaceMarker }) {
-  useMapEvent('click', (event) => {
-    if (!isEnabled) return;
-    onPlaceMarker(event.latlng);
-  });
-  return null;
-}
+// ─── InteractiveMap ───────────────────────────────────────────────────────────
 
-function RegionDrawingHandler({ isActive, onAddPoint, onFinish }) {
-  useMapEvent('click', (event) => {
-    if (!isActive) return;
-    onAddPoint(event.latlng);
-  });
-
-  useMapEvent('dblclick', (event) => {
-    if (!isActive) return;
-    event.originalEvent?.preventDefault();
-    onFinish();
-  });
-
-  return null;
-}
-
-function LabelPlacementHandler({ isActive, onPlace }) {
-  useMapEvent('click', (event) => {
-    if (!isActive) return;
-    onPlace(event.latlng);
-  });
-  return null;
-}
-
-// ============================================================================
-// BOUNDS ENFORCER - Keeps map within defined boundaries
-// ============================================================================
-function BoundsEnforcer({ bounds, enabled = true, debug = false }) {
-  const map = useMap();
-  const isCorrectingRef = useRef(false);
-  
-  // Log initial setup
-  useEffect(() => {
-    if (debug) {
-      console.log('[BoundsEnforcer] Mounted, enabled:', enabled);
-      console.log('[BoundsEnforcer] Bounds:', {
-        south: bounds.getSouth(),
-        north: bounds.getNorth(), 
-        west: bounds.getWest(),
-        east: bounds.getEast()
-      });
-    }
-  }, [bounds, enabled, debug]);
-
-  // Use useMapEvent for proper react-leaflet integration
-  useMapEvent('move', () => {
-    if (!enabled || isCorrectingRef.current) return;
-    
-    const center = map.getCenter();
-    let needsCorrection = false;
-    let newLat = center.lat;
-    let newLng = center.lng;
-    
-    // Check each boundary
-    if (center.lat < bounds.getSouth()) {
-      newLat = bounds.getSouth();
-      needsCorrection = true;
-    } else if (center.lat > bounds.getNorth()) {
-      newLat = bounds.getNorth();
-      needsCorrection = true;
-    }
-    
-    if (center.lng < bounds.getWest()) {
-      newLng = bounds.getWest();
-      needsCorrection = true;
-    } else if (center.lng > bounds.getEast()) {
-      newLng = bounds.getEast();
-      needsCorrection = true;
-    }
-    
-    if (needsCorrection) {
-      if (debug) {
-        console.log('[BoundsEnforcer] Correcting:', { from: center, to: { lat: newLat, lng: newLng } });
-      }
-      isCorrectingRef.current = true;
-      map.panTo([newLat, newLng], { animate: false });
-      // Reset flag after a short delay
-      requestAnimationFrame(() => {
-        isCorrectingRef.current = false;
-      });
-    }
-  });
-
-  // Also check on drag end for inertia
-  useMapEvent('moveend', () => {
-    if (!enabled || isCorrectingRef.current) return;
-    
-    const center = map.getCenter();
-    let needsCorrection = false;
-    let newLat = center.lat;
-    let newLng = center.lng;
-    
-    if (center.lat < bounds.getSouth()) {
-      newLat = bounds.getSouth();
-      needsCorrection = true;
-    } else if (center.lat > bounds.getNorth()) {
-      newLat = bounds.getNorth();
-      needsCorrection = true;
-    }
-    
-    if (center.lng < bounds.getWest()) {
-      newLng = bounds.getWest();
-      needsCorrection = true;
-    } else if (center.lng > bounds.getEast()) {
-      newLng = bounds.getEast();
-      needsCorrection = true;
-    }
-    
-    if (needsCorrection) {
-      if (debug) {
-        console.log('[BoundsEnforcer] Correcting on moveend:', { from: center, to: { lat: newLat, lng: newLng } });
-      }
-      isCorrectingRef.current = true;
-      map.panTo([newLat, newLng], { animate: true, duration: 0.2 });
-      setTimeout(() => { isCorrectingRef.current = false; }, 250);
-    }
-  });
-
-  return null;
-}
-
-// Gets the map instance from react-leaflet context and passes it to parent
-function MapInstanceProvider({ onMapReady }) {
-  const map = useMap();
-  useEffect(() => {
-    if (map && onMapReady) {
-      console.log('[MapInstanceProvider] Map instance ready');
-      onMapReady(map);
-    }
-  }, [map, onMapReady]);
-  return null;
-}
-
-function ZoomWatcher({ onZoomChange }) {
-  const map = useMap();
-  useEffect(() => {
-    if (!map || !onZoomChange) return;
-    const sync = () => onZoomChange(map.getZoom());
-    sync();
-    map.on('zoom', sync);
-    map.on('zoomend', sync);
-    map.on('zoomlevelschange', sync);
-    return () => {
-      map.off('zoom', sync);
-      map.off('zoomend', sync);
-      map.off('zoomlevelschange', sync);
-    };
-  }, [map, onZoomChange]);
-  return null;
-}
-
-// LocationMarker handles its own hover/selection state
-function LocationMarker({
-  location,
-  onLocationClick,
-  isSelected,
-  isEditorMode,
-  onDragEnd,
-  zoomLevel,
-  resolveIcon,
+function InteractiveMap({
+  isEditorMode = false,
+  filtersOpen = false,
+  onToggleFilters,
+  currentYear = 500,
+  timelineActive = false,
 }) {
-  const [isHovered, setIsHovered] = useState(false);
-
-  const iconSize = (() => {
-    const base = 36;
-    const scale = 1 + (zoomLevel - 4) * 0.08;
-    return clamp(base * scale, 20, 64);
-  })();
-
-  const resolvedIcon = resolveIcon ? resolveIcon(location) : { src: buildIconSrc(resolveIconKey(location)) };
-  const placeholderSrc = resolvedIcon?.placeholder || getPlaceholderMarkerSrc(location?.type);
-  const iconSrc = resolvedIcon?.src || placeholderSrc;
-  const safeName = (location.name || '').replace(/"/g, '&quot;');
-
-  return (
-    <Marker
-      position={[location.lat, location.lng]}
-      draggable={isEditorMode}
-      icon={L.divIcon({
-        className: `custom-marker custom-marker--${location.type} ${isSelected ? 'custom-marker--selected' : ''
-          }`,
-        html: `
-          <div class="custom-marker__wrapper ${isHovered ? 'is-hovered' : ''}">
-            <img src="${iconSrc}" alt="${safeName}"
-              class="custom-marker__image" loading="lazy"
-              style="width:${iconSize}px;height:${iconSize}px;"
-              onerror="this.onerror=null;this.dataset.missing='1';this.src='${placeholderSrc}'" />
-          </div>
-        `,
-        iconSize: [iconSize, iconSize],
-        iconAnchor: [iconSize / 2, iconSize],
-      })}
-      eventHandlers={{
-        mouseover: () => setIsHovered(true),
-        mouseout: () => setIsHovered(false),
-        click: () => onLocationClick(location),
-        dragend: (event) => {
-          if (!isEditorMode || !onDragEnd) return;
-          const { lat, lng } = event.target.getLatLng();
-          onDragEnd(location.id, { lat, lng });
-        },
-      }}
-    >
-      {isHovered && (
-        <Popup>
-          <div className="location-popup">
-            <h3>{location.name}</h3>
-          </div>
-        </Popup>
-      )}
-    </Marker>
-  );
-}
-
-function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFilters }) {
   const { role, user } = useAuth();
+  const { toast } = useToast();
   const { cloudsEnabled, fogEnabled, vignetteEnabled, heatmapMode, intensities, setIntensity } =
     useMapEffects();
   const { locations, setLocations, selectedLocationId, selectLocation } = useLocationData();
@@ -662,6 +225,7 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
     error: contentError,
     issues: contentIssues,
   } = useContent();
+
   const [editorSelection, setEditorSelection] = useState(null);
   const [activePlacementTypeId, setActivePlacementTypeId] = useState(null);
   const [selectedPaletteItem, setSelectedPaletteItem] = useState(null);
@@ -697,72 +261,106 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
   const [mapLabels, setMapLabels] = useState([]);
   const [isPlacingLabel, setIsPlacingLabel] = useState(false);
   const [isEditorPanelOpen, setIsEditorPanelOpen] = useState(true);
-  const saveTimeoutRef = useRef(null);
-  const lastSavedSnapshotRef = useRef('[]');
-  const skipNextAutoSaveRef = useRef(false);
-  const regionSaveTimeoutRef = useRef(null);
-  const lastRegionSnapshotRef = useRef('[]');
-  const mapContainerRef = useRef(null);
-  const iconCheckQueueRef = useRef(new Set());
-  const [saveWarning, setSaveWarning] = useState('');
-  const [diagnostics, setDiagnostics] = useState({});
+
+  // Drag-and-drop state
+  // Use a ref (not state) for the active marker ID so that setting it during
+  // a Leaflet drag does NOT trigger a React re-render that would interrupt the drag.
+  const draggingMarkerIdRef  = useRef(null);
+  const draggingOriginRef    = useRef(null); // saves {lat,lng} at drag start
+  const [showTrashZone, setShowTrashZone]   = useState(false);
+  const [pendingConfirm, setPendingConfirm] = useState(null); // { title, message, onConfirm }
+  const trashZoneRef = useRef(null);
+  // Track the last known mouse position via a document-level listener.
+  // This is more reliable than originalEvent.clientX/Y from Leaflet's dragend,
+  // which can sometimes be 0 or stale on certain browsers.
+  const lastMousePosRef = useRef({ x: 0, y: 0 });
+
+  const saveTimeoutRef          = useRef(null);
+  const lastSavedSnapshotRef    = useRef('[]');
+  const skipNextAutoSaveRef     = useRef(false);
+  const regionSaveTimeoutRef    = useRef(null);
+  const lastRegionSnapshotRef   = useRef('[]');
+  const mapContainerRef         = useRef(null);
+  const iconCheckQueueRef       = useRef(new Set());
+
+  const [saveWarning, setSaveWarning]     = useState('');
+  const [diagnostics, setDiagnostics]     = useState({});
   const [diagRefreshToken, setDiagRefreshToken] = useState(0);
-  const [iconStatuses, setIconStatuses] = useState({});
+  const [iconStatuses, setIconStatuses]   = useState({});
+
   const isAdmin = role === 'admin';
-  const center = MAP_CENTER;
-  const zoom = INTERACTIVE_MIN_ZOOM_LEVEL;
+  const center  = MAP_CENTER;
+  const zoom    = INTERACTIVE_MIN_ZOOM_LEVEL;
+
   const serializedLocations = useMemo(() => JSON.stringify(locations), [locations]);
-  const serializedRegions = useMemo(() => JSON.stringify(regions), [regions]);
-  const canAutoSave = role === 'editor' || role === 'admin';
+  const serializedRegions   = useMemo(() => JSON.stringify(regions),   [regions]);
+  const canAutoSave = ['player', 'editor', 'admin'].includes(role);
+
   const filteredLocations = useMemo(
     () =>
       !showMarkers
         ? []
         : locations.filter((location) => {
-          const key = getMarkerFilterKey(location.type);
-          const flag = markerFilters[key];
-          return flag !== false;
-        }),
-    [locations, markerFilters, showMarkers]
+            const key  = getMarkerFilterKey(location.type);
+            const flag = markerFilters[key];
+            if (flag === false) return false;
+            // Timeline filter — only apply when active and NOT in editor mode
+            // (editors always see all markers so they can set era values)
+            if (timelineActive && !isEditorMode) {
+              const start = location.timeStart ?? -Infinity;
+              const end   = location.timeEnd   ??  Infinity;
+              if (currentYear < start || currentYear > end) return false;
+            }
+            return true;
+          }),
+    [locations, markerFilters, showMarkers, timelineActive, currentYear, isEditorMode]
   );
+
   const filteredRegions = useMemo(
     () =>
       !showRegionsLayer && !isRegionMode
         ? []
         : regions.filter((region) => {
-          if (isRegionMode && region.id === activeRegionId) return true;
-          const categoryId = normalizeCategoryId(region.category);
-          const flag = regionFilters[categoryId];
-          return flag !== false;
-        }),
+            if (isRegionMode && region.id === activeRegionId) return true;
+            const categoryId = normalizeCategoryId(region.category);
+            const flag       = regionFilters[categoryId];
+            return flag !== false;
+          }),
     [regions, regionFilters, isRegionMode, activeRegionId, showRegionsLayer]
   );
+
   const regionLabelsEnabled = filteredRegions.some((region) => region.labelEnabled !== false);
-  const zoomProgress = clamp((mapZoom - INTERACTIVE_MIN_ZOOM_LEVEL) / (INTERACTIVE_MAX_ZOOM_LEVEL - INTERACTIVE_MIN_ZOOM_LEVEL), 0, 1);
+
+  const zoomProgress = clamp(
+    (mapZoom - INTERACTIVE_MIN_ZOOM_LEVEL) / (INTERACTIVE_MAX_ZOOM_LEVEL - INTERACTIVE_MIN_ZOOM_LEVEL),
+    0,
+    1
+  );
+
   const reportDiagnostics = useCallback((key, entry) => {
     setDiagnostics((prev) => {
       const current = prev[key] || {};
-      const next = { ...current, ...entry };
-      if (current.status === next.status && current.message === next.message) {
-        return prev;
-      }
+      const next    = { ...current, ...entry };
+      if (current.status === next.status && current.message === next.message) return prev;
       return { ...prev, [key]: next };
     });
   }, []);
+
   const handleDiagnosticsRefresh = () => {
     iconCheckQueueRef.current = new Set();
     setIconStatuses({});
     setDiagRefreshToken((prev) => prev + 1);
     reportDiagnostics('marker-icons', { status: 'pending', message: 'Rechecking icon sprites...' });
   };
+
   const handleIntensityChange = (key, value) => {
-    const safeValue = clamp(value, 0, 1.25);
-    setIntensity(key, safeValue);
+    setIntensity(key, clamp(value, 0, 1.25));
   };
+
   const resolveMarkerIcon = useCallback(
     (location) => {
-      const iconKey = resolveIconKey(location);
-      const status = iconStatuses[iconKey];
+      const iconKey        = resolveIconKey(location);
+      const status         = iconStatuses[iconKey];
       const placeholderSrc = getPlaceholderMarkerSrc(location?.type);
       if (status?.status === 'ok') {
         return { key: iconKey, src: status.src, placeholder: placeholderSrc };
@@ -771,37 +369,36 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
     },
     [iconStatuses]
   );
+
+  // ── Data fetching ────────────────────────────────────────────────────────────
+
   useEffect(() => {
     let isMounted = true;
     const fetchLocations = async () => {
       try {
         const response = await fetch(`${API_BASE_URL}/locations`);
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error || 'Failed to load locations.');
-        }
+        const data     = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to load locations.');
         const nextLocations = Array.isArray(data.locations)
           ? normalizeLocations(data.locations)
           : normalizeLocations(getFallbackLocations());
         if (isMounted) {
           setLocations(nextLocations);
-          lastSavedSnapshotRef.current = JSON.stringify(nextLocations);
-          skipNextAutoSaveRef.current = true;
+          lastSavedSnapshotRef.current    = JSON.stringify(nextLocations);
+          skipNextAutoSaveRef.current     = true;
         }
       } catch (error) {
         console.error('Unable to load locations', error);
         if (isMounted) {
-          const fallbackLocations = normalizeLocations(getFallbackLocations());
-          setLocations(fallbackLocations);
-          lastSavedSnapshotRef.current = JSON.stringify(fallbackLocations);
-          skipNextAutoSaveRef.current = true;
+          const fallback = normalizeLocations(getFallbackLocations());
+          setLocations(fallback);
+          lastSavedSnapshotRef.current = JSON.stringify(fallback);
+          skipNextAutoSaveRef.current  = true;
         }
       }
     };
     fetchLocations();
-    return () => {
-      isMounted = false;
-    };
+    return () => { isMounted = false; };
   }, []);
 
   useEffect(() => {
@@ -809,12 +406,12 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
     const fetchRegions = async () => {
       try {
         const response = await fetch(`${API_BASE_URL}/regions`);
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error || 'Failed to load regions.');
-        }
+        const data     = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to load regions.');
         if (isMounted) {
-          const normalized = Array.isArray(data.regions) ? data.regions.map(normalizeRegionEntry) : [];
+          const normalized = Array.isArray(data.regions)
+            ? data.regions.map(normalizeRegionEntry)
+            : [];
           setRegions(normalized);
           lastRegionSnapshotRef.current = JSON.stringify(normalized);
         }
@@ -827,15 +424,14 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
       }
     };
     fetchRegions();
-    return () => {
-      isMounted = false;
-    };
+    return () => { isMounted = false; };
   }, [setRegions]);
 
+  // Keep regionFilters in sync when regions gain a new category
   useEffect(() => {
     setRegionFilters((prev) => {
       let changed = false;
-      const next = { ...prev };
+      const next  = { ...prev };
       regions.forEach((region) => {
         const categoryId = normalizeCategoryId(region.category);
         if (!(categoryId in next)) {
@@ -847,6 +443,8 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
     });
   }, [regions]);
 
+  // ── Icon health checks ───────────────────────────────────────────────────────
+
   useEffect(() => {
     const uniqueKeys = new Set(locations.map((location) => resolveIconKey(location)));
     uniqueKeys.add(DEFAULT_TYPE_ICON.generic);
@@ -856,18 +454,8 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
       iconCheckQueueRef.current.add(key);
       const src = buildIconSrc(key);
       const img = new Image();
-      img.onload = () => {
-        setIconStatuses((prev) => {
-          if (prev[key]?.status === 'ok') return prev;
-          return { ...prev, [key]: { status: 'ok', src } };
-        });
-      };
-      img.onerror = () => {
-        setIconStatuses((prev) => {
-          if (prev[key]?.status === 'error') return prev;
-          return { ...prev, [key]: { status: 'error', src } };
-        });
-      };
+      img.onload  = () => setIconStatuses((prev) => prev[key]?.status === 'ok'    ? prev : { ...prev, [key]: { status: 'ok',    src } });
+      img.onerror = () => setIconStatuses((prev) => prev[key]?.status === 'error' ? prev : { ...prev, [key]: { status: 'error', src } });
       img.src = src;
     });
   }, [locations, diagRefreshToken]);
@@ -875,20 +463,21 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
   useEffect(() => {
     const uniqueKeys = new Set(locations.map((location) => resolveIconKey(location)));
     uniqueKeys.add(DEFAULT_TYPE_ICON.generic);
-    let missing = 0;
-    let loaded = 0;
-    let pending = 0;
+    let missing = 0, loaded = 0, pending = 0;
     uniqueKeys.forEach((key) => {
       const status = iconStatuses[key]?.status;
-      if (status === 'ok') loaded += 1;
+      if (status === 'ok')    loaded  += 1;
       else if (status === 'error') missing += 1;
       else pending += 1;
     });
-    const message = `${locations.length} markers; ${loaded}/${uniqueKeys.size} icons loaded${missing ? `; ${missing} using fallback` : ''
-      }${pending ? `; ${pending} pending` : ''}`;
-    const status = missing ? 'warn' : pending ? 'pending' : 'ok';
-    reportDiagnostics('marker-icons', { status, message });
+    const message =
+      `${locations.length} markers; ${loaded}/${uniqueKeys.size} icons loaded` +
+      (missing ? `; ${missing} using fallback` : '') +
+      (pending ? `; ${pending} pending`        : '');
+    reportDiagnostics('marker-icons', { status: missing ? 'warn' : pending ? 'pending' : 'ok', message });
   }, [locations, iconStatuses, reportDiagnostics]);
+
+  // ── Content diagnostics ──────────────────────────────────────────────────────
 
   useEffect(() => {
     if (contentLoading) {
@@ -902,25 +491,24 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
       });
       return;
     }
-    const locationIds = locations.map((location) => location.id);
+    const locationIds       = locations.map((location) => location.id);
     const { status, message } = evaluateContentHealth(contentEntries, { locationIds });
     reportDiagnostics('content', { status, message });
   }, [contentEntries, contentLoading, locations, reportDiagnostics]);
 
   useEffect(() => {
     if (!contentIssues) return;
-    const unreadable = contentIssues.unreadableFiles || [];
+    const unreadable  = contentIssues.unreadableFiles || [];
     if (unreadable.length) {
       reportDiagnostics('content-importer', {
-        status: 'warn',
+        status:  'warn',
         message: `Unreadable files: ${unreadable.map((item) => item.path).join(', ')}`,
       });
       return;
     }
     const issueCount = contentIssues.issueCount || 0;
-    const status = issueCount ? contentIssues.status || 'warn' : 'ok';
     reportDiagnostics('content-importer', {
-      status,
+      status:  issueCount ? contentIssues.status || 'warn' : 'ok',
       message: issueCount
         ? `Importer reported ${issueCount} issues across ${contentIssues.entryCount || contentEntries.length} entries.`
         : `Importer validated ${contentIssues.entryCount || contentEntries.length} entries.`,
@@ -930,79 +518,160 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
   useEffect(() => {
     if (contentError) {
       reportDiagnostics('content', {
-        status: 'warn',
+        status:  'warn',
         message: `Using fallback content: ${contentError}`,
       });
     }
   }, [contentError, reportDiagnostics]);
 
+  // ── Location handlers ────────────────────────────────────────────────────────
+
   const handleLocationClick = (location) => {
     selectLocation(location.id);
     if (isEditorMode) {
       setEditorSelection({
-        id: location.id,
+        id:    location.id,
         draft: {
-          name: location.name || '',
-          type: location.type || '',
+          name:        location.name        || '',
+          type:        location.type        || '',
+          lore:        location.lore        || '',
           description: location.description || '',
+          pinned:      location.pinned      ?? false,
+          timeStart:   location.timeStart,
+          timeEnd:     location.timeEnd,
+          regionId:    location.regionId    ?? null,
         },
       });
-      return;
     }
-    const base = import.meta.env.BASE_URL || '/';
-    window.location.href = `${base}location/${location.id}`;
+    // In view mode, selectLocation() triggers the SidePanel to open on the right.
   };
 
-  const handleClosePanel = () => selectLocation(null);
+  const handleClosePanel = () => {
+    selectLocation(null);
+    setEditorSelection(null);
+  };
 
-  const handleMarkerDragEnd = (id, coords) => {
+  const handleMarkerDragStart = useCallback((id) => {
+    // Store ID and original position in refs — zero re-renders, so the Leaflet
+    // drag operation is never interrupted by React reconciliation.
+    draggingMarkerIdRef.current = id;
+    const origin = locations.find((loc) => loc.id === id);
+    draggingOriginRef.current   = origin ? { lat: origin.lat, lng: origin.lng } : null;
+    // ONE state update to show the trash zone (renders it before user can reach it).
+    setShowTrashZone(true);
+  }, [locations]);
+
+  const handleMarkerDragEnd = useCallback((id, coords, originalEvent) => {
+    const origin = draggingOriginRef.current;
+
+    // ── Step 1: snapshot zone rect BEFORE any state updates ─────────────────
+    // setShowTrashZone(false) will unmount the trash zone on the next render.
+    // We must read getBoundingClientRect() now, while the element is still in the DOM.
+    const zone = trashZoneRef.current;
+    const zoneRect = zone ? zone.getBoundingClientRect() : null;
+
+    // ── Step 2: resolve drop coordinates ────────────────────────────────────
+    // Priority: originalEvent coords > lastMousePosRef (document mousemove tracker).
+    // Leaflet's dragend originalEvent.clientX/Y can be 0 on some browsers.
+    let clientX, clientY;
+    if (originalEvent) {
+      if (originalEvent.clientX != null && originalEvent.clientX !== 0) {
+        clientX = originalEvent.clientX;
+        clientY = originalEvent.clientY;
+      } else if (originalEvent.changedTouches?.length) {
+        clientX = originalEvent.changedTouches[0].clientX;
+        clientY = originalEvent.changedTouches[0].clientY;
+      }
+    }
+    // Fall back to the document-level mouse tracker if Leaflet gave us zeros.
+    if (!clientX && !clientY) {
+      clientX = lastMousePosRef.current.x;
+      clientY = lastMousePosRef.current.y;
+    }
+
+    // ── Step 3: now it's safe to clear drag state / hide trash zone ──────────
+    draggingMarkerIdRef.current = null;
+    draggingOriginRef.current   = null;
+    setShowTrashZone(false);
+
+    // ── Step 4: check trash hit using the snapshotted rect ──────────────────
+    if (clientX != null && zoneRect) {
+      const isOverTrash =
+        clientX >= zoneRect.left   - 20 &&   // generous ±20px tolerance
+        clientX <= zoneRect.right  + 20 &&
+        clientY >= zoneRect.top    - 20 &&
+        clientY <= zoneRect.bottom + 20;
+
+      if (isOverTrash) {
+        // Snap marker back to its origin so it doesn't visually stay at the drop point.
+        if (origin) {
+          setLocations((prev) => prev.map((loc) =>
+            loc.id === id ? { ...loc, lat: origin.lat, lng: origin.lng } : loc
+          ));
+        }
+        const target = locations.find((loc) => loc.id === id);
+        setPendingConfirm({
+          title:   'Delete Marker',
+          message: `Delete "${target?.name || 'this marker'}" from the map? This cannot be undone.`,
+          onConfirm: () => {
+            setLocations((prev) => prev.filter((loc) => loc.id !== id));
+            if (editorSelection?.id === id) setEditorSelection(null);
+            setPendingConfirm(null);
+          },
+        });
+        return;
+      }
+    }
+
+    // Normal reposition.
     setLocations((prev) =>
       prev.map((location) =>
         location.id === id ? { ...location, lat: coords.lat, lng: coords.lng } : location
       )
     );
-  };
+  }, [locations, editorSelection]);
 
-  const handleRegionPointAdd = (latlng) => {
-    setRegionDraftPoints((prev) => [...prev, [latlng.lng, latlng.lat]]);
-  };
-
-  const focusRegionOnMap = (regionId) => {
-    if (!mapInstance) return;
-    const region = regions.find((entry) => entry.id === regionId);
-    if (!region) return;
-    const polygons = getRegionPolygons(region);
-    const allPoints = polygons.flat();
-    if (!allPoints.length) return;
-    const latLngs = allPoints.map(([x, y]) => L.latLng(y, x));
-    mapInstance.fitBounds(L.latLngBounds(latLngs).pad(0.2));
-  };
+  // ── Region helpers ───────────────────────────────────────────────────────────
 
   const getRegionPolygons = useCallback((region) => {
     if (!region) return [];
-    const base = Array.isArray(region.points) && region.points.length >= 3 ? [region.points] : [];
+    const base   = Array.isArray(region.points) && region.points.length >= 3 ? [region.points] : [];
     const extras = Array.isArray(region.parts)
       ? region.parts.filter((part) => Array.isArray(part) && part.length >= 3)
       : [];
     return [...base, ...extras];
   }, []);
 
+  const focusRegionOnMap = (regionId) => {
+    if (!mapInstance) return;
+    const region = regions.find((entry) => entry.id === regionId);
+    if (!region) return;
+    const allPoints = getRegionPolygons(region).flat();
+    if (!allPoints.length) return;
+    const latLngs = allPoints.map(([x, y]) => L.latLng(y, x));
+    mapInstance.fitBounds(L.latLngBounds(latLngs).pad(0.2));
+  };
+
   const updateRegionField = (regionId, field, value) => {
     setRegions((prev) =>
       prev.map((region) =>
         region.id === regionId
           ? {
-            ...region,
-            [field]:
-              field === 'opacity'
-                ? Math.min(Math.max(Number(value) || 0, 0), 1)
-                : field === 'labelEnabled'
-                  ? Boolean(value)
-                  : value,
-          }
+              ...region,
+              [field]:
+                field === 'opacity'
+                  ? Math.min(Math.max(Number(value) || 0, 0), 1)
+                  : field === 'labelEnabled'
+                    ? Boolean(value)
+                    : value,
+            }
           : region
       )
     );
+  };
+
+  const handleRegionPointAdd = (latlng) => {
+    setRegionDraftPoints((prev) => [...prev, [latlng.lng, latlng.lat]]);
   };
 
   const handleRegionFinish = () => {
@@ -1012,13 +681,12 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
         setRegions((existing) =>
           existing.map((region) => {
             if (region.id !== regionDraftTargetId) return region;
-            const polygons = getRegionPolygons(region);
+            const polygons  = getRegionPolygons(region);
             const [first, ...rest] = polygons;
-            const nextParts = first ? [...rest, prevPoints] : [...rest];
             return {
               ...region,
               points: first || prevPoints,
-              parts: nextParts,
+              parts:  first ? [...rest, prevPoints] : [...rest],
             };
           })
         );
@@ -1026,15 +694,15 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
       }
       const regionId = crypto.randomUUID ? crypto.randomUUID() : `region-${Date.now()}`;
       const newRegion = {
-        id: regionId,
-        name: 'New Region',
-        color: '#f97316',
-        borderColor: '#ea580c',
-        opacity: 0.3,
-        category: DEFAULT_REGION_CATEGORY,
+        id:           regionId,
+        name:         'New Region',
+        color:        '#f97316',
+        borderColor:  '#ea580c',
+        opacity:      0.3,
+        category:     DEFAULT_REGION_CATEGORY,
         labelEnabled: true,
-        points: prevPoints.map(([x, y]) => [x, y]),
-        parts: [],
+        points:       prevPoints.map(([x, y]) => [x, y]),
+        parts:        [],
       };
       setRegions((existing) => [...existing, newRegion]);
       selectRegion(regionId);
@@ -1062,14 +730,6 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
     setRegionDraftTargetId(null);
   };
 
-  const handleSelectPaletteItem = (item) => {
-    setSelectedPaletteItem((prev) => {
-      const next = prev && prev.iconKey === item.iconKey ? null : item;
-      setActivePlacementTypeId(next ? next.type : null);
-      return next;
-    });
-  };
-
   const handleToggleRegionMode = () => {
     setIsRegionMode((prev) => {
       const next = !prev;
@@ -1090,80 +750,6 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
     });
   };
 
-  const handleStartLabelPlacement = () => {
-    setIsPlacingLabel(true);
-    setIsRegionMode(false);
-    setSelectedPaletteItem(null);
-    setActivePlacementTypeId(null);
-  };
-
-  const handlePlaceLabel = (latlng) => {
-    const id =
-      typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `label-${Date.now()}`;
-    setMapLabels((prev) => [
-      ...prev,
-      {
-        id,
-        text: 'New Label',
-        color: '#fef3c7',
-        font: "'Cinzel','Cormorant Garamond',serif",
-        size: 1,
-        zoomScale: 1,
-        scaleWithZoom: true,
-        fadeInStart: 3,
-        fadeInEnd: 5,
-        lat: latlng.lat,
-        lng: latlng.lng,
-      },
-    ]);
-    setIsPlacingLabel(false);
-  };
-
-  const handleLabelDrag = (id, coords) => {
-    setMapLabels((prev) => prev.map((label) => (label.id === id ? { ...label, ...coords } : label)));
-  };
-
-  const handleLabelFieldChange = (id, field, value) => {
-    const numericFields = ['size', 'zoomScale', 'fadeInStart', 'fadeInEnd'];
-    const booleanFields = ['scaleWithZoom'];
-    setMapLabels((prev) =>
-      prev.map((label) => {
-        if (label.id !== id) return label;
-        let nextValue = value;
-        if (numericFields.includes(field)) {
-          const parsed = Number(value);
-          nextValue = Number.isFinite(parsed) ? parsed : 0;
-        } else if (booleanFields.includes(field)) {
-          nextValue = value === false || value === 'false' ? false : Boolean(value);
-        }
-
-        if (field === 'fadeInStart' || field === 'fadeInEnd') {
-          const epsilon = 0.05;
-          const currentStart = field === 'fadeInStart' ? nextValue : label.fadeInStart ?? 2.8;
-          let currentEnd = field === 'fadeInEnd' ? nextValue : label.fadeInEnd ?? currentStart + 1.2;
-          if (currentEnd <= currentStart + epsilon) {
-            currentEnd = currentStart + epsilon;
-            if (field === 'fadeInEnd') nextValue = currentEnd;
-          }
-          if (field === 'fadeInStart' && nextValue >= currentEnd - epsilon) {
-            nextValue = currentEnd - epsilon;
-          }
-          return {
-            ...label,
-            fadeInStart: field === 'fadeInStart' ? nextValue : currentStart,
-            fadeInEnd: field === 'fadeInEnd' ? nextValue : currentEnd,
-          };
-        }
-
-        return { ...label, [field]: nextValue };
-      })
-    );
-  };
-
-  const handleDeleteLabel = (id) => {
-    setMapLabels((prev) => prev.filter((label) => label.id !== id));
-  };
-
   const handleRegionFieldChange = (field, value, regionId = activeRegionId) => {
     if (!regionId) return;
     updateRegionField(regionId, field, value);
@@ -1171,11 +757,16 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
 
   const handleDeleteRegion = (targetId = activeRegionId) => {
     if (!targetId) return;
-    if (!window.confirm('Delete this region?')) return;
-    setRegions((prev) => prev.filter((region) => region.id !== targetId));
-    if (activeRegionId === targetId) {
-      selectRegion(null);
-    }
+    const target = regions.find((r) => r.id === targetId);
+    setPendingConfirm({
+      title:   'Delete Region',
+      message: `Delete "${target?.name || 'this region'}"? All polygon data will be lost.`,
+      onConfirm: () => {
+        setRegions((prev) => prev.filter((region) => region.id !== targetId));
+        if (activeRegionId === targetId) selectRegion(null);
+        setPendingConfirm(null);
+      },
+    });
   };
 
   const handleRegionClick = (regionId) => {
@@ -1201,13 +792,7 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
       return prev
         .filter((region) => region.id !== sourceId)
         .map((region) =>
-          region.id === targetId
-            ? {
-              ...region,
-              points: first,
-              parts: rest,
-            }
-            : region
+          region.id === targetId ? { ...region, points: first, parts: rest } : region
         );
     });
     selectRegion(targetId);
@@ -1225,11 +810,96 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
     );
   };
 
+  // ── Label handlers ───────────────────────────────────────────────────────────
+
+  const handleStartLabelPlacement = () => {
+    setIsPlacingLabel(true);
+    setIsRegionMode(false);
+    setSelectedPaletteItem(null);
+    setActivePlacementTypeId(null);
+  };
+
+  const handlePlaceLabel = (latlng) => {
+    const id = typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `label-${Date.now()}`;
+    setMapLabels((prev) => [
+      ...prev,
+      {
+        id,
+        text:          'New Label',
+        color:         '#fef3c7',
+        font:          "'Cinzel','Cormorant Garamond',serif",
+        size:          1,
+        zoomScale:     1,
+        scaleWithZoom: true,
+        fadeInStart:   3,
+        fadeInEnd:     5,
+        lat:           latlng.lat,
+        lng:           latlng.lng,
+      },
+    ]);
+    setIsPlacingLabel(false);
+  };
+
+  const handleLabelDrag = (id, coords) => {
+    setMapLabels((prev) =>
+      prev.map((label) => (label.id === id ? { ...label, ...coords } : label))
+    );
+  };
+
+  const handleLabelFieldChange = (id, field, value) => {
+    const numericFields = ['size', 'zoomScale', 'fadeInStart', 'fadeInEnd'];
+    const booleanFields = ['scaleWithZoom'];
+    setMapLabels((prev) =>
+      prev.map((label) => {
+        if (label.id !== id) return label;
+        let nextValue = value;
+        if (numericFields.includes(field)) {
+          const parsed = Number(value);
+          nextValue = Number.isFinite(parsed) ? parsed : 0;
+        } else if (booleanFields.includes(field)) {
+          nextValue = value === false || value === 'false' ? false : Boolean(value);
+        }
+        if (field === 'fadeInStart' || field === 'fadeInEnd') {
+          const epsilon      = 0.05;
+          const currentStart = field === 'fadeInStart' ? nextValue : label.fadeInStart ?? 2.8;
+          let   currentEnd   = field === 'fadeInEnd'   ? nextValue : label.fadeInEnd   ?? currentStart + 1.2;
+          if (currentEnd <= currentStart + epsilon) {
+            currentEnd = currentStart + epsilon;
+            if (field === 'fadeInEnd') nextValue = currentEnd;
+          }
+          if (field === 'fadeInStart' && nextValue >= currentEnd - epsilon) {
+            nextValue = currentEnd - epsilon;
+          }
+          return {
+            ...label,
+            fadeInStart: field === 'fadeInStart' ? nextValue : currentStart,
+            fadeInEnd:   field === 'fadeInEnd'   ? nextValue : currentEnd,
+          };
+        }
+        return { ...label, [field]: nextValue };
+      })
+    );
+  };
+
+  const handleDeleteLabel = (id) => {
+    setMapLabels((prev) => prev.filter((label) => label.id !== id));
+  };
+
+  // ── Marker placement handlers ────────────────────────────────────────────────
+
+  const handleSelectPaletteItem = (item) => {
+    setSelectedPaletteItem((prev) => {
+      const next = prev && prev.iconKey === item.iconKey ? null : item;
+      setActivePlacementTypeId(next ? next.type : null);
+      return next;
+    });
+  };
+
   const handleSelectPlacementType = (typeId) => {
     setActivePlacementTypeId(typeId);
-    if (typeId) {
-      setSelectedPaletteItem(null);
-    }
+    if (typeId) setSelectedPaletteItem(null);
   };
 
   const handlePlaceMarker = (latlng) => {
@@ -1245,28 +915,89 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
         0
       ) + 1;
     const newLocation = normalizeLocationEntry({
-      id: nextId,
-      name: placementConfig.label ? `New ${placementConfig.label}` : `New ${typeConfig.label}`,
-      type: placementConfig.typeId,
-      iconKey: placementConfig.iconKey,
+      id:          nextId,
+      name:        placementConfig.label ? `New ${placementConfig.label}` : `New ${typeConfig.label}`,
+      type:        placementConfig.typeId,
+      iconKey:     placementConfig.iconKey,
       description: '',
-      category: typeConfig.label,
-      tags: [],
-      regionId: null,
-      lat: latlng.lat,
-      lng: latlng.lng,
+      category:    typeConfig.label,
+      tags:        [],
+      regionId:    null,
+      lat:         latlng.lat,
+      lng:         latlng.lng,
+      createdBy:   user?.username || user?.name || 'unknown',
+      createdAt:   new Date().toISOString(),
     });
     setLocations((prev) => [...prev, newLocation]);
     selectLocation(newLocation.id);
     setEditorSelection({
-      id: newLocation.id,
-      draft: {
-        name: newLocation.name,
-        type: newLocation.type,
-        description: newLocation.description,
-      },
+      id:    newLocation.id,
+      draft: { name: newLocation.name, type: newLocation.type, description: newLocation.description },
     });
   };
+
+  // ── Drag-from-palette-to-map ─────────────────────────────────────────────────
+
+  // Direct placement used by palette drag-and-drop (item is known, not from state)
+  const placeMarkerWithItem = useCallback((latlng, item) => {
+    if (!item) return;
+    const placementConfig = getPlacementConfig({ paletteItem: item, activeTypeId: item.type });
+    if (!placementConfig) return;
+    const typeConfig = getTypeConfig(placementConfig.typeId);
+    const nextId =
+      locations.reduce(
+        (maxId, location) => (typeof location.id === 'number' ? Math.max(maxId, location.id) : maxId),
+        0
+      ) + 1;
+    const newLocation = normalizeLocationEntry({
+      id:          nextId,
+      name:        placementConfig.label ? `New ${placementConfig.label}` : `New ${typeConfig.label}`,
+      type:        placementConfig.typeId,
+      iconKey:     placementConfig.iconKey,
+      description: '',
+      category:    typeConfig.label,
+      tags:        [],
+      regionId:    null,
+      lat:         latlng.lat,
+      lng:         latlng.lng,
+      createdBy:   user?.username || user?.name || 'unknown',
+      createdAt:   new Date().toISOString(),
+    });
+    setLocations((prev) => [...prev, newLocation]);
+    selectLocation(newLocation.id);
+    setEditorSelection({
+      id:    newLocation.id,
+      draft: { name: newLocation.name, type: newLocation.type, description: newLocation.description, lore: '' },
+    });
+  }, [locations, selectLocation]);
+
+  const handleMapDragOver = useCallback((e) => {
+    if (!isEditorMode) return;
+    // Allow drop only when carrying a palette marker
+    if (e.dataTransfer?.types?.includes('application/x-marker')) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    }
+  }, [isEditorMode]);
+
+  const handleMapDrop = useCallback((e) => {
+    if (!isEditorMode || !mapInstance) return;
+    const raw = e.dataTransfer?.getData('application/x-marker');
+    if (!raw) return;
+    e.preventDefault();
+    try {
+      const item = JSON.parse(raw);
+      const rect = mapContainerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const point = L.point(e.clientX - rect.left, e.clientY - rect.top);
+      const latlng = mapInstance.containerPointToLatLng(point);
+      placeMarkerWithItem(latlng, item);
+    } catch {
+      // ignore malformed drag data
+    }
+  }, [isEditorMode, mapInstance, placeMarkerWithItem]);
+
+  // ── JSON import/export ───────────────────────────────────────────────────────
 
   const handleJsonBufferChange = (value) => {
     setJsonBuffer(value);
@@ -1281,22 +1012,18 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
   const handleImportJson = () => {
     try {
       const trimmed = jsonBuffer.trim();
-      if (!trimmed) {
-        throw new Error('Please provide JSON to import.');
-      }
+      if (!trimmed) throw new Error('Please provide JSON to import.');
       const parsed = JSON.parse(trimmed);
-      if (!Array.isArray(parsed)) {
-        throw new Error('JSON must be an array of locations.');
-      }
+      if (!Array.isArray(parsed)) throw new Error('JSON must be an array of locations.');
       const parsedLocations = parsed.map((entry, index) => ({
-        id: typeof entry.id === 'number' ? entry.id : index + 1,
-        name: entry.name ?? `Location ${index + 1}`,
-        type: entry.type ?? 'generic',
+        id:          typeof entry.id === 'number' ? entry.id : index + 1,
+        name:        entry.name        ?? `Location ${index + 1}`,
+        type:        entry.type        ?? 'generic',
         description: entry.description ?? '',
-        lore: entry.lore ?? '',
-        lat: typeof entry.lat === 'number' ? entry.lat : 0,
-        lng: typeof entry.lng === 'number' ? entry.lng : 0,
-        glowColor: entry.glowColor,
+        lore:        entry.lore        ?? '',
+        lat:         typeof entry.lat === 'number' ? entry.lat : 0,
+        lng:         typeof entry.lng === 'number' ? entry.lng : 0,
+        glowColor:   entry.glowColor,
       }));
       const normalized = normalizeLocations(parsedLocations);
       setLocations(normalized);
@@ -1310,36 +1037,38 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
     }
   };
 
+  // ── Server save handlers ─────────────────────────────────────────────────────
+
   const handleServerSave = useCallback(
     async (nextLocations) => {
       if (!user) {
         setSaveWarning('Please sign in again to save changes.');
+        toast.warn('Please sign in again to save changes.');
         return;
       }
       try {
         const response = await fetch(`${API_BASE_URL}/locations/save`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          method:      'POST',
+          headers:     { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ locations: nextLocations }),
+          body:        JSON.stringify({ locations: nextLocations }),
         });
         const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error || 'Failed to save locations.');
-        }
-        skipNextAutoSaveRef.current = true;
-        const normalized = normalizeLocations(data.locations);
+        if (!response.ok) throw new Error(data.error || 'Failed to save locations.');
+        skipNextAutoSaveRef.current  = true;
+        const normalized             = normalizeLocations(data.locations);
         setLocations(normalized);
         lastSavedSnapshotRef.current = JSON.stringify(normalized);
         setSaveWarning('');
+        toast.success(`Map saved — ${normalized.length} locations.`);
       } catch (error) {
         console.error('Unable to save locations', error);
-        setSaveWarning(error.message || 'Unable to save locations right now.');
+        const msg = error.message || 'Unable to save locations right now.';
+        setSaveWarning(msg);
+        toast.error(msg);
       }
     },
-    [user]
+    [user, toast]
   );
 
   const handleRegionSave = useCallback(
@@ -1347,17 +1076,13 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
       if (!user) return;
       try {
         const response = await fetch(`${API_BASE_URL}/regions/save`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          method:      'POST',
+          headers:     { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ regions: nextRegions }),
+          body:        JSON.stringify({ regions: nextRegions }),
         });
         const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error || 'Failed to save regions.');
-        }
+        if (!response.ok) throw new Error(data.error || 'Failed to save regions.');
         const normalized = Array.isArray(data.regions)
           ? data.regions.map(normalizeRegionEntry)
           : [];
@@ -1365,10 +1090,13 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
         lastRegionSnapshotRef.current = JSON.stringify(normalized);
       } catch (error) {
         console.error('Unable to save regions', error);
+        toast.error(error.message || 'Unable to save regions right now.');
       }
     },
-    [user, setRegions]
+    [user, setRegions, toast]
   );
+
+  // ── Editor mode side-effects ─────────────────────────────────────────────────
 
   useEffect(() => {
     if (isEditorMode) {
@@ -1389,6 +1117,19 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
       setIsPlacingLabel(false);
     };
   }, [isEditorMode]);
+
+  // ── Track last mouse position for reliable trash-zone hit detection ──────────
+  // Leaflet's dragend originalEvent.clientX/Y can be 0 on some browsers.
+  // A document-level mousemove listener gives us a reliable fallback.
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      lastMousePosRef.current = { x: e.clientX, y: e.clientY };
+    };
+    document.addEventListener('mousemove', handleMouseMove, { passive: true });
+    return () => document.removeEventListener('mousemove', handleMouseMove);
+  }, []);
+
+  // ── Auto-save: locations ─────────────────────────────────────────────────────
 
   useEffect(() => {
     if (!isEditorMode) {
@@ -1417,17 +1158,14 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
     setSaveWarning('');
 
     if (skipNextAutoSaveRef.current) {
-      skipNextAutoSaveRef.current = false;
+      skipNextAutoSaveRef.current  = false;
       lastSavedSnapshotRef.current = serializedLocations;
       return;
     }
 
     if (serializedLocations === lastSavedSnapshotRef.current) return;
 
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
-
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {
       saveTimeoutRef.current = null;
       handleServerSave(locations);
@@ -1441,14 +1179,13 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
     };
   }, [serializedLocations, isEditorMode, canAutoSave, handleServerSave, locations, user]);
 
+  // ── Auto-save: regions ───────────────────────────────────────────────────────
+
   useEffect(() => {
     if (!canAutoSave || !user) return;
     if (serializedRegions === lastRegionSnapshotRef.current) return;
 
-    if (regionSaveTimeoutRef.current) {
-      clearTimeout(regionSaveTimeoutRef.current);
-    }
-
+    if (regionSaveTimeoutRef.current) clearTimeout(regionSaveTimeoutRef.current);
     regionSaveTimeoutRef.current = setTimeout(() => {
       regionSaveTimeoutRef.current = null;
       handleRegionSave(regions);
@@ -1462,50 +1199,176 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
     };
   }, [serializedRegions, canAutoSave, handleRegionSave, regions, user]);
 
+  // Cleanup timeouts on unmount
   useEffect(() => () => {
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
-    if (regionSaveTimeoutRef.current) {
-      clearTimeout(regionSaveTimeoutRef.current);
-    }
+    if (saveTimeoutRef.current)       clearTimeout(saveTimeoutRef.current);
+    if (regionSaveTimeoutRef.current) clearTimeout(regionSaveTimeoutRef.current);
   }, []);
 
-  const selectedLocation =
-    locations.find((location) => location.id === selectedLocationId) || null;
-  const selectedRegion = regions.find((region) => region.id === activeRegionId) || null;
+  // ── Map interaction side-effects ─────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!mapInstance) return;
+    const syncZoom = () => setMapZoom(mapInstance.getZoom());
+    syncZoom();
+    mapInstance.on('zoom',    syncZoom);
+    mapInstance.on('zoomend', syncZoom);
+    return () => {
+      mapInstance.off('zoom',    syncZoom);
+      mapInstance.off('zoomend', syncZoom);
+    };
+  }, [mapInstance]);
+
+  useEffect(() => {
+    const node = mapContainerRef.current;
+    if (!node) return undefined;
+    const preventCtrlWheel    = (event) => { if (event.ctrlKey) event.preventDefault(); };
+    const preventBrowserZoom  = (event) => {
+      if ((event.ctrlKey || event.metaKey) && ['+', '-', '=', '_', '0'].includes(event.key)) {
+        event.preventDefault();
+      }
+    };
+    const preventGesture = (event) => event.preventDefault();
+    node.addEventListener('wheel', preventCtrlWheel, { passive: false });
+    window.addEventListener('keydown',       preventBrowserZoom, { passive: false });
+    window.addEventListener('gesturestart',  preventGesture,     { passive: false });
+    window.addEventListener('gesturechange', preventGesture,     { passive: false });
+    return () => {
+      node.removeEventListener('wheel', preventCtrlWheel);
+      window.removeEventListener('keydown',       preventBrowserZoom);
+      window.removeEventListener('gesturestart',  preventGesture);
+      window.removeEventListener('gesturechange', preventGesture);
+    };
+  }, []);
+
+  useEffect(() => {
+    // Guard: mapInstance must exist AND Leaflet's internal pane DOM must be ready.
+    // The _panes object is only populated after the map has fully initialised its
+    // container — calling invalidateSize() before that throws "_leaflet_pos" errors.
+    if (!mapInstance?._panes) return;
+    try {
+      mapInstance.invalidateSize();
+    } catch {
+      // Map container not yet ready; will re-run when mapInstance stabilises.
+    }
+  }, [mapInstance, isEditorMode]);
+
+  useEffect(() => {
+    if (!mapInstance?.doubleClickZoom) return;
+    if (isRegionMode) mapInstance.doubleClickZoom.disable();
+    else              mapInstance.doubleClickZoom.enable();
+  }, [isRegionMode, mapInstance]);
+
+  useEffect(() => {
+    if (!isRegionMode) return undefined;
+    const handleKey = (event) => { if (event.key === 'Escape') setIsPlacingLabel(false); };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [isRegionMode]);
+
+  useEffect(() => {
+    if (!mapInstance) return;
+    const handlers = [
+      mapInstance.dragging, mapInstance.scrollWheelZoom, mapInstance.doubleClickZoom,
+      mapInstance.boxZoom,  mapInstance.keyboard,        mapInstance.touchZoom,
+    ];
+    handlers.forEach((handler) => {
+      if (!handler) return;
+      if (isIntroVisible && handler.disable) handler.disable();
+      else if (!isIntroVisible && handler.enable) handler.enable();
+    });
+  }, [mapInstance, isIntroVisible]);
+
+  useEffect(() => {
+    if (!isIntroVisible) return;
+    const preventWheel   = (e) => { if (e.ctrlKey) e.preventDefault(); };
+    const preventKeyZoom = (e) => {
+      if ((e.ctrlKey || e.metaKey) && ['+', '-', '=', '_', '0'].includes(e.key)) e.preventDefault();
+    };
+    const preventGesture = (e) => e.preventDefault();
+    window.addEventListener('wheel',         preventWheel,   { passive: false });
+    window.addEventListener('keydown',       preventKeyZoom, { passive: false });
+    window.addEventListener('gesturestart',  preventGesture, { passive: false });
+    window.addEventListener('gesturechange', preventGesture, { passive: false });
+    return () => {
+      window.removeEventListener('wheel',         preventWheel);
+      window.removeEventListener('keydown',       preventKeyZoom);
+      window.removeEventListener('gesturestart',  preventGesture);
+      window.removeEventListener('gesturechange', preventGesture);
+    };
+  }, [isIntroVisible]);
+
+  const handleIntroFinish = () => {
+    introShownThisSession = true;
+    setIsIntroVisible(false);
+  };
+
+  // ── Loading progress ─────────────────────────────────────────────────────────
+
+  const LOADING_DEBUG       = true;
+  const loadStartTimeRef    = useRef(performance.now());
+  const [loadProgress, setLoadProgress] = useState(0);
+
+  useEffect(() => {
+    if (!isIntroVisible) return;
+    const elapsed = ((performance.now() - loadStartTimeRef.current) / 1000).toFixed(2);
+    if (mapInstance) {
+      if (LOADING_DEBUG) console.log(`[InteractiveMap] mapInstance ready at ${elapsed}s -> 100%`);
+      setLoadProgress(100);
+    } else {
+      let progress = 10;
+      if (Array.isArray(locations)) progress += 20;
+      if (Array.isArray(regions))   progress += 20;
+      if (LOADING_DEBUG) console.log(`[InteractiveMap] Loading at ${elapsed}s: ${progress}%`);
+      setLoadProgress(progress);
+    }
+  }, [isIntroVisible, locations, regions, mapInstance]);
+
+  // ── Derived state ────────────────────────────────────────────────────────────
+
+  const selectedLocation = locations.find((location) => location.id === selectedLocationId) || null;
+  const selectedRegion   = regions.find((region) => region.id === activeRegionId)           || null;
 
   const handleEditorFieldChange = (field, value) => {
     setEditorSelection((prev) => {
       if (!prev) return prev;
-      return {
-        ...prev,
-        draft: {
-          ...prev.draft,
-          [field]: value,
-        },
-      };
+      return { ...prev, draft: { ...prev.draft, [field]: value } };
     });
   };
 
   const handleEditorSave = () => {
     if (!editorSelection) return;
-    setLocations((prev) =>
-      prev.map((location) =>
-        location.id === editorSelection.id
-          ? normalizeLocationEntry({ ...location, ...editorSelection.draft })
-          : location
-      )
+
+    // Build the updated locations array immediately so we can both update
+    // state and pass the same object directly to handleServerSave — no
+    // debounce, no race condition.
+    const updated = locations.map((location) =>
+      location.id === editorSelection.id
+        ? normalizeLocationEntry({ ...location, ...editorSelection.draft })
+        : location
     );
+
+    // Cancel any pending debounce save so it doesn't double-fire.
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+
+    // Pre-set the snapshot so the auto-save effect sees no diff and skips.
+    lastSavedSnapshotRef.current = JSON.stringify(updated);
+
+    setLocations(updated);
     setEditorSelection(null);
-    if (!canAutoSave) {
+
+    if (canAutoSave) {
+      // Save directly — don't rely on the debounce.
+      handleServerSave(updated);
+    } else {
       setSaveWarning('Only approved editors can save changes to the shared map.');
     }
   };
 
-  const handleEditorCancel = () => {
-    setEditorSelection(null);
-  };
+  const handleEditorCancel = () => setEditorSelection(null);
 
   const handleDeleteLocation = () => {
     if (!editorSelection) return;
@@ -1513,17 +1376,31 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
       setSaveWarning('Only approved editors can save changes to the shared map.');
       return;
     }
-    const confirmed = typeof window === 'undefined' ? true : window.confirm('Are you sure you want to delete this location?');
-    if (!confirmed) return;
-    const targetId = editorSelection.id;
-    setLocations((prev) => prev.filter((location) => location.id !== targetId));
-    setEditorSelection(null);
-    if (selectedLocationId === targetId) {
-      selectLocation(null);
-    }
+    const target = locations.find((loc) => loc.id === editorSelection.id);
+    setPendingConfirm({
+      title:   'Delete Location',
+      message: `Delete "${target?.name || 'this location'}" from the map? This cannot be undone.`,
+      onConfirm: () => {
+        const targetId = editorSelection.id;
+        const updated = locations.filter((location) => location.id !== targetId);
+        if (saveTimeoutRef.current) {
+          clearTimeout(saveTimeoutRef.current);
+          saveTimeoutRef.current = null;
+        }
+        lastSavedSnapshotRef.current = JSON.stringify(updated);
+        setLocations(updated);
+        setEditorSelection(null);
+        if (selectedLocationId === targetId) selectLocation(null);
+        setPendingConfirm(null);
+        handleServerSave(updated);
+      },
+    });
   };
 
+  // ── Rendered slot components ─────────────────────────────────────────────────
+
   const editorDraft = editorSelection?.draft ?? null;
+
   const markerPaletteNode = (
     <MarkerPalette
       isEditorMode={isEditorMode}
@@ -1534,6 +1411,7 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
       groupByCategory
     />
   );
+
   const markerToolboxNode = (
     <EditorToolbox
       isEditorMode={isEditorMode}
@@ -1547,9 +1425,14 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
       showTypeButtons={false}
     />
   );
-  const locationEditorNode = isEditorMode ? (
+
+  // Only render the editor form when a marker is actually selected.
+  // Passing null when idle lets EditorSidePanel show its empty-state correctly
+  // and avoids the JSX reference changing on every render (which would break
+  // the useEffect dep array in EditorSidePanel).
+  const locationEditorNode = isEditorMode && editorSelection ? (
     <EditorInfoPanel
-      isOpen={Boolean(editorSelection)}
+      isOpen
       draft={editorDraft}
       onFieldChange={handleEditorFieldChange}
       onSave={handleEditorSave}
@@ -1560,178 +1443,26 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
       onDelete={handleDeleteLocation}
     />
   ) : null;
-  useEffect(() => {
-    if (!mapInstance) return;
-    const syncZoom = () => setMapZoom(mapInstance.getZoom());
-    syncZoom();
-    mapInstance.on('zoom', syncZoom);
-    mapInstance.on('zoomend', syncZoom);
-    return () => {
-      mapInstance.off('zoom', syncZoom);
-      mapInstance.off('zoomend', syncZoom);
-    };
-  }, [mapInstance]);
 
-  useEffect(() => {
-    const node = mapContainerRef.current;
-    if (!node) return undefined;
-    const preventCtrlWheel = (event) => {
-      if (event.ctrlKey) {
-        event.preventDefault();
-      }
-    };
-    const preventBrowserZoomKeys = (event) => {
-      if ((event.ctrlKey || event.metaKey) && ['+', '-', '=', '_', '0'].includes(event.key)) {
-        event.preventDefault();
-      }
-    };
-    const preventGesture = (event) => event.preventDefault();
-
-    node.addEventListener('wheel', preventCtrlWheel, { passive: false });
-    window.addEventListener('keydown', preventBrowserZoomKeys, { passive: false });
-    window.addEventListener('gesturestart', preventGesture, { passive: false });
-    window.addEventListener('gesturechange', preventGesture, { passive: false });
-
-    return () => {
-      node.removeEventListener('wheel', preventCtrlWheel);
-      window.removeEventListener('keydown', preventBrowserZoomKeys);
-      window.removeEventListener('gesturestart', preventGesture);
-      window.removeEventListener('gesturechange', preventGesture);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!mapInstance) return;
-    mapInstance.invalidateSize();
-  }, [mapInstance, isEditorMode]);
-
-  useEffect(() => {
-    if (!mapInstance || !mapInstance.doubleClickZoom) return;
-    if (isRegionMode) {
-      mapInstance.doubleClickZoom.disable();
-    } else {
-      mapInstance.doubleClickZoom.enable();
-    }
-  }, [isRegionMode, mapInstance]);
-
-  useEffect(() => {
-    if (!isRegionMode) return undefined;
-    const handleKey = (event) => {
-      if (event.key === 'Escape') {
-        setIsPlacingLabel(false);
-      }
-    };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, [isRegionMode]);
-
-  useEffect(() => {
-    if (!mapInstance) return;
-    const handlers = [
-      mapInstance.dragging,
-      mapInstance.scrollWheelZoom,
-      mapInstance.doubleClickZoom,
-      mapInstance.boxZoom,
-      mapInstance.keyboard,
-      mapInstance.touchZoom,
-    ];
-    handlers.forEach((handler) => {
-      if (!handler) return;
-      if (isIntroVisible && handler.disable) {
-        handler.disable();
-      } else if (!isIntroVisible && handler.enable) {
-        handler.enable();
-      }
-    });
-  }, [mapInstance, isIntroVisible]);
-
-  useEffect(() => {
-    if (!isIntroVisible) return;
-
-    const preventWheelZoom = (event) => {
-      if (event.ctrlKey) {
-        event.preventDefault();
-      }
-    };
-
-    const preventKeyZoom = (event) => {
-      if (
-        (event.ctrlKey || event.metaKey) &&
-        ['+', '-', '=', '_', '0'].includes(event.key)
-      ) {
-        event.preventDefault();
-      }
-    };
-
-    const preventGesture = (event) => {
-      event.preventDefault();
-    };
-
-    window.addEventListener('wheel', preventWheelZoom, { passive: false });
-    window.addEventListener('keydown', preventKeyZoom, { passive: false });
-    window.addEventListener('gesturestart', preventGesture, { passive: false });
-    window.addEventListener('gesturechange', preventGesture, { passive: false });
-
-    return () => {
-      window.removeEventListener('wheel', preventWheelZoom);
-      window.removeEventListener('keydown', preventKeyZoom);
-      window.removeEventListener('gesturestart', preventGesture);
-      window.removeEventListener('gesturechange', preventGesture);
-    };
-  }, [isIntroVisible]);
-
-  const handleIntroFinish = () => {
-    introShownThisSession = true;
-    setIsIntroVisible(false);
-  };
-
-  // ============================================================================
-  // LOADING STATE TRACKING (REAL PROGRESS)
-  // ============================================================================
-  // Set to true to see loading condition diagnostics in console
-  const LOADING_DEBUG = true;
-  const loadStartTimeRef = useRef(performance.now());
-  const [loadProgress, setLoadProgress] = useState(0);
-
-  useEffect(() => {
-    if (!isIntroVisible) return;
-
-    const elapsed = ((performance.now() - loadStartTimeRef.current) / 1000).toFixed(2);
-    
-    // Calculate progress based on what's actually loaded
-    // mapInstance is the main indicator - once it's ready, we're mostly done
-    if (mapInstance) {
-      // Map is initialized - that's 100% for practical purposes
-      if (LOADING_DEBUG) {
-        console.log(`[InteractiveMap] ✅ mapInstance ready at ${elapsed}s → 100%`);
-      }
-      setLoadProgress(100);
-    } else {
-      // Map not ready yet - show partial progress
-      let currentProgress = 10; // Start at 10% to show activity
-      
-      // Data contexts ready adds progress
-      if (Array.isArray(locations)) currentProgress += 20;
-      if (Array.isArray(regions)) currentProgress += 20;
-      
-      if (LOADING_DEBUG) {
-        console.log(`[InteractiveMap] Loading at ${elapsed}s:`, {
-          mapInstance: !!mapInstance,
-          locationsReady: Array.isArray(locations),
-          regionsReady: Array.isArray(regions),
-          progress: currentProgress
-        });
-      }
-      
-      setLoadProgress(currentProgress);
-    }
-  }, [isIntroVisible, locations, regions, mapInstance]);
+  // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
     <div className={`map-wrapper ${isIntroVisible ? 'map-wrapper--locked' : ''}`}>
       <div className="map-layout">
         <div className="map-layout__canvas">
-          <div className="map-container-wrapper" ref={mapContainerRef}>
+          <div
+            className="map-container-wrapper"
+            ref={mapContainerRef}
+            onDragOver={handleMapDragOver}
+            onDrop={handleMapDrop}
+          >
+            {/* Trash zone — shown when a map marker is being dragged */}
+            {showTrashZone && (
+              <div ref={trashZoneRef} className="marker-trash-zone">
+                <span className="marker-trash-zone__icon">🗑</span>
+                <span className="marker-trash-zone__label">Drop to delete</span>
+              </div>
+            )}
             <MapContainer
               key={`map-${isEditorMode ? 'edit' : 'view'}`}
               center={center}
@@ -1764,11 +1495,7 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
                 keepBuffer={6}
               />
               <MapInstanceProvider onMapReady={setMapInstance} />
-              <BoundsEnforcer
-                bounds={MAP_BOUNDS}
-                enabled={!isEditorMode}
-                debug={true}
-              />
+              <BoundsEnforcer bounds={MAP_BOUNDS} enabled={!isEditorMode} debug={true} />
               <EditorPlacementHandler
                 isEnabled={
                   isEditorMode &&
@@ -1790,6 +1517,7 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
               />
               <KeyboardControls />
               <ZoomControls />
+
               {filteredLocations.map((location) => (
                 <LocationMarker
                   key={location.id}
@@ -1797,11 +1525,13 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
                   onLocationClick={handleLocationClick}
                   isSelected={selectedLocation && selectedLocation.id === location.id}
                   isEditorMode={isEditorMode}
+                  onDragStart={handleMarkerDragStart}
                   onDragEnd={handleMarkerDragEnd}
                   zoomLevel={mapZoom}
                   resolveIcon={resolveMarkerIcon}
                 />
               ))}
+
               <LabelLayer
                 labels={isEditorMode ? mapLabels : showMapLabels ? mapLabels : []}
                 zoomLevel={mapZoom}
@@ -1908,12 +1638,15 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
         )}
       </div>
 
-      {selectedLocation && (
+      {/* In view mode, show the read-only side panel */}
+      {!isEditorMode && selectedLocation && (
         <SidePanel
           location={selectedLocation}
           onClose={handleClosePanel}
         />
       )}
+      {/* In editor mode, render the edit form as a fixed overlay on the right */}
+      {isEditorMode && locationEditorNode}
       {isIntroVisible && (
         <IntroLoadingScreen
           onFinish={handleIntroFinish}
@@ -1945,38 +1678,18 @@ function InteractiveMap({ isEditorMode = false, filtersOpen = false, onToggleFil
           setParticleFilters((prev) => ({ ...prev, [key]: value }))
         }
       />
+      <ConfirmModal
+        isOpen={Boolean(pendingConfirm)}
+        title={pendingConfirm?.title}
+        message={pendingConfirm?.message}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        danger
+        onConfirm={pendingConfirm?.onConfirm}
+        onCancel={() => setPendingConfirm(null)}
+      />
     </div>
   );
 }
 
 export default InteractiveMap;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

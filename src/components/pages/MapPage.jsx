@@ -1,17 +1,27 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useLocationData } from '../../context/LocationDataContext';
+import { useAuth } from '../../context/AuthContext';
 import InteractiveMap from '../map/InteractiveMap';
+import Timeline from '../map/Timeline';
 import './MapPage.css';
 
+const TIMELINE_MIN = 0;
+const TIMELINE_MAX = 1000;
+
 export default function MapPage() {
-  const [isEditorMode, setIsEditorMode] = useState(false);
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [isEditorMode,   setIsEditorMode]   = useState(false);
+  const [filtersOpen,    setFiltersOpen]    = useState(false);
+  const [currentYear,    setCurrentYear]    = useState(500);
+  const [timelineActive, setTimelineActive] = useState(false);
 
-  const toggleEditorMode = () => {
-    setIsEditorMode((prev) => !prev);
-  };
+  const { locations } = useLocationData();
+  const { role } = useAuth();
+  const canEdit = ['player', 'editor', 'admin'].includes(role);
 
-  const toggleFilters = () => setFiltersOpen((prev) => !prev);
+  const toggleEditorMode = () => setIsEditorMode((prev) => !prev);
+  const toggleFilters    = () => setFiltersOpen((prev) => !prev);
+  const toggleTimeline   = () => setTimelineActive((prev) => !prev);
 
   return (
     <div className="map-page map-page--full">
@@ -27,14 +37,16 @@ export default function MapPage() {
           <Link to="/about#map" className="map-link">
             About this map
           </Link>
-          <button
-            type="button"
-            className={`editor-toggle ${isEditorMode ? 'editor-toggle--active' : ''}`}
-            onClick={toggleEditorMode}
-            aria-pressed={isEditorMode}
-          >
-            {isEditorMode ? 'Editing mode' : 'View mode'}
-          </button>
+          {canEdit && (
+            <button
+              type="button"
+              className={`editor-toggle ${isEditorMode ? 'editor-toggle--active' : ''}`}
+              onClick={toggleEditorMode}
+              aria-pressed={isEditorMode}
+            >
+              {isEditorMode ? 'Editing mode' : 'View mode'}
+            </button>
+          )}
           <button
             type="button"
             className="map-filter-toggle"
@@ -52,8 +64,20 @@ export default function MapPage() {
             isEditorMode={isEditorMode}
             filtersOpen={filtersOpen}
             onToggleFilters={toggleFilters}
+            currentYear={currentYear}
+            timelineActive={timelineActive}
           />
         </div>
+        <Timeline
+          currentYear={currentYear}
+          onYearChange={setCurrentYear}
+          timelineActive={timelineActive}
+          onToggle={toggleTimeline}
+          locations={locations}
+          isEditorMode={isEditorMode}
+          minYear={TIMELINE_MIN}
+          maxYear={TIMELINE_MAX}
+        />
       </div>
     </div>
   );

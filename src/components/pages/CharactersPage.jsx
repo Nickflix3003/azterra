@@ -1,10 +1,38 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import characters from '../../data/characters_heroes';
+import staticCharacters from '../../data/characters_heroes';
 import '../UI/PageUI.css';
 import ShaderBackgroundDualCrossfade from '../visuals/ShaderBackgroundDualCrossfade';
 import CardShader from '../visuals/CardShader';
 import CharacterCard from '../cards/CharacterCard';
 import CharacterDetailView from './CharacterDetailView';
+
+// Merge live server data (editable fields) over static data (colors + sheets).
+// Falls back to static-only if the API is unavailable.
+function mergeHeroes(staticList, liveList) {
+  if (!liveList || liveList.length === 0) return staticList;
+  return staticList.map((s) => {
+    const live = liveList.find((l) => l.id === s.id);
+    if (!live) return s;
+    // Live wins for all editable text fields; static keeps color + sheet
+    return {
+      ...s,
+      name:           live.name           ?? s.name,
+      title:          live.title          ?? s.title,
+      player:         live.player         ?? s.player,
+      race:           live.race           ?? s.race,
+      class:          live.class          ?? s.class,
+      subclass:       live.subclass       ?? s.subclass,
+      alignment:      live.alignment      ?? s.alignment,
+      level:          live.level          ?? s.level,
+      hp:             live.hp             ?? s.hp,
+      ac:             live.ac             ?? s.ac,
+      speed:          live.speed          ?? s.speed,
+      notes:          live.notes          ?? s.notes,
+      lore:           live.lore           ?? s.lore,
+      profilePicture: live.profilePicture ?? s.profilePicture,
+    };
+  });
+}
 
 // Card class for carousel
 const getCardClass = (index, activeIndex, total) => {
@@ -21,8 +49,22 @@ const getCardClass = (index, activeIndex, total) => {
 };
 
 export default function CharactersPage() {
-  const [currentColor, setCurrentColor] = useState(characters[0].color);
-  const [targetColor, setTargetColor] = useState(characters[0].color);
+  const [characters, setCharacters] = useState(staticCharacters);
+
+  // Load live server data and merge with static
+  useEffect(() => {
+    fetch('/api/heroes', { credentials: 'include' })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data?.heroes) {
+          setCharacters(mergeHeroes(staticCharacters, data.heroes));
+        }
+      })
+      .catch(() => { /* silently keep static data */ });
+  }, []);
+
+  const [currentColor, setCurrentColor] = useState(staticCharacters[0].color);
+  const [targetColor, setTargetColor] = useState(staticCharacters[0].color);
   const [fade, setFade] = useState(0);
   const animationRef = useRef();
 

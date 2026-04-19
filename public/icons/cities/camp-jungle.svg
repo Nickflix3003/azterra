@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <defs>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="rgba(0,0,0,0.6)"/>
+    </filter>
+  </defs>
+  <!-- Outer ring -->
+  <circle cx="24" cy="24" r="22" fill="#0D1526" stroke="#86EFAC" stroke-width="2.5" filter="url(#shadow)"/>
+  <!-- Inner background -->
+  <circle cx="24" cy="24" r="18" fill="#14532D" opacity="0.25"/>
+  <!-- Icon shape -->
+  <path d="M24 10L14 32h20L24 10zm0 6l6 14h-12l6-14zM18 34v2h12v-2H18z" fill="#86EFAC" filter="url(#glow)"/>
+</svg>

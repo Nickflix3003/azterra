@@ -1,51 +1,61 @@
+/**
+ * entities.js — API for NPCs (and future entity types).
+ *
+ * After migration to Supabase the "npcs" entity type hits the `npcs` table.
+ * The "players" and "majors" types are not yet in the DB schema; they fall
+ * through to a 400 response, same as an unknown type did before.
+ */
+
 import { Router } from 'express';
-import fs from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { adminRequired, authRequired } from './utils.js';
+import { adminRequired, authRequired, editorRequired } from './utils.js';
+import { db, throwIfError } from './db.js';
 
 const router = Router();
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const DATA_DIR = path.join(__dirname, 'data');
 
-const FILES = {
-  players: 'playerCharacters.json',
-  npcs: 'npcs.json',
-  majors: 'majorEntities.json',
-};
+// Only "npcs" is backed by Supabase; other types are not yet migrated
+const SUPABASE_TYPES = new Set(['npcs']);
 
-async function ensureFile(file) {
-  if (!existsSync(DATA_DIR)) {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-  }
-  const target = path.join(DATA_DIR, file);
-  if (!existsSync(target)) {
-    await fs.writeFile(target, JSON.stringify([], null, 2));
-  }
-  return target;
+// ── DB helpers ────────────────────────────────────────────────────────────────
+
+function rowToNpc(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description || '',
+    type: row.type || 'Unknown',
+    campaign: row.campaign || 'Main',
+    regionId: row.region_id || null,
+    markerId: row.marker_id || null,
+    locationId: row.location_id || null,
+    secretId: row.secret_id || null,
+    image: row.image || '',
+    visible: row.visible ?? true,
+    role: row.role || 'NPC',
+    blurb: row.blurb || '',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    createdBy: row.created_by || null,
+    updatedBy: row.updated_by || null,
+  };
 }
 
-async function readFileByType(type) {
-  const filename = FILES[type];
-  if (!filename) return [];
-  const target = await ensureFile(filename);
-  try {
-    const raw = await fs.readFile(target, 'utf-8');
-    const data = JSON.parse(raw);
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
-  }
-}
-
-async function writeFileByType(type, data) {
-  const filename = FILES[type];
-  if (!filename) return;
-  const target = await ensureFile(filename);
-  await fs.writeFile(target, JSON.stringify(data, null, 2));
+function npcToRow(payload, actor) {
+  return {
+    name: payload.name || 'Untitled',
+    description: payload.description || '',
+    type: payload.entityType || payload.type || 'Unknown',
+    campaign: payload.campaign || 'Main',
+    region_id: payload.regionId || null,
+    marker_id: payload.markerId || null,
+    location_id: payload.locationId || null,
+    secret_id: payload.secretId || null,
+    image: payload.image || '',
+    visible: payload.visible !== false,
+    role: payload.role || 'NPC',
+    blurb: payload.blurb || '',
+    updated_by: actor || null,
+  };
 }
 
 function sanitize(item) {
@@ -53,54 +63,162 @@ function sanitize(item) {
   return rest;
 }
 
+// ── Routes ────────────────────────────────────────────────────────────────────
+
+// GET /api/entities/:type
 router.get('/:type', async (req, res) => {
   const { type } = req.params;
-  const items = await readFileByType(type);
-  const isAdmin = req.user?.role === 'admin';
-  const visible = isAdmin ? items : items.filter((i) => i.visible !== false);
-  return res.json({ items: visible.map((entry) => (isAdmin ? entry : sanitize(entry))) });
+
+  if (!SUPABASE_TYPES.has(type)) {
+    return res.status(400).json({ error: `Unknown entity type: ${type}` });
+  }
+
+  try {
+    const { data, error } = await db().from('npcs').select('*').order('created_at');
+    throwIfError(error, `entities GET /${type}`);
+
+    const isAdmin = req.user?.role === 'admin';
+    const items = (data || []).map(rowToNpc);
+    const visible = isAdmin ? items : items.filter((i) => i.visible !== false);
+    return res.json({ items: visible.map((entry) => (isAdmin ? entry : sanitize(entry))) });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Unable to load entities.' });
+  }
 });
 
-router.post('/:type/save', authRequired, adminRequired, async (req, res) => {
+// POST /api/entities/:type/save — upsert a single entity
+router.post('/:type/save', authRequired, editorRequired, async (req, res) => {
   const { type } = req.params;
+  if (!SUPABASE_TYPES.has(type)) {
+    return res.status(400).json({ error: `Unknown entity type: ${type}` });
+  }
+
+  const actor = req.user?.username || req.user?.name || 'unknown';
   const payload = req.body || {};
-  const items = await readFileByType(type);
-  let updated = null;
-  if (payload.id) {
-    const idx = items.findIndex((entry) => entry.id === payload.id);
-    if (idx !== -1) {
-      items[idx] = { ...items[idx], ...payload };
-      updated = items[idx];
+
+  try {
+    if (payload.id) {
+      // Update existing
+      const row = {
+        ...npcToRow(payload, actor),
+        id: payload.id,
+      };
+      const { data: existing, error: fetchErr } = await db()
+        .from('npcs')
+        .select('created_by, created_at')
+        .eq('id', payload.id)
+        .maybeSingle();
+      throwIfError(fetchErr, 'entities save fetch');
+
+      if (existing) {
+        row.created_by = existing.created_by || actor;
+        const { data, error } = await db()
+          .from('npcs')
+          .update(row)
+          .eq('id', payload.id)
+          .select()
+          .single();
+        throwIfError(error, 'entities save update');
+        const updated = rowToNpc(data);
+        const { data: allData, error: allErr } = await db().from('npcs').select('*').order('created_at');
+        throwIfError(allErr, 'entities save fetch all');
+        return res.json({ item: updated, items: (allData || []).map(rowToNpc) });
+      }
     }
-  }
-  if (!updated) {
-    updated = {
-      id: randomUUID(),
-      name: payload.name || 'Untitled',
-      description: payload.description || '',
-      type: payload.entityType || payload.type || '',
-      campaign: payload.campaign || 'Main',
-      regionId: payload.regionId || null,
-      markerId: payload.markerId || null,
-      image: payload.image || '',
-      visible: payload.visible !== false,
-      createdAt: new Date().toISOString(),
+
+    // Insert new
+    const row = {
+      ...npcToRow(payload, actor),
+      id: payload.id || randomUUID(),
+      created_by: actor,
     };
-    items.push(updated);
+    const { data, error } = await db().from('npcs').insert(row).select().single();
+    throwIfError(error, 'entities save insert');
+    const inserted = rowToNpc(data);
+    const { data: allData, error: allErr } = await db().from('npcs').select('*').order('created_at');
+    throwIfError(allErr, 'entities save fetch all');
+    return res.json({ item: inserted, items: (allData || []).map(rowToNpc) });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Unable to save entity.' });
   }
-  await writeFileByType(type, items);
-  return res.json({ item: updated, items });
 });
 
+// POST /api/entities/:type/visibility — toggle visibility (admin)
 router.post('/:type/visibility', authRequired, adminRequired, async (req, res) => {
   const { type } = req.params;
+  if (!SUPABASE_TYPES.has(type)) {
+    return res.status(400).json({ error: `Unknown entity type: ${type}` });
+  }
+
   const { id, visible } = req.body || {};
-  const items = await readFileByType(type);
-  const idx = items.findIndex((entry) => entry.id === id);
-  if (idx === -1) return res.status(404).json({ error: 'Not found.' });
-  items[idx].visible = !!visible;
-  await writeFileByType(type, items);
-  return res.json({ item: items[idx] });
+  try {
+    const { data, error } = await db()
+      .from('npcs')
+      .update({ visible: !!visible })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error?.code === 'PGRST116') return res.status(404).json({ error: 'Not found.' });
+    throwIfError(error, 'entities visibility');
+    return res.json({ item: rowToNpc(data) });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Unable to update visibility.' });
+  }
+});
+
+// PATCH /api/entities/:type/:id
+router.patch('/:type/:id', authRequired, editorRequired, async (req, res) => {
+  const { type, id } = req.params;
+  if (!SUPABASE_TYPES.has(type)) {
+    return res.status(400).json({ error: `Unknown entity type: ${type}` });
+  }
+
+  const actor = req.user?.username || req.user?.name || 'unknown';
+  try {
+    const { data: existing, error: fetchErr } = await db()
+      .from('npcs')
+      .select('created_by, created_at')
+      .eq('id', id)
+      .maybeSingle();
+    throwIfError(fetchErr, 'entities PATCH fetch');
+    if (!existing) return res.status(404).json({ error: 'Not found.' });
+
+    const row = {
+      ...npcToRow({ ...req.body }, actor),
+      created_by: existing.created_by || actor,
+    };
+    const { data, error } = await db()
+      .from('npcs')
+      .update(row)
+      .eq('id', id)
+      .select()
+      .single();
+    throwIfError(error, 'entities PATCH update');
+    return res.json({ item: rowToNpc(data) });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Unable to update entity.' });
+  }
+});
+
+// DELETE /api/entities/:type/:id — admin only
+router.delete('/:type/:id', authRequired, adminRequired, async (req, res) => {
+  const { type, id } = req.params;
+  if (!SUPABASE_TYPES.has(type)) {
+    return res.status(400).json({ error: `Unknown entity type: ${type}` });
+  }
+
+  try {
+    const { error } = await db().from('npcs').delete().eq('id', id);
+    throwIfError(error, 'entities DELETE');
+    return res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Unable to delete entity.' });
+  }
 });
 
 export default router;

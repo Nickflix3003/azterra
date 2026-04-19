@@ -2,11 +2,11 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
 
 const MapEffectsContext = createContext({
-  cloudsEnabled: true,
-  fogEnabled: true,
+  cloudsEnabled: false,
+  fogEnabled: false,
   vignetteEnabled: true,
   heatmapMode: 'none',
-  intensities: { clouds: 0.9, fog: 0.9, vignette: 1 },
+  intensities: { clouds: 0.5, fog: 0.3, vignette: 0.45 },
   setCloudsEnabled: () => {},
   setFogEnabled: () => {},
   setVignetteEnabled: () => {},
@@ -15,11 +15,11 @@ const MapEffectsContext = createContext({
 });
 
 export function MapEffectsProvider({ children }) {
-  const [cloudsEnabled, setCloudsEnabled] = useState(true);
-  const [fogEnabled, setFogEnabled] = useState(true);
+  const [cloudsEnabled, setCloudsEnabled] = useState(false);
+  const [fogEnabled, setFogEnabled] = useState(false);
   const [vignetteEnabled, setVignetteEnabled] = useState(true);
   const [heatmapMode, setHeatmapMode] = useState('none');
-  const [intensities, setIntensities] = useState({ clouds: 0.9, fog: 0.9, vignette: 1 });
+  const [intensities, setIntensities] = useState({ clouds: 0.5, fog: 0.3, vignette: 0.45 });
 
   const setIntensity = (key, value) => {
     setIntensities((prev) => ({ ...prev, [key]: value }));

@@ -1,12 +1,99 @@
 [
-  { "id": 1, "name": "Seren the Scout", "role": "NPC", "type": "Scout", "blurb": "A sharp-eyed ranger who guides travelers.", "locationId": 4 },
-  { "id": 2, "name": "Brother Caldus", "role": "NPC", "type": "Cleric", "blurb": "Keeps quiet notes on every pilgrim.", "locationId": 3 },
-  { "id": 3, "name": "Verrik the Scribe", "role": "NPC", "type": "Scribe", "blurb": "Maintains the chronicle of deeds.", "locationId": 6 },
-  { "id": 4, "name": "Captain Lyra", "role": "NPC", "type": "Captain", "blurb": "Commands the watch in the harbor.", "locationId": 8 },
-  { "id": 5, "name": "Mira of the Veil", "role": "NPC", "type": "Seer", "blurb": "Speaks in half-hidden prophecies.", "locationId": 8 },
-  { "id": 6, "name": "Keeper of the Ember Vault", "role": "NPC", "type": "Guardian", "blurb": "Stands watch over a chamber of auroral embers.", "secretId": "aurora-ember", "locationId": 6 },
-  { "id": 7, "name": "Archivist of Silence", "role": "NPC", "type": "Scholar", "blurb": "Holds the keys to a silent archive beneath the stacks.", "secretId": "silent-archive", "locationId": 3 },
-  { "id": 8, "name": "Gilded Horizon Herald", "role": "NPC", "type": "Messenger", "blurb": "Arrives only when the horizon shines gold.", "secretId": "gilded-horizon", "locationId": 4 },
-  { "id": 9, "name": "Amber Custodian", "role": "NPC", "type": "Warden", "blurb": "Guards letters sealed in amber light.", "secretId": "amber-archive", "locationId": 6 },
-  { "id": 10, "name": "Whisper from the Shadow Court", "role": "NPC", "type": "Agent", "blurb": "A veiled envoy from the Shadow Court.", "secretId": "shadow-court", "locationId": 4 }
+  {
+    "id": 1,
+    "name": "Seren the Scout",
+    "role": "NPC",
+    "type": "Scout",
+    "blurb": "A sharp-eyed ranger who guides travelers.",
+    "locationId": 4
+  },
+  {
+    "id": 2,
+    "name": "Brother Caldus",
+    "role": "NPC",
+    "type": "Cleric",
+    "blurb": "Keeps quiet notes on every pilgrim.",
+    "locationId": 3
+  },
+  {
+    "id": 3,
+    "name": "Verrik the Scribe",
+    "role": "NPC",
+    "type": "Scribe",
+    "blurb": "Maintains the chronicle of deeds.",
+    "locationId": 6
+  },
+  {
+    "id": 4,
+    "name": "Captain Lyra",
+    "role": "NPC",
+    "type": "Captain",
+    "blurb": "Commands the watch in the harbor.",
+    "locationId": 8
+  },
+  {
+    "id": 5,
+    "name": "Mira of the Veil",
+    "role": "NPC",
+    "type": "Seer",
+    "blurb": "Speaks in half-hidden prophecies.",
+    "locationId": 8
+  },
+  {
+    "id": 6,
+    "name": "Keeper of the Ember Vault",
+    "role": "NPC",
+    "type": "Guardian",
+    "blurb": "Stands watch over a chamber of auroral embers.",
+    "secretId": "aurora-ember",
+    "locationId": 6
+  },
+  {
+    "id": 7,
+    "name": "Archivist of Silence",
+    "role": "NPC",
+    "type": "Scholar",
+    "blurb": "Holds the keys to a silent archive beneath the stacks.",
+    "secretId": "silent-archive",
+    "locationId": 3
+  },
+  {
+    "id": 8,
+    "name": "Gilded Horizon Herald",
+    "role": "NPC",
+    "type": "Messenger",
+    "blurb": "Arrives only when the horizon shines gold.",
+    "secretId": "gilded-horizon",
+    "locationId": 4
+  },
+  {
+    "id": 9,
+    "name": "Amber Custodian",
+    "role": "NPC",
+    "type": "Warden",
+    "blurb": "Guards letters sealed in amber light.",
+    "secretId": "amber-archive",
+    "locationId": 6
+  },
+  {
+    "id": 10,
+    "name": "Whisper from the Shadow Court",
+    "role": "NPC",
+    "type": "Agent",
+    "blurb": "A veiled envoy from the Shadow Court.",
+    "secretId": "shadow-court",
+    "locationId": 4
+  },
+  {
+    "id": "9c1299b4-3fdc-42e2-b657-861b02d5428c",
+    "name": "New NPC",
+    "description": "",
+    "type": "Unknown",
+    "campaign": "Main",
+    "regionId": null,
+    "markerId": null,
+    "image": "",
+    "visible": true,
+    "createdAt": "2026-04-18T18:43:44.418Z"
+  }
 ]

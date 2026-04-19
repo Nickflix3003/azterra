@@ -3,26 +3,67 @@ import { useAuth } from '../../context/AuthContext';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
+const ROLE_CONFIG = {
+  admin:   { label: 'Admin',   color: '#ffd700', bg: 'rgba(255,215,0,0.12)',   border: 'rgba(255,215,0,0.4)'   },
+  editor:  { label: 'Editor',  color: '#7dd3fc', bg: 'rgba(125,211,252,0.1)',  border: 'rgba(125,211,252,0.35)' },
+  pending: { label: 'Pending', color: '#fca5a5', bg: 'rgba(252,165,165,0.1)',  border: 'rgba(252,165,165,0.35)' },
+  guest:   { label: 'Guest',   color: '#a8a29e', bg: 'rgba(168,162,158,0.1)', border: 'rgba(168,162,158,0.3)'  },
+};
+
+function SecretModal({ secret, onClose }) {
+  useEffect(() => {
+    const handler = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  return (
+    <div className="secret-modal-overlay" onClick={onClose}>
+      <div className="secret-modal" onClick={(e) => e.stopPropagation()}>
+        <button className="secret-modal__close" onClick={onClose} aria-label="Close">✕</button>
+        <div className="secret-modal__icon">🔓</div>
+        <p className="secret-modal__eyebrow">Secret Unlocked</p>
+        <h2 className="secret-modal__title">{secret.title}</h2>
+        <p className="secret-modal__desc">{secret.description}</p>
+        <div className="secret-modal__footer">
+          <span className="secret-list__badge">Unlocked</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AccountSettingsPage() {
   const { user, role, updateAccount, refreshUser } = useAuth();
-  const [username, setUsername] = useState('');
+
+  // Profile fields
+  const [username, setUsername]         = useState('');
   const [profilePicture, setProfilePicture] = useState('');
-  const [bio, setBio] = useState('');
-  const [labelOne, setLabelOne] = useState('');
-  const [labelTwo, setLabelTwo] = useState('');
-  const [documents, setDocuments] = useState([]);
-  const [saving, setSaving] = useState(false);
+  const [bio, setBio]                   = useState('');
+  const [labelOne, setLabelOne]         = useState('');
+  const [labelTwo, setLabelTwo]         = useState('');
+  const [documents, setDocuments]       = useState([]);
+
+  // Save state
+  const [saving, setSaving]       = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
-  const [error, setError] = useState('');
-  const [uploading, setUploading] = useState(false);
+  const [saveError, setSaveError]   = useState('');
+
+  // File upload state
+  const [uploading, setUploading]   = useState(false);
   const [uploadError, setUploadError] = useState('');
 
-  const [phrase, setPhrase] = useState('');
-  const [unlocking, setUnlocking] = useState(false);
+  // Secrets state
+  const [phrase, setPhrase]               = useState('');
+  const [unlocking, setUnlocking]         = useState(false);
   const [progressLoading, setProgressLoading] = useState(false);
   const [progressError, setProgressError] = useState('');
   const [_unlockedSecrets, setUnlockedSecrets] = useState([]);
   const [secretDetails, setSecretDetails] = useState([]);
+  const [expandedSecret, setExpandedSecret] = useState(null);
+
+  // Image preview validity
+  const [imgError, setImgError] = useState(false);
 
   useEffect(() => {
     setUsername(user?.username || '');
@@ -31,10 +72,14 @@ function AccountSettingsPage() {
     setLabelOne(user?.profile?.labelOne || '');
     setLabelTwo(user?.profile?.labelTwo || '');
     setDocuments(Array.isArray(user?.profile?.documents) ? user.profile.documents : []);
+    setImgError(false);
   }, [user]);
 
+  // Reset imgError when URL changes
+  useEffect(() => { setImgError(false); }, [profilePicture]);
+
   const avatarFallback = useMemo(() => {
-    const seed = user?.username || user?.googleName || user?.name || user?.email || '?';
+    const seed = user?.username || user?.name || user?.email || '?';
     return seed.charAt(0).toUpperCase();
   }, [user]);
 
@@ -48,11 +93,9 @@ function AccountSettingsPage() {
     setProgressLoading(true);
     setProgressError('');
     try {
-      const response = await fetch(`${API_BASE_URL}/secrets/progress`, { credentials: 'include' });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Unable to load secret progress.');
-      }
+      const res = await fetch(`${API_BASE_URL}/secrets/progress`, { credentials: 'include' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Unable to load secret progress.');
       setUnlockedSecrets(data.unlocked || []);
       setSecretDetails(data.details || []);
     } catch (err) {
@@ -62,9 +105,7 @@ function AccountSettingsPage() {
     }
   };
 
-  useEffect(() => {
-    fetchProgress();
-  }, [user]);
+  useEffect(() => { fetchProgress(); }, [user]);
 
   if (!user) {
     return (
@@ -75,24 +116,23 @@ function AccountSettingsPage() {
     );
   }
 
-  const handleSave = async (event) => {
-    event.preventDefault();
+  const roleConfig = ROLE_CONFIG[role] || ROLE_CONFIG.guest;
+
+  const handleSave = async (e) => {
+    e.preventDefault();
     setSaving(true);
     setSaveMessage('');
-    setError('');
+    setSaveError('');
     try {
       await updateAccount({
         username,
         profilePicture,
-        profile: {
-          bio,
-          labelOne,
-          labelTwo,
-        },
+        profile: { bio, labelOne, labelTwo },
       });
-      setSaveMessage('Account updated.');
+      setSaveMessage('Saved successfully.');
+      setTimeout(() => setSaveMessage(''), 3000);
     } catch (err) {
-      setError(err.message || 'Unable to update account.');
+      setSaveError(err.message || 'Unable to update account.');
     } finally {
       setSaving(false);
     }
@@ -103,24 +143,20 @@ function AccountSettingsPage() {
     setSaveMessage('');
   };
 
-  const handleUnlock = async (event) => {
-    event.preventDefault();
+  const handleUnlock = async (e) => {
+    e.preventDefault();
     if (!phrase.trim()) return;
     setUnlocking(true);
     setProgressError('');
     try {
-      const response = await fetch(`${API_BASE_URL}/secrets/unlock`, {
+      const res = await fetch(`${API_BASE_URL}/secrets/unlock`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ phrase }),
       });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Unable to check secret.');
-      }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Unable to check secret.');
       setUnlockedSecrets(data.unlocked || []);
       setSecretDetails(data.details || []);
       setPhrase('');
@@ -132,26 +168,24 @@ function AccountSettingsPage() {
     }
   };
 
-  const handleUpload = async (event) => {
-    const files = Array.from(event.target.files || []);
+  const handleUpload = async (e) => {
+    const files = Array.from(e.target.files || []);
     if (!files.length || !user) return;
     setUploading(true);
     setUploadError('');
     try {
       const formData = new FormData();
-      files.forEach((file) => formData.append('files', file));
+      files.forEach((f) => formData.append('files', f));
       const res = await fetch(`${API_BASE_URL}/files/upload`, {
         method: 'POST',
         credentials: 'include',
         body: formData,
       });
       const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Unable to upload files.');
-      }
+      if (!res.ok) throw new Error(data.error || 'Unable to upload files.');
       setDocuments(data.documents || []);
       await refreshUser();
-      event.target.value = '';
+      e.target.value = '';
     } catch (err) {
       setUploadError(err.message || 'Unable to upload files.');
     } finally {
@@ -169,9 +203,7 @@ function AccountSettingsPage() {
         credentials: 'include',
       });
       const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Unable to remove file.');
-      }
+      if (!res.ok) throw new Error(data.error || 'Unable to remove file.');
       setDocuments(data.documents || []);
       await refreshUser();
     } catch (err) {
@@ -184,199 +216,268 @@ function AccountSettingsPage() {
   const handleDownload = async (doc) => {
     if (!user || !doc?.id) return;
     try {
-      const res = await fetch(`${API_BASE_URL}/files/download/${doc.id}`, {
-        credentials: 'include',
-      });
-      if (!res.ok) {
-        throw new Error('Unable to download file.');
-      }
+      const res = await fetch(`${API_BASE_URL}/files/download/${doc.id}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Unable to download file.');
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = doc.originalName || 'file';
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = doc.originalName || 'file';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
       setUploadError(err.message || 'Unable to download file.');
     }
   };
 
-  return (
-    <div className="page-container account-grid">
-      <div className="account-card">
-        <header className="account-card__header">
-          <div>
-            <p className="account-card__eyebrow">Account</p>
-            <h1>Account Settings</h1>
-            <p className="account-card__subtitle">Personalize your presence and see your permissions.</p>
-          </div>
-          <div className="account-avatar">
-            {profilePicture ? (
-              <img src={profilePicture} alt="Profile" />
-            ) : (
-              <span>{avatarFallback}</span>
-            )}
-          </div>
-        </header>
+  const showAvatar = profilePicture && !imgError;
 
-        <form className="account-form" onSubmit={handleSave}>
-          <label className="account-field">
-            <span>Email</span>
-            <input type="email" value={user.email} disabled />
-          </label>
-          <label className="account-field">
-            <span>Permission Level</span>
-            <input type="text" value={role} disabled />
-          </label>
-          <label className="account-field">
-            <span>Username</span>
+  return (
+    <div className="page-container acct-layout">
+
+      {/* ── LEFT: Profile ─────────────────────────────────────── */}
+      <div className="acct-col acct-col--profile">
+
+        {/* Avatar hero */}
+        <div className="acct-avatar-hero">
+          <div className="acct-avatar-lg">
+            {showAvatar
+              ? <img src={profilePicture} alt="Profile" onError={() => setImgError(true)} />
+              : <span>{avatarFallback}</span>
+            }
+          </div>
+          <div className="acct-identity">
+            <p className="acct-name">{username || user.name || 'Unnamed Adventurer'}</p>
+            <span
+              className="acct-role-badge"
+              style={{ color: roleConfig.color, background: roleConfig.bg, borderColor: roleConfig.border }}
+            >
+              {roleConfig.label}
+            </span>
+            {labelOne && <p className="acct-label">{labelOne}</p>}
+            {labelTwo && <p className="acct-label acct-label--dim">{labelTwo}</p>}
+          </div>
+        </div>
+
+        {/* Profile form */}
+        <form className="acct-form" onSubmit={handleSave}>
+          <p className="acct-section-eyebrow">Profile</p>
+
+          <div className="acct-field">
+            <label htmlFor="acct-username">Display Name</label>
             <input
+              id="acct-username"
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="Pick a display name"
+              placeholder="Pick a name for the world to know you by"
             />
-          </label>
-          <label className="account-field">
-            <span>Bio</span>
+          </div>
+
+          <div className="acct-field">
+            <label htmlFor="acct-bio">Bio</label>
             <textarea
+              id="acct-bio"
               value={bio}
               onChange={(e) => setBio(e.target.value)}
-              placeholder="Write a short bio"
-              rows={4}
+              placeholder="Tell the world your story..."
+              rows={3}
             />
-          </label>
-          <label className="account-field">
-            <span>Label One</span>
-            <input
-              type="text"
-              value={labelOne}
-              onChange={(e) => setLabelOne(e.target.value)}
-              placeholder="Optional label"
-            />
-          </label>
-          <label className="account-field">
-            <span>Label Two</span>
-            <input
-              type="text"
-              value={labelTwo}
-              onChange={(e) => setLabelTwo(e.target.value)}
-              placeholder="Optional label"
-            />
-          </label>
-          <label className="account-field">
-            <span>Profile Picture URL</span>
-            <input
-              type="url"
-              value={profilePicture}
-              onChange={(e) => setProfilePicture(e.target.value)}
-              placeholder="https://..."
-            />
-            <div className="account-field__actions">
-              <button type="button" onClick={handleGenerateAvatar}>
-                Generate Avatar
-              </button>
-              <button type="button" onClick={() => setProfilePicture('')}>
-                Clear
-              </button>
+          </div>
+
+          <div className="acct-field-row">
+            <div className="acct-field">
+              <label htmlFor="acct-label1">Adventurer's Title</label>
+              <input
+                id="acct-label1"
+                type="text"
+                value={labelOne}
+                onChange={(e) => setLabelOne(e.target.value)}
+                placeholder="e.g. Rogue of the Silver Hand"
+              />
             </div>
-          </label>
-          <div className="account-actions">
-            <button type="submit" disabled={saving}>
-              {saving ? 'Saving...' : 'Save changes'}
+            <div className="acct-field">
+              <label htmlFor="acct-label2">Faction / Origin</label>
+              <input
+                id="acct-label2"
+                type="text"
+                value={labelTwo}
+                onChange={(e) => setLabelTwo(e.target.value)}
+                placeholder="e.g. The Iron Veil"
+              />
+            </div>
+          </div>
+
+          <p className="acct-section-eyebrow" style={{ marginTop: '0.5rem' }}>Profile Picture</p>
+
+          <div className="acct-pfp-row">
+            <div className="acct-pfp-thumb">
+              {showAvatar
+                ? <img src={profilePicture} alt="" onError={() => setImgError(true)} />
+                : <span>{avatarFallback}</span>
+              }
+            </div>
+            <div className="acct-field acct-field--grow">
+              <label htmlFor="acct-pfp">Image URL</label>
+              <input
+                id="acct-pfp"
+                type="url"
+                value={profilePicture}
+                onChange={(e) => setProfilePicture(e.target.value)}
+                placeholder="https://..."
+              />
+              {imgError && profilePicture && (
+                <p className="acct-muted" style={{ color: '#f87171', marginTop: '0.25rem' }}>
+                  Image failed to load. Check the URL.
+                </p>
+              )}
+              <div className="acct-pfp-actions">
+                <button type="button" className="acct-btn acct-btn--ghost" onClick={handleGenerateAvatar}>
+                  ✦ Generate Avatar
+                </button>
+                {profilePicture && (
+                  <button type="button" className="acct-btn acct-btn--ghost acct-btn--danger" onClick={() => setProfilePicture('')}>
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="acct-save-row">
+            <button type="submit" className="acct-btn acct-btn--primary" disabled={saving}>
+              {saving ? 'Saving…' : 'Save Changes'}
             </button>
-            {saveMessage && <span className="account-message">{saveMessage}</span>}
-            {error && <span className="account-error">{error}</span>}
+            {saveMessage && <span className="acct-feedback acct-feedback--ok">{saveMessage}</span>}
+            {saveError   && <span className="acct-feedback acct-feedback--err">{saveError}</span>}
           </div>
         </form>
+      </div>
 
-        <section className="account-upload">
-          <div className="account-field">
-            <span>Upload documents (PDF or text)</span>
-            <input type="file" accept=".pdf,text/plain" multiple onChange={handleUpload} disabled={!user || uploading} />
-            {uploadError && <p className="account-error">{uploadError}</p>}
-            {uploading && <p className="account-muted">Uploading...</p>}
+      {/* ── RIGHT: Info + Docs + Secrets ──────────────────────── */}
+      <div className="acct-col acct-col--right">
+
+        {/* Account info chips */}
+        <div className="acct-card">
+          <p className="acct-section-eyebrow">Account</p>
+          <div className="acct-info-rows">
+            <div className="acct-info-row">
+              <span className="acct-info-label">Email</span>
+              <span className="acct-info-value">{user.email}</span>
+            </div>
+            <div className="acct-info-row">
+              <span className="acct-info-label">Permission</span>
+              <span
+                className="acct-role-badge"
+                style={{ color: roleConfig.color, background: roleConfig.bg, borderColor: roleConfig.border }}
+              >
+                {roleConfig.label}
+              </span>
+            </div>
+            {user.provider && (
+              <div className="acct-info-row">
+                <span className="acct-info-label">Auth</span>
+                <span className="acct-info-value acct-info-value--muted">{user.provider}</span>
+              </div>
+            )}
           </div>
-          <div className="list-panel">
-            <h3>Your uploads</h3>
-            {(!documents || !documents.length) && <p className="account-muted">No documents uploaded.</p>}
-            {documents && documents.length > 0 && (
-              <ul className="simple-list">
-                {documents.map((doc) => (
-                  <li key={doc.id} className="upload-row">
-                  <div>
-                    <strong>{doc.originalName}</strong>
-                    <p className="account-muted">
-                      {(doc.size / 1024).toFixed(1)} KB · {new Date(doc.uploadedAt).toLocaleString()}
-                    </p>
+        </div>
+
+        {/* Documents */}
+        <div className="acct-card">
+          <p className="acct-section-eyebrow">Documents</p>
+          <label className="acct-upload-btn">
+            <input
+              type="file"
+              accept=".pdf,text/plain"
+              multiple
+              onChange={handleUpload}
+              disabled={!user || uploading}
+              style={{ display: 'none' }}
+            />
+            <span className="acct-btn acct-btn--ghost" style={{ cursor: 'pointer', display: 'inline-block' }}>
+              {uploading ? 'Uploading…' : '+ Upload PDF or Text'}
+            </span>
+          </label>
+          {uploadError && <p className="acct-feedback acct-feedback--err">{uploadError}</p>}
+
+          {documents.length === 0 ? (
+            <p className="acct-muted" style={{ marginTop: '0.5rem' }}>No documents uploaded yet.</p>
+          ) : (
+            <ul className="acct-doc-list">
+              {documents.map((doc) => (
+                <li key={doc.id} className="acct-doc-item">
+                  <div className="acct-doc-icon">📄</div>
+                  <div className="acct-doc-info">
+                    <p className="acct-doc-name">{doc.originalName}</p>
+                    <p className="acct-muted">{(doc.size / 1024).toFixed(1)} KB · {new Date(doc.uploadedAt).toLocaleDateString()}</p>
                   </div>
-                  <div className="upload-actions">
-                    <button type="button" onClick={() => handleDownload(doc)} disabled={uploading}>
-                      Download
-                    </button>
-                    <button type="button" onClick={() => handleDeleteDoc(doc.id)} disabled={uploading}>
-                      Remove
-                    </button>
+                  <div className="acct-doc-actions">
+                    <button className="acct-btn acct-btn--ghost acct-btn--sm" onClick={() => handleDownload(doc)} disabled={uploading}>↓</button>
+                    <button className="acct-btn acct-btn--ghost acct-btn--danger acct-btn--sm" onClick={() => handleDeleteDoc(doc.id)} disabled={uploading}>✕</button>
                   </div>
                 </li>
               ))}
             </ul>
           )}
         </div>
-        </section>
-      </div>
 
-      <div className="account-card">
-        <header className="account-card__header">
-          <div>
-            <p className="account-card__eyebrow">Secrets</p>
-            <h2>Secret Unlocks</h2>
-            <p className="account-card__subtitle">Enter phrases to reveal hidden lore and progression.</p>
-          </div>
-        </header>
+        {/* Secrets */}
+        <div className="acct-card acct-card--secrets">
+          <p className="acct-section-eyebrow">Secrets</p>
+          <h2 style={{ margin: '0 0 0.25rem', fontSize: '1.1rem' }}>Secret Unlocks</h2>
+          <p className="acct-muted" style={{ marginBottom: '1rem' }}>Whisper the right words to reveal hidden lore.</p>
 
-        <form className="account-form" onSubmit={handleUnlock}>
-          <label className="account-field">
-            <span>Secret Phrase</span>
+          <form className="acct-unlock-form" onSubmit={handleUnlock}>
             <input
               type="text"
               value={phrase}
               onChange={(e) => setPhrase(e.target.value)}
-              placeholder="Whisper a phrase..."
+              placeholder="Speak the phrase..."
               required
             />
-          </label>
-          <button type="submit" disabled={unlocking || !phrase.trim()}>
-            {unlocking ? 'Checking...' : 'Unlock'}
-          </button>
-          {progressError && <p className="account-error">{progressError}</p>}
-        </form>
+            <button type="submit" className="acct-btn acct-btn--primary" disabled={unlocking || !phrase.trim()}>
+              {unlocking ? '…' : 'Unlock'}
+            </button>
+          </form>
+          {progressError && <p className="acct-feedback acct-feedback--err" style={{ marginTop: '0.5rem' }}>{progressError}</p>}
 
-        <div className="account-progress">
-          <div className="account-progress__header">
-            <h3>Progress</h3>
-            {progressLoading && <span className="account-message">Loading...</span>}
+          <div className="acct-secrets-progress">
+            {progressLoading && <p className="acct-muted">Loading…</p>}
+            {!progressLoading && secretDetails.length === 0 && (
+              <div className="acct-secrets-empty">
+                <span className="acct-secrets-empty__icon">🔒</span>
+                <p>No secrets unlocked yet.</p>
+                <p className="acct-muted">Keep exploring Azterra to find the phrases.</p>
+              </div>
+            )}
+            {secretDetails.length > 0 && (
+              <div className="acct-secrets-grid">
+                {secretDetails.map((secret) => (
+                  <button
+                    key={secret.id}
+                    className="acct-secret-card"
+                    onClick={() => setExpandedSecret(secret)}
+                    title="Click to reveal"
+                  >
+                    <div className="acct-secret-card__glyph">🔓</div>
+                    <p className="acct-secret-card__title">{secret.title}</p>
+                    <p className="acct-secret-card__hint">Click to reveal</p>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-          {secretDetails.length === 0 && !progressLoading ? (
-            <p className="account-muted">No secrets unlocked yet.</p>
-          ) : (
-            <ul className="secret-list">
-              {secretDetails.map((secret) => (
-                <li key={secret.id} className="secret-list__item">
-                  <div>
-                    <p className="secret-list__title">{secret.title}</p>
-                    <p className="secret-list__desc">{secret.description}</p>
-                  </div>
-                  <span className="secret-list__badge">Unlocked</span>
-                </li>
-              ))}
-            </ul>
-          )}
         </div>
+
       </div>
+
+      {/* Secret expanded modal */}
+      {expandedSecret && (
+        <SecretModal secret={expandedSecret} onClose={() => setExpandedSecret(null)} />
+      )}
     </div>
   );
 }

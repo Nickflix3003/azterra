@@ -1,725 +1,868 @@
-// src/data/characters.js
-// Sample character data for D&D 5e party
-function randomColor() {
-  // Returns [r, g, b, a]
-  const n = 10;
-  const r = Math.floor(Math.random() * n);
-  const g = Math.floor(Math.random() * n);
-  const b = Math.floor(Math.random() * n);
-  const a = Math.floor(Math.random() * n);
-  return [r, g, b, a];
-}
+// src/data/characters_heroes.js
+// Campaign Kaya — real player characters, sourced from Obsidian vault
+// Color arrays [r, g, b, a] are used as shader multipliers (values 0–9).
 
 const characters = [
+  // ── 1. Apple π (Isaac) ────────────────────────────────────────────────────
   {
     id: 1,
-    name: "Aelar",
-    title: "The Arcane Sage",
-    race: "Elf",
-    class: "Wizard",
-    level: 5,
-    alignment: "Chaotic Good",
-    background: "Sage of the Spire of Echoes, former Arcanum archivist who charts celestial anomalies",
-    hp: 31,
-    ac: 13,
+    name: 'Apple π',
+    title: 'Voice of the Paradox Shrine',
+    race: 'Orc',
+    class: 'Druid',
+    subclass: 'Circle of the Shrine',
+    level: 2,
+    alignment: 'Chaotic Neutral',
+    background: 'Raised in the cave systems of Vasrið\'s Hollow; orphaned at nine after a mining explosion. Moved to Każþarim with his childhood friend Grazkul, worked construction for decades, became a compulsive gambler. The voices started quietly — an ancient druidic tongue whispering through the years — until the forest itself pulled him toward a hollow tree, an escalator, and a hidden shrine beneath the roots of the world.',
+    hp: 13,
+    ac: 12,
     speed: 30,
-    stats: {
-      str: 8, dex: 14, con: 12, int: 18, wis: 15, cha: 10
-    },
-    passivePerception: 12,
+    stats: { str: 11, dex: 12, con: 10, int: 13, wis: 18, cha: 12 },
+    passivePerception: 14,
     inspiration: false,
-    profBonus: 3,
-    skills: ["Arcana", "History", "Investigation"],
-    abilities: ["Arcane Recovery", "Spellcasting"],
-    spells: ["Magic Missile", "Shield", "Fireball"],
-    equipment: [
-      "Amber-tipped staff etched with constellations",
-      "Spellbook bound in dragonhide, pages rimed with stasis-ink",
-      "Rope",
-      "Crystal lens for reading the weave",
-      "Starlit chalk for tracing warding circles"
+    profBonus: 2,
+    skills: ['Animal Handling', 'Arcana', 'Nature', 'Performance', 'Sleight of Hand'],
+    abilities: [
+      'Wild Shape (2 uses)',
+      'Gambler\'s Ambition — flip a coin before any spell; heads +1 damage, tails −1',
+      'Circle of the Shrine — bonus cantrip + Natural Recovery on short rest',
+      'Adrenaline Rush (2/long rest) — Dash as bonus action + temp HP',
+      'Relentless Endurance (1/long rest) — drop to 1 HP instead of 0',
+      'Shrine Magic — custom water-manipulation and time-reversal spells',
     ],
-    notes: "Wears a blue cloak. Keeps a notebook of dream-fragments and sketched glyphs; refuses to travel without it.",
-    lore: "Aelar spent decades within the Spire of Echoes, studying ancient scrolls that predate the Sundering. His fascination with the arcane is not merely academic; he seeks to understand the very fabric of reality to prevent a catastrophe he saw in a vision. Though often lost in thought, his mastery of the weave is undeniable, capable of bending the elements to his will with a mere whisper. He once froze an avalanche in place to evacuate a mountain pass caravan, then rewove the falling snow into shimmering sigils that guided the travelers to safety. Aelar now wanders Azterra to confirm whether the symbols from his vision match those appearing in ruins across the continent.",
+    spells: [
+      'Guidance', 'Water\'s Will', 'Magic Stone',
+      'Speak with Animals', 'Healing Word', 'Cure Wounds',
+      'Ice Knife', 'Create or Destroy Water',
+      'Prayer of Azterra (custom)', 'Time Reversal (custom)',
+    ],
+    equipment: [
+      'Leather Armor',
+      'Shield',
+      'Quarterstaff',
+      'Crimson Amulet — passively detects magic in the area',
+      'Lucky Coin — parents\' heirloom; always carried',
+      'Wooden Sword — given by Dibbins',
+      '2 sprigs of Mistletoe (druidic focus)',
+    ],
+    notes: 'Always carries his lucky coin; flips it before every spell. Stoic and slow to anger, but fiercely loyal. Hears ancient voices in the druidic tongue that nobody else can perceive.',
+    lore: 'Apple π was nine years old when the cave ceiling came down on his parents. He watched them disappear into the rubble while Grazkul dragged him to safety. For twenty years he built walls and played cards and tried to bury the voices beneath the noise of city life — they never stopped. At thirty-one the voices crescendoed into something he could no longer ignore: *Wto Zweżwofinz Żrwev wol Ezþażwżo.* He followed them into the forest, found a hollow tree, and descended into the Paradox Shrine of Azterra. Water rose from the ancient lake and orbited him like a second heartbeat. The shrine whispered: "This place remembers you, even if you don\'t." He still doesn\'t know what he is being prepared for.',
     sheet: {
       core: {
-        hitDie: "d6",
-        raceTraits: ["Darkvision", "Keen Senses", "Fey Ancestry", "Trance"],
-        classFeatures: ["Spellcasting", "Arcane Recovery"],
-        backgroundFeature: "Researcher (Sage)",
-        appearance: "Lean elf wrapped in layered scholar's robes, fingers smudged with ink and starlit chalk.",
-        backstory: "Decades within the Spire of Echoes cataloging omens; now hunts matching glyphs across Azterra."
+        hitDie: 'd8',
+        raceTraits: ['Darkvision 60 ft', 'Adrenaline Rush', 'Relentless Endurance', 'Powerful Build'],
+        classFeatures: ['Wild Shape', 'Druidic', 'Natural Recovery', 'Gambler\'s Ambition', 'Shrine Magic'],
+        backgroundFeature: 'Child of the Deep — comfortable in underground or cave environments',
+        appearance: 'Towering orc with cave-calloused hands and a gambler\'s easy slouch. Always has a coin between his fingers.',
+        backstory: 'Orphaned at 9 in Vasrið\'s Hollow. Raised by friend Grazkul; worked construction in Każþarim for decades. Became a druid after discovering the Paradox Shrine of Azterra beneath a forest near the city.',
       },
-      abilityMethod: "Point Buy",
-      abilityScores: { str: 8, dex: 14, con: 12, int: 18, wis: 15, cha: 10 },
+      abilityMethod: 'Standard Array',
+      abilityScores: { str: 11, dex: 12, con: 10, int: 13, wis: 18, cha: 12 },
       proficiencies: {
-        savingThrows: ["Intelligence", "Wisdom"],
-        armorWeapons: ["Daggers", "Quarterstaff", "Light crossbows"],
-        tools: ["Calligrapher's supplies"],
-        skills: ["Arcana", "History", "Investigation"],
-        languages: ["Common", "Elvish", "Draconic"]
+        savingThrows: ['Intelligence', 'Wisdom'],
+        armorWeapons: ['Light armor', 'Medium armor', 'Shields', 'Clubs', 'Daggers', 'Quarterstaffs', 'Scimitars', 'Sickles', 'Spears'],
+        tools: ['Herbalism Kit'],
+        skills: ['Animal Handling', 'Arcana', 'Nature', 'Performance', 'Sleight of Hand'],
+        languages: ['Common', 'Orc', 'Druidic', 'Ancient Shrine Script'],
       },
       combat: {
-        armorClass: 13,
-        initiative: "+2 (Dex)",
-        speed: "30 ft (Elf)",
-        hitPoints: "31",
-        hitDice: "5d6",
-        passivePerception: 12,
-        proficiencyBonus: "+3"
+        armorClass: 12,
+        initiative: '+1 (Dex)',
+        speed: '30 ft',
+        hitPoints: '13',
+        hitDice: '2d8',
+        passivePerception: 14,
+        proficiencyBonus: '+2',
       },
       attacks: [
-        { name: "Fire Bolt", bonus: "+7", damage: "1d10 fire", tags: ["Cantrip", "120 ft"] },
-        { name: "Quarterstaff", bonus: "+2", damage: "1d6 bludgeoning", tags: ["Melee"] },
-        { name: "Magic Missile", bonus: "Auto", damage: "3 darts / 1d4+1 force each", tags: ["Spell"] }
+        { name: 'Magic Stone', bonus: '+6', damage: '1d6+4 bludgeoning', tags: ['Cantrip', 'Ranged 60 ft'] },
+        { name: 'Quarterstaff', bonus: '+2', damage: '1d6 bludgeoning', tags: ['Melee'] },
+        { name: 'Ice Knife', bonus: '+6', damage: '1d10 piercing + 2d6 cold (5 ft radius)', tags: ['Spell', '60 ft'] },
       ],
       equipmentDetail: {
-        starting: [
-          "Amber-tipped staff etched with constellations",
-          "Spellbook bound in dragonhide",
-          "Explorer's pack",
-          "Crystal lens focus"
-        ],
-        wealth: "25 gp and assorted arcane inks"
+        starting: ['Leather Armor', 'Shield', 'Quarterstaff', 'Mistletoe x2', 'Herbalism Kit'],
+        wealth: '72 gp, 18 sp, 10 cp; plus 1 copper from Jonah',
+        magic: ['Crimson Amulet (detect magic)', 'Lucky Coin (heirloom)', 'Wooden Sword (from Dibbins)'],
       },
       features: {
-        classFeatures: ["Spellcasting (rituals)", "Arcane Recovery"],
-        racialTraits: ["Keen Senses", "Fey Ancestry", "Trance"],
-        background: "Researcher - knows where to find lore quickly",
-        feats: []
+        classFeatures: ['Wild Shape (2/rest)', 'Natural Recovery', 'Gambler\'s Ambition', 'Shrine Bonus Cantrip'],
+        racialTraits: ['Darkvision', 'Adrenaline Rush', 'Relentless Endurance'],
+        background: 'Child of the Deep — cave survival instincts',
+        feats: [],
       },
       spellsDetail: {
-        ability: "Intelligence",
-        saveDC: 15,
-        attackBonus: "+7",
-        prepared: "9 prepared / ritual casting",
-        known: ["Magic Missile", "Shield", "Fireball"],
-        slots: "1st:4, 2nd:3, 3rd:2"
+        ability: 'Wisdom',
+        saveDC: 14,
+        attackBonus: '+6',
+        prepared: '6 spells prepared; unlimited rituals',
+        known: ['Guidance', 'Water\'s Will', 'Magic Stone', 'Whisper of the Self', 'Speak with Animals', 'Healing Word', 'Cure Wounds', 'Ice Knife', 'Create or Destroy Water', 'Prayer of Azterra', 'Time Reversal'],
+        slots: '1st: 3',
       },
       personality: {
-        traits: ["Keeps a meticulous star journal", "Soft-spoken until discussing magic"],
-        ideals: ["Knowledge prevents catastrophe"],
-        bonds: ["Sworn to the mentors of the Spire of Echoes"],
-        flaws: ["Overanalyzes when action is needed"]
+        traits: ['Flips lucky coin compulsively', 'Speaks little but means every word'],
+        ideals: ['Follow the voices — they have never led him astray'],
+        bonds: ['Grazkul, his childhood friend and moral compass', 'The Lucky Coin — last gift from his parents'],
+        flaws: ['Doesn\'t know when to quit — gambling or otherwise'],
       },
       extras: {
-        languages: ["Common", "Elvish", "Draconic"],
-        inventoryWeight: "42 lb",
-        notes: "Mana hue: deep sapphire. Uses a crystal lens as arcane focus."
-      }
-    }
+        languages: ['Common', 'Orc', 'Druidic'],
+        inventoryWeight: '38 lb',
+        notes: 'Spell DC 14. Coin flip mechanic: heads = +1 damage, tails = −1. Wild Shape 2 uses. Shrine magic includes custom spells not in standard rules.',
+      },
+    },
   },
+
+  // ── 2. Silver (Tristan) ───────────────────────────────────────────────────
   {
     id: 2,
-    name: "Brog",
-    title: "The Ironbreaker",
-    race: "Half-Orc",
-    class: "Barbarian",
-    level: 4,
-    alignment: "Neutral",
-    background: "Outlander",
-    hp: 44,
-    ac: 15,
-    speed: 40,
-    stats: {
-      str: 17, dex: 13, con: 16, int: 8, wis: 12, cha: 9
-    },
+    name: 'Silver',
+    title: 'Bound to the Chaos Genie',
+    race: 'Dragonborn',
+    class: 'Warlock',
+    subclass: 'The Genie (Efreeti)',
+    level: 1,
+    alignment: 'Chaotic Neutral',
+    background: 'Orphaned at eleven when nomadic rogues slaughtered his parents. Left alone and powerless, he stumbled upon a silver ring discarded in a dumpster. When he put it on, a genie appeared — offering him vengeance, power, and a name he could choose himself. He chose Silver.',
+    hp: 10,
+    ac: 12,
+    speed: 30,
+    stats: { str: 9, dex: 13, con: 12, int: 11, wis: 10, cha: 17 },
     passivePerception: 10,
-    inspiration: true,
+    inspiration: false,
     profBonus: 2,
-    skills: ["Athletics", "Survival"],
-    abilities: ["Rage", "Unarmored Defense"],
-    spells: [],
-    equipment: ["Greataxe", "Javelin (4)", "Explorer's Pack"],
-    notes: "Has a scar over left eye.",
-    lore: "Born in the harsh badlands of Karkoth, Brog learned early that strength was the only law that mattered. He earned the name 'Ironbreaker' after shattering a warlord's shield with a single blow. Despite his fearsome reputation, Brog possesses a quiet wisdom about the natural world, respecting the spirits of the land as much as the steel in his hand.",
+    skills: ['Arcana', 'Deception', 'Intimidation', 'Stealth'],
+    abilities: [
+      'Genie\'s Vessel — portable extradimensional space inside the silver ring',
+      'Draconic Ancestry (Red Dragon) — fire breath, fire resistance',
+      'Genie Spells — expanded spell list from the Efreeti patron',
+      'Eldritch Invocations',
+    ],
+    spells: ['Eldritch Blast', 'Fire Bolt', 'Minor Illusion', 'Burning Hands', 'Detect Magic', 'Chromatic Orb'],
+    equipment: [
+      'Silver Ring — contains the Genie\'s Vessel',
+      'Leather Armor',
+      'Dagger',
+      'Common clothes (usually dark)',
+      'A small trophy from his parents\' home',
+    ],
+    notes: 'Changed his birth name to Silver after bonding with the genie. Emotionally closed-off but deeply loyal to those who prove worthy. Shares an unspoken connection with Mira Quickfang — also orphaned by the same rogue band.',
+    lore: 'His parents died while he watched, helpless. For years that helplessness calcified into a single-minded obsession: never be powerless again. The genie in the silver ring offered him exactly that — power, at a price he\'s still tallying. He calls himself Silver now. His birth name belongs to a boy who no longer exists. He\'s searching for the rogue band that destroyed his family, and he suspects the genie knows more about them than it admits. The ring is growing harder to take off.',
     sheet: {
       core: {
-        hitDie: "d12",
-        raceTraits: ["Darkvision", "Relentless Endurance", "Savage Attacks"],
-        classFeatures: ["Rage (+2 damage)", "Unarmored Defense"],
-        backgroundFeature: "Wanderer (knows terrain and food sources)",
-        appearance: "Broad-shouldered half-orc with a scarred brow and weathered travel cloak.",
-        backstory: "Raised in the Karkoth badlands; wanders to measure strength against worthy foes."
+        hitDie: 'd8',
+        raceTraits: ['Draconic Ancestry (Red)', 'Breath Weapon (fire, 15 ft cone, DC 13, 2d6)', 'Damage Resistance: Fire'],
+        classFeatures: ['Pact Magic', 'Eldritch Invocations', 'Genie\'s Vessel', 'Expanded Spell List'],
+        backgroundFeature: 'Urban Survivor — knows how to move through city slums and find black-market contacts',
+        appearance: 'Lean red-scaled dragonborn in dark clothes, silver ring always on his right hand. Rarely makes eye contact.',
+        backstory: 'Orphaned at 11. Survived alone for years. Found the Chaos Genie ring and accepted a pact for power and vengeance.',
       },
-      abilityMethod: "Standard Array",
-      abilityScores: { str: 17, dex: 13, con: 16, int: 8, wis: 12, cha: 9 },
+      abilityMethod: 'Point Buy',
+      abilityScores: { str: 9, dex: 13, con: 12, int: 11, wis: 10, cha: 17 },
       proficiencies: {
-        savingThrows: ["Strength", "Constitution"],
-        armorWeapons: ["Light/Medium armor", "Shields", "Simple & martial weapons"],
-        tools: ["Drum"],
-        skills: ["Athletics", "Survival"],
-        languages: ["Common", "Orc"]
+        savingThrows: ['Wisdom', 'Charisma'],
+        armorWeapons: ['Light armor', 'Simple weapons'],
+        tools: ['Thieves\' tools'],
+        skills: ['Arcana', 'Deception', 'Intimidation', 'Stealth'],
+        languages: ['Common', 'Draconic', 'Infernal'],
       },
       combat: {
-        armorClass: 15,
-        initiative: "+1 (Dex)",
-        speed: "40 ft (fast movement)",
-        hitPoints: "44",
-        hitDice: "4d12",
+        armorClass: 12,
+        initiative: '+1 (Dex)',
+        speed: '30 ft',
+        hitPoints: '10',
+        hitDice: '1d8',
         passivePerception: 10,
-        proficiencyBonus: "+2"
+        proficiencyBonus: '+2',
       },
       attacks: [
-        { name: "Greataxe", bonus: "+5", damage: "1d12+3 slashing (+2 rage)", tags: ["Melee", "Heavy", "Two-Handed"] },
-        { name: "Javelin", bonus: "+5", damage: "1d6+3 piercing (30/120)", tags: ["Thrown"] }
+        { name: 'Eldritch Blast', bonus: '+5', damage: '1d10 force', tags: ['Cantrip', '120 ft'] },
+        { name: 'Fire Breath', bonus: 'DC 13 DEX save', damage: '2d6 fire (15 ft cone)', tags: ['Racial', 'Recharge'] },
+        { name: 'Chromatic Orb (Fire)', bonus: '+5', damage: '3d8 fire', tags: ['Spell', '90 ft'] },
       ],
       equipmentDetail: {
-        starting: ["Greataxe", "Javelin (4)", "Explorer's Pack", "Bedroll"],
-        wealth: "8 gp and carved clan totem"
+        starting: ['Silver Ring (Genie Vessel)', 'Leather Armor', 'Dagger', 'Explorer\'s Pack'],
+        wealth: '15 gp',
+        magic: ['Silver Ring — Genie\'s Vessel (extradimensional space, 10 ft × level)'],
       },
       features: {
-        classFeatures: ["Rage (3/day)", "Unarmored Defense"],
-        racialTraits: ["Relentless Endurance", "Savage Attacks", "Darkvision"],
-        background: "Wanderer - recalls maps and safe paths",
-        feats: ["Prefers Great Weapon Master style feats"]
+        classFeatures: ['Pact Magic (1 slot, 1st level)', 'Genie\'s Vessel', 'Expanded Spell List'],
+        racialTraits: ['Fire Breath', 'Fire Resistance'],
+        background: 'Urban Survivor',
+        feats: [],
       },
       spellsDetail: {
-        ability: "None",
-        saveDC: "—",
-        attackBonus: "—",
-        prepared: "",
-        known: ["Non-caster"],
-        slots: "—"
+        ability: 'Charisma',
+        saveDC: 13,
+        attackBonus: '+5',
+        prepared: 'Knows 2 spells; 2 cantrips',
+        known: ['Eldritch Blast', 'Fire Bolt', 'Minor Illusion', 'Burning Hands', 'Detect Magic'],
+        slots: '1st: 1 pact slot',
       },
       personality: {
-        traits: ["Quiet observer of storms", "Protective once angered"],
-        ideals: ["Strength proves worth"],
-        bonds: ["Keeps carved clan totem close"],
-        flaws: ["Rushes toward the loudest battle"]
+        traits: ['Dry, sardonic humor that keeps people at arm\'s length', 'Watches exits before he watches faces'],
+        ideals: ['Power is the only thing that protects you'],
+        bonds: ['Mira Quickfang — the only person who understands what was taken from him'],
+        flaws: ['Trusts the genie more than he should; the ring is getting harder to remove'],
       },
       extras: {
-        languages: ["Common", "Orc"],
-        inventoryWeight: "68 lb",
-        notes: "Prefers open-sky camps; trophies hang from the explorer's pack."
-      }
-    }
+        languages: ['Common', 'Draconic', 'Infernal'],
+        inventoryWeight: '26 lb',
+        notes: 'Prefers to fight from height — casts while airborne when possible. Genie patron: Chaos Genie (Efreeti). Patron connection: silver ring found in a dumpster.',
+      },
+    },
   },
+
+  // ── 3. Clod (Brady) ──────────────────────────────────────────────────────
   {
     id: 3,
-    name: "Celeste",
-    title: "Lightbringer",
-    race: "Human",
-    class: "Cleric",
-    level: 5,
-    alignment: "Lawful Good",
-    background: "Acolyte",
-    hp: 38,
-    ac: 18,
-    speed: 30,
-    stats: {
-      str: 12, dex: 11, con: 14, int: 12, wis: 18, cha: 15
-    },
-    passivePerception: 15,
-    inspiration: true,
-    profBonus: 3,
-    skills: ["Insight", "Medicine", "Religion"],
-    abilities: ["Channel Divinity", "Divine Domain"],
-    spells: ["Guiding Bolt", "Spiritual Weapon", "Mass Healing Word"],
-    equipment: ["Mace", "Shield", "Holy Symbol", "Chain Mail"],
-    notes: "Carries a small silver bell blessed by her temple.",
-    lore: "Celeste was found on the steps of the Temple of Solara as an infant, bathed in the morning light. Raised by the priesthood, she has dedicated her life to bringing hope to the darkest corners of Azterra. Her faith is unwavering, a beacon that rallies her allies even in the direst of circumstances. It is said that her prayers can turn the tide of battle, calling down the very wrath of the sun.",
-    sheet: {
-      core: {
-        hitDie: "d8",
-        raceTraits: ["Versatile", "Bonus training from temple"],
-        classFeatures: ["Channel Divinity", "Divine Domain: Light"],
-        backgroundFeature: "Shelter of the Faithful",
-        appearance: "Sun-embossed shield and silver holy bell, eyes warm like sunrise.",
-        backstory: "Raised by Solara's priesthood; travels to carry that light into shadowed places."
-      },
-      abilityMethod: "Standard Array",
-      abilityScores: { str: 12, dex: 11, con: 14, int: 12, wis: 18, cha: 15 },
-      proficiencies: {
-        savingThrows: ["Wisdom", "Charisma"],
-        armorWeapons: ["Light/Medium armor", "Shields", "Simple weapons"],
-        tools: ["Herbalism kit"],
-        skills: ["Insight", "Medicine", "Religion"],
-        languages: ["Common", "Celestial"]
-      },
-      combat: {
-        armorClass: 18,
-        initiative: "+0 (Dex)",
-        speed: "30 ft",
-        hitPoints: "38",
-        hitDice: "5d8",
-        passivePerception: 15,
-        proficiencyBonus: "+3"
-      },
-      attacks: [
-        { name: "Mace", bonus: "+4", damage: "1d6+1 bludgeoning", tags: ["Melee"] },
-        { name: "Guiding Bolt", bonus: "+7", damage: "4d6 radiant", tags: ["Spell", "120 ft"] },
-        { name: "Spiritual Weapon", bonus: "+7", damage: "1d8+4 force (bonus action)", tags: ["Spell"] }
-      ],
-      equipmentDetail: {
-        starting: ["Mace", "Shield", "Holy Symbol", "Chain Mail", "Priest pack"],
-        wealth: "15 gp tithe held for the temple"
-      },
-      features: {
-        classFeatures: ["Channel Divinity (2/rest)", "Domain: Light"],
-        racialTraits: ["Versatile and adaptable"],
-        background: "Shelter of the Faithful - temple lodging",
-        feats: []
-      },
-      spellsDetail: {
-        ability: "Wisdom",
-        saveDC: 15,
-        attackBonus: "+7",
-        prepared: "10 prepared including domain",
-        known: ["Guiding Bolt", "Spiritual Weapon", "Mass Healing Word"],
-        slots: "1st:4, 2nd:3, 3rd:2"
-      },
-      personality: {
-        traits: ["Comforts the wounded with song", "Walks with sunrise calm"],
-        ideals: ["Hope is a shared light"],
-        bonds: ["Bell relic from Solara's altar"],
-        flaws: ["Overextends to protect strangers"]
-      },
-      extras: {
-        languages: ["Common", "Celestial"],
-        inventoryWeight: "56 lb",
-        notes: "Keeps a travel journal of miracles witnessed."
-      }
-    }
-  },
-  {
-    id: 4,
-    name: "Drusk",
-    title: "Dragon's Shield",
-    race: "Dragonborn",
-    class: "Paladin",
-    level: 6,
-    alignment: "Lawful Neutral",
-    background: "Soldier",
-    hp: 54,
-    ac: 19,
-    speed: 30,
-    stats: {
-      str: 18, dex: 10, con: 16, int: 10, wis: 12, cha: 14
-    },
-    passivePerception: 12,
-    inspiration: false,
-    profBonus: 3,
-    skills: ["Athletics", "Intimidation", "Persuasion"],
-    abilities: ["Lay on Hands", "Divine Smite"],
-    spells: ["Bless", "Shield of Faith"],
-    equipment: ["Greatsword", "Plate Armor", "Insignia of rank"],
-    notes: "Armor is etched with bronze dragon motifs.",
-    lore: "A veteran of the Scale Wars, Drusk swore an oath of vengeance against those who would threaten the innocent. His bronze scales are scarred from countless battles, each a testament to his resilience. He views himself as a living shield, placing himself between danger and his companions without hesitation. His code is strict, but his heart burns with the fire of his ancestors.",
-    sheet: {
-      core: {
-        hitDie: "d10",
-        raceTraits: ["Draconic Ancestry (Bronze)", "Breath Weapon (lightning)", "Damage Resistance: Lightning"],
-        classFeatures: ["Lay on Hands", "Divine Smite", "Fighting Style: Defense"],
-        backgroundFeature: "Military Rank",
-        appearance: "Bronze scales scarred from war, armor engraved with draconic script.",
-        backstory: "Veteran of the Scale Wars; sworn to stand between danger and the innocent."
-      },
-      abilityMethod: "Standard Array",
-      abilityScores: { str: 18, dex: 10, con: 16, int: 10, wis: 12, cha: 14 },
-      proficiencies: {
-        savingThrows: ["Wisdom", "Charisma"],
-        armorWeapons: ["All armor", "Shields", "Simple & martial weapons"],
-        tools: ["Vehicles (land)"],
-        skills: ["Athletics", "Intimidation", "Persuasion"],
-        languages: ["Common", "Draconic"]
-      },
-      combat: {
-        armorClass: 19,
-        initiative: "+0 (Dex)",
-        speed: "30 ft",
-        hitPoints: "54",
-        hitDice: "6d10",
-        passivePerception: 12,
-        proficiencyBonus: "+3"
-      },
-      attacks: [
-        { name: "Greatsword", bonus: "+7", damage: "2d6+4 slashing (+2d8 radiant smite)", tags: ["Melee", "Heavy"] },
-        { name: "Lay on Hands", bonus: "—", damage: "Restore 30 hp pool", tags: ["Healing"] },
-        { name: "Breath Weapon", bonus: "DC 13", damage: "2d6 lightning (5x30 ft line)", tags: ["Racial", "Recharge"] }
-      ],
-      equipmentDetail: {
-        starting: ["Greatsword", "Plate Armor", "Insignia of rank", "Traveler's pack"],
-        wealth: "20 gp and a polished bronze holy symbol"
-      },
-      features: {
-        classFeatures: ["Lay on Hands", "Divine Smite", "Fighting Style: Defense"],
-        racialTraits: ["Breath Weapon", "Lightning Resistance"],
-        background: "Military Rank - respects of other soldiers",
-        feats: []
-      },
-      spellsDetail: {
-        ability: "Charisma",
-        saveDC: 13,
-        attackBonus: "+5",
-        prepared: "8 prepared (Cha mod + level)",
-        known: ["Bless", "Shield of Faith"],
-        slots: "1st:4, 2nd:3"
-      },
-      personality: {
-        traits: ["Stands as the first shield in danger", "Polishes armor nightly"],
-        ideals: ["Discipline maintains order"],
-        bonds: ["Oathbound to fallen comrades' families"],
-        flaws: ["Overly rigid with personal codes"]
-      },
-      extras: {
-        languages: ["Common", "Draconic"],
-        inventoryWeight: "110 lb",
-        notes: "Prefers to keep armor on even while resting; drinks only water on duty."
-      }
-    }
-  },
-  {
-    id: 5,
-    name: "Elyra",
-    title: "Songweaver",
-    race: "Half-Elf",
-    class: "Bard",
-    level: 5,
-    alignment: "Chaotic Neutral",
-    background: "Entertainer",
-    hp: 32,
-    ac: 15,
-    speed: 30,
-    stats: {
-      str: 10, dex: 14, con: 12, int: 13, wis: 11, cha: 18
-    },
-    passivePerception: 13,
-    inspiration: true,
-    profBonus: 3,
-    skills: ["Performance", "Deception", "Persuasion", "Stealth"],
-    abilities: ["Bardic Inspiration", "Jack of All Trades"],
-    spells: ["Dissonant Whispers", "Hypnotic Pattern", "Cure Wounds"],
-    equipment: ["Rapier", "Lute", "Pan flute", "Leather Armor"],
-    notes: "Collects stories from every tavern she visits.",
-    lore: "Elyra believes that the world is made of stories, and she intends to learn them all. A wanderer by nature, she weaves magic into her music, charming kings and calming beasts alike. Her laughter is infectious, but beneath her playful exterior lies a sharp wit and a keen observer. She chronicles the party's deeds, ensuring their legend will be sung for generations to come.",
-    sheet: {
-      core: {
-        hitDie: "d8",
-        raceTraits: ["Darkvision", "Fey Ancestry", "Skill Versatility"],
-        classFeatures: ["Bardic Inspiration (d8)", "Jack of All Trades", "Song of Rest"],
-        backgroundFeature: "By Popular Demand",
-        appearance: "Half-elf with braided silver hair and a lute etched with constellations.",
-        backstory: "Travels tavern to tavern collecting legends to weave into new songs."
-      },
-      abilityMethod: "Point Buy",
-      abilityScores: { str: 10, dex: 14, con: 12, int: 13, wis: 11, cha: 18 },
-      proficiencies: {
-        savingThrows: ["Dexterity", "Charisma"],
-        armorWeapons: ["Light armor", "Simple weapons", "Hand crossbows", "Longswords", "Rapiers", "Shortswords"],
-        tools: ["Lute", "Pan flute", "Disguise kit"],
-        skills: ["Performance", "Deception", "Persuasion", "Stealth"],
-        languages: ["Common", "Elvish", "Sylvan"]
-      },
-      combat: {
-        armorClass: 15,
-        initiative: "+2 (Dex)",
-        speed: "30 ft",
-        hitPoints: "32",
-        hitDice: "5d8",
-        passivePerception: 13,
-        proficiencyBonus: "+3"
-      },
-      attacks: [
-        { name: "Rapier", bonus: "+5", damage: "1d8+2 piercing", tags: ["Melee", "Finesse"] },
-        { name: "Dissonant Whispers", bonus: "DC 15", damage: "3d6 psychic (1st)", tags: ["Spell", "Wis save"] },
-        { name: "Hypnotic Pattern", bonus: "DC 15", damage: "Charm/incapacitate", tags: ["Spell", "Area control"] }
-      ],
-      equipmentDetail: {
-        starting: ["Rapier", "Lute", "Pan flute", "Leather Armor", "Entertainer's pack"],
-        wealth: "28 gp in performance tips"
-      },
-      features: {
-        classFeatures: ["Bardic Inspiration (d8)", "Jack of All Trades", "Song of Rest"],
-        racialTraits: ["Fey Ancestry", "Skill Versatility"],
-        background: "By Popular Demand - always finds a stage",
-        feats: []
-      },
-      spellsDetail: {
-        ability: "Charisma",
-        saveDC: 15,
-        attackBonus: "+7",
-        prepared: "Knows 11 spells / 3 cantrips",
-        known: ["Dissonant Whispers", "Hypnotic Pattern", "Cure Wounds"],
-        slots: "1st:4, 2nd:3, 3rd:2"
-      },
-      personality: {
-        traits: ["Turns every scene into a story prompt", "Laughs easily, schemes quietly"],
-        ideals: ["Freedom to wander and collect songs"],
-        bonds: ["Protects the tales of those who trust her"],
-        flaws: ["Keeps secrets for the sake of a better story"]
-      },
-      extras: {
-        languages: ["Common", "Elvish", "Sylvan"],
-        inventoryWeight: "34 lb",
-        notes: "Writes nightly ballads about the day's heroes and villains."
-      }
-    }
-  },
-  {
-    id: 6,
-    name: "Flint",
-    title: "The Tinkerer",
-    race: "Dwarf",
-    class: "Artificer",
-    level: 4,
-    alignment: "Neutral Good",
-    background: "Guild Artisan",
-    hp: 34,
+    name: 'Clod',
+    title: 'Keeper of the Egg',
+    race: 'Duergar',
+    class: 'Fighter',
+    subclass: 'Echo Knight',
+    level: 2,
+    alignment: 'Chaotic Neutral',
+    background: 'Born in the Underdark; left in an orphanage until age six, when he was moved to the surface. Spent decades adapting to a world built for creatures who weren\'t afraid of the sun. The Egg found him — or he found it — and since then his life has been organized around one question: what is inside it, and what does it want?',
+    hp: 22,
     ac: 16,
     speed: 25,
-    stats: {
-      str: 11, dex: 12, con: 15, int: 17, wis: 10, cha: 9
-    },
-    passivePerception: 11,
+    stats: { str: 16, dex: 10, con: 15, int: 10, wis: 11, cha: 8 },
+    passivePerception: 10,
     inspiration: false,
     profBonus: 2,
-    skills: ["Arcana", "Investigation", "Tinker's Tools"],
-    abilities: ["Infuse Item", "Magical Tinkering"],
-    spells: ["Faerie Fire", "Cure Wounds"],
-    equipment: ["Handaxe", "Light Crossbow", "Tinker satchel"],
-    notes: "Has a mechanical raven familiar named Cog.",
-    lore: "Flint sees magic not as a mystical force, but as a puzzle to be solved. Exiled from his clan for his unorthodox experiments, he travels the world seeking rare materials for his inventions. His mechanical companion, Cog, is his masterpiece, a testament to his genius. Flint is always tinkering, improving, and optimizing, believing that with enough gears and mana, anything is possible.",
+    skills: ['Athletics', 'Intimidation', 'Perception', 'Survival'],
+    abilities: [
+      'Duergar Resilience — advantage vs. poison, spells, and illusions',
+      'Enlarge/Reduce (1/long rest) — magical enlargement',
+      'Invisibility (1/long rest)',
+      'Darkvision 120 ft',
+      'Second Wind',
+      'Action Surge (1/rest)',
+      'The Egg — a Feywild Ant Queen\'s egg that communicates through sensation and impulse',
+    ],
+    spells: [],
+    equipment: [
+      'Chain Mail',
+      'War Pick',
+      'Shield',
+      'The Egg — wrapped in treated cloth in a padded satchel',
+      'Hempen rope (50 ft)',
+      'Rations (5 days)',
+      'Tinderbox',
+    ],
+    notes: 'Quiet and blunt. Doesn\'t explain himself. The Egg is his most prized possession and he will not discuss it with strangers. Voices from the Egg communicate through urges and sensations, not words.',
+    lore: 'Clod was moved to the surface at six and learned that the world up here is louder, brighter, and less honest than the Underdark. He adapted. He is not a man of stories — he is a man of facts and fists and keeping his head down. Then he found the Egg, and keeping his head down became impossible. The Egg is a Feywild Ant Queen\'s egg: dormant, impossibly ancient, and slowly growing. It communicates through impulse — a pull of the stomach toward danger, a warmth when he chooses correctly. Clod doesn\'t know what it\'s hatching into, but he\'s decided it\'s his problem. That\'s just how he is.',
     sheet: {
       core: {
-        hitDie: "d8",
-        raceTraits: ["Darkvision", "Dwarven Resilience", "Stonecunning"],
-        classFeatures: ["Magical Tinkering", "Infuse Item (2 infusions)"],
-        backgroundFeature: "Guild Membership",
-        appearance: "Stocky dwarf with soot-stained gloves and bronze lenses perched on his brow.",
-        backstory: "Exiled for unorthodox experiments; roams to find rare materials for inventions."
+        hitDie: 'd10',
+        raceTraits: ['Darkvision 120 ft', 'Duergar Resilience', 'Enlarge (1/long rest)', 'Invisibility (1/long rest)', 'Sunlight Sensitivity'],
+        classFeatures: ['Second Wind', 'Action Surge', 'Fighting Style'],
+        backgroundFeature: 'Underdark Survivor — navigates lightless environments without penalty; knows underground creature behavior',
+        appearance: 'Stocky grey-skinned duergar with a flat expression and a padded satchel he never lets out of reach.',
+        backstory: 'Underdark orphan, raised on the surface from age 6. Discovered and bonded with a dormant Feywild Ant Queen\'s egg. His mission now: keep it safe until it\'s ready.',
       },
-      abilityMethod: "Point Buy",
-      abilityScores: { str: 11, dex: 12, con: 15, int: 17, wis: 10, cha: 9 },
+      abilityMethod: 'Standard Array',
+      abilityScores: { str: 16, dex: 10, con: 15, int: 10, wis: 11, cha: 8 },
       proficiencies: {
-        savingThrows: ["Constitution", "Intelligence"],
-        armorWeapons: ["Light/Medium armor", "Shields", "Simple weapons"],
-        tools: ["Tinker's tools", "Thieves' tools", "Smith's tools"],
-        skills: ["Arcana", "Investigation", "Tinker's Tools"],
-        languages: ["Common", "Dwarvish", "Gnomish"]
+        savingThrows: ['Strength', 'Constitution'],
+        armorWeapons: ['All armor', 'Shields', 'Simple & martial weapons'],
+        tools: ['Mason\'s tools'],
+        skills: ['Athletics', 'Intimidation', 'Perception', 'Survival'],
+        languages: ['Common', 'Dwarvish', 'Undercommon'],
       },
       combat: {
         armorClass: 16,
-        initiative: "+1 (Dex)",
-        speed: "25 ft",
-        hitPoints: "34",
-        hitDice: "4d8",
-        passivePerception: 11,
-        proficiencyBonus: "+2"
+        initiative: '+0 (Dex)',
+        speed: '25 ft',
+        hitPoints: '22',
+        hitDice: '2d10',
+        passivePerception: 10,
+        proficiencyBonus: '+2',
       },
       attacks: [
-        { name: "Light Crossbow", bonus: "+3", damage: "1d8+1 piercing", tags: ["Ranged", "Infused bolts"] },
-        { name: "Handaxe", bonus: "+2", damage: "1d6 slashing", tags: ["Melee", "Light"] },
-        { name: "Gadget Burst", bonus: "DC 13", damage: "1d8 thunder (prototype)", tags: ["Infusion", "Close burst"] }
+        { name: 'War Pick', bonus: '+5', damage: '1d8+3 piercing', tags: ['Melee'] },
+        { name: 'War Pick (Enlarged)', bonus: '+5', damage: '2d8+3 piercing', tags: ['Melee', 'Magical Enlargement'] },
+        { name: 'Shield Bash', bonus: '+5', damage: '1d4+3 bludgeoning', tags: ['Melee', 'Bonus Action'] },
       ],
       equipmentDetail: {
-        starting: ["Handaxe", "Light Crossbow", "Tinker satchel", "Cog the mechanical raven"],
-        wealth: "35 gp held for guild dues"
+        starting: ['Chain Mail', 'War Pick', 'Shield', 'Explorer\'s Pack'],
+        wealth: '20 gp',
+        magic: ['The Egg — Feywild Ant Queen\'s dormant egg; communicates via impulse'],
       },
       features: {
-        classFeatures: ["Magical Tinkering", "Infuse Item (2 infusions)"],
-        racialTraits: ["Dwarven Resilience", "Stonecunning"],
-        background: "Guild Membership - workshop access",
-        feats: []
+        classFeatures: ['Second Wind (1/rest)', 'Action Surge (1/rest)', 'Fighting Style: Defense'],
+        racialTraits: ['Duergar Resilience', 'Enlarge', 'Invisibility', 'Darkvision 120 ft'],
+        background: 'Underdark Survivor',
+        feats: [],
       },
       spellsDetail: {
-        ability: "Intelligence",
-        saveDC: 13,
-        attackBonus: "+5",
-        prepared: "5 prepared artificer spells",
-        known: ["Faerie Fire", "Cure Wounds"],
-        slots: "1st:3, 2nd:1"
+        ability: 'None',
+        saveDC: '—',
+        attackBonus: '—',
+        prepared: '',
+        known: ['Non-caster (Duergar racial: Enlarge, Invisibility)'],
+        slots: '—',
       },
       personality: {
-        traits: ["Talks to his inventions", "Records observations in gear-etched shorthand"],
-        ideals: ["Innovation makes the world safer"],
-        bonds: ["Protects Cog as proof of his craft"],
-        flaws: ["Tinkers instead of resting"]
+        traits: ['Says what he means, no more', 'Checks on the Egg at least once an hour'],
+        ideals: ['A promise made is a promise kept'],
+        bonds: ['The Egg — will protect it with his life'],
+        flaws: ['Deeply suspicious of Fey creatures, despite (or because of) the Egg'],
       },
       extras: {
-        languages: ["Common", "Dwarvish", "Gnomish"],
-        inventoryWeight: "62 lb",
-        notes: "Travels with Cog the mechanical raven; keeps spare springs in beard braid."
-      }
-    }
-  },
-  {
-    id: 7,
-    name: "Ghita",
-    title: "Shadowbound",
-    race: "Tiefling",
-    class: "Warlock",
-    level: 5,
-    alignment: "Neutral Evil",
-    background: "Charlatan",
-    hp: 30,
-    ac: 14,
-    speed: 30,
-    stats: {
-      str: 8, dex: 14, con: 13, int: 11, wis: 12, cha: 18
+        languages: ['Common', 'Dwarvish', 'Undercommon'],
+        inventoryWeight: '88 lb',
+        notes: 'The Egg stages: dormant → larval → growth. Feeding requirements and ant colony mechanics tracked separately. Egg voices communicate through sensation only.',
+      },
     },
-    passivePerception: 13,
+  },
+
+  // ── 4. Esil Dei Krovi (Ryan) ──────────────────────────────────────────────
+  {
+    id: 4,
+    name: 'Esil Dei Krovi',
+    title: 'Low Captain of the Paladin Order',
+    race: 'Dragonborn',
+    class: 'Paladin',
+    subclass: 'Oath of the Dragon (Krovi)',
+    level: 3,
+    alignment: 'Lawful Neutral',
+    background: 'At fifteen, he witnessed a stranger channel red and white dragon magic unlike anything he\'d ever seen. He spent twelve years searching for its source — a dragon deity named Krovi — before a cloaked dragonborn in a tavern pressed an ancient dragontongue spellbook into his hands and told him the name he\'d been hunting. He made a blood pact that night. He changed his name to honor it.',
+    hp: 28,
+    ac: 18,
+    speed: 30,
+    stats: { str: 17, dex: 10, con: 14, int: 10, wis: 12, cha: 15 },
+    passivePerception: 11,
     inspiration: false,
-    profBonus: 3,
-    skills: ["Arcana", "Deception", "Sleight of Hand"],
-    abilities: ["Eldritch Invocations", "Pact of the Tome"],
-    spells: ["Eldritch Blast", "Hex", "Shadow of Moil"],
-    equipment: ["Dagger", "Component pouch", "Silken robes"],
-    notes: "Eyes glow faint purple when channeling her patron.",
-    lore: "Ghita struck a bargain with a shadowy entity to save her own life, a debt she is now forever paying. She walks the line between light and dark, using her deceptive charm to manipulate those around her. While her methods are questionable, her power is undeniable. She seeks a way to break her pact, but the whispers in the dark are growing louder every day.",
+    profBonus: 2,
+    skills: ['Athletics', 'Intimidation', 'Persuasion', 'Religion'],
+    abilities: [
+      'Lay on Hands (15 HP pool)',
+      'Divine Smite — expend spell slots for radiant damage',
+      'Divine Sense — detect celestial/fiend/undead presence',
+      'Draconic Ancestry (unknown lineage) — breath weapon',
+      'Channel Divinity: Sacred Weapon / Turn the Unholy',
+      'Krovi\'s Blessing — special ability from blood pact',
+      'TOME — ancient dragontongue spellbook with encrypted rituals',
+    ],
+    spells: ['Wrathful Smite', 'Bless', 'Shield of Faith', 'Thunderous Smite'],
+    equipment: [
+      'Plate Armor — mother\'s armor, inscribed with draconic script',
+      'Greatsword — father Strahd\'s weapon',
+      'The TOME — ancient dragontongue spellbook, partially deciphered',
+      'Holy Symbol of Krovi',
+      'Esil\'s Pendant — personal heirloom with hidden significance',
+    ],
+    notes: 'Named himself after his patron deity: "Esil Dei Krovi" translates roughly to "blood of Krovi\'s will." Wears his mother\'s armor as a point of pride. Carries the TOME everywhere but can only read fragments of it.',
+    lore: 'He was a teenager standing in a crowd when he saw it — red and white light moving like something alive, something draconic. Nobody else seemed to notice. He spent the next twelve years chasing that memory across Azterra, asking priests and scholars and anyone who would listen: what is dragon magic, truly? Where does it come from? Who taught the gods themselves? A cloaked stranger finally gave him the answer — a name, a book, and a knife to cut his palm with. The pact was sealed before he fully understood what he was agreeing to. He doesn\'t regret it. The TOME grows more legible every month.',
     sheet: {
       core: {
-        hitDie: "d8",
-        raceTraits: ["Darkvision", "Hellish Resistance", "Infernal Legacy"],
-        classFeatures: ["Eldritch Invocations", "Pact of the Tome"],
-        backgroundFeature: "False Identity",
-        appearance: "Tiefling with deep violet eyes, fine robes hiding concealed daggers.",
-        backstory: "Bound to a shadowed patron to escape death; walks the line between need and freedom."
+        hitDie: 'd10',
+        raceTraits: ['Draconic Ancestry', 'Breath Weapon', 'Damage Resistance'],
+        classFeatures: ['Lay on Hands', 'Divine Smite', 'Divine Sense', 'Channel Divinity', 'Paladin Aura'],
+        backgroundFeature: 'Military Rank — holds the rank of Low Captain in the Paladin Order',
+        appearance: 'Dragonborn in ornate plate inscribed with draconic runes. Carries an ancient tome bound in black leather that seems to write itself.',
+        backstory: 'Spent 12 years searching for the dragon deity Krovi after witnessing impossible magic at age 15. Accepted a blood pact and changed his name to honor the bond.',
       },
-      abilityMethod: "Point Buy",
-      abilityScores: { str: 8, dex: 14, con: 13, int: 11, wis: 12, cha: 18 },
+      abilityMethod: 'Standard Array',
+      abilityScores: { str: 17, dex: 10, con: 14, int: 10, wis: 12, cha: 15 },
       proficiencies: {
-        savingThrows: ["Wisdom", "Charisma"],
-        armorWeapons: ["Light armor", "Simple weapons"],
-        tools: ["Disguise kit", "Forgery kit"],
-        skills: ["Arcana", "Deception", "Sleight of Hand"],
-        languages: ["Common", "Infernal"]
+        savingThrows: ['Wisdom', 'Charisma'],
+        armorWeapons: ['All armor', 'Shields', 'Simple & martial weapons'],
+        tools: ['Vehicles (land)'],
+        skills: ['Athletics', 'Intimidation', 'Persuasion', 'Religion'],
+        languages: ['Common', 'Draconic', 'Dragontongue (partial)'],
+      },
+      combat: {
+        armorClass: 18,
+        initiative: '+0 (Dex)',
+        speed: '30 ft',
+        hitPoints: '28',
+        hitDice: '3d10',
+        passivePerception: 11,
+        proficiencyBonus: '+2',
+      },
+      attacks: [
+        { name: 'Greatsword', bonus: '+5', damage: '2d6+3 slashing (+2d8 radiant smite)', tags: ['Melee', 'Heavy'] },
+        { name: 'Lay on Hands', bonus: '—', damage: 'Restore up to 15 HP (pool)', tags: ['Healing'] },
+        { name: 'Breath Weapon', bonus: 'DEX save DC 12', damage: '2d6 (dragon type)', tags: ['Racial', 'Recharge'] },
+      ],
+      equipmentDetail: {
+        starting: ['Greatsword', 'Mother\'s Plate Armor', 'Holy Symbol', 'Priest\'s Pack'],
+        wealth: '18 gp',
+        magic: ['The TOME (ancient dragontongue spellbook)', 'Esil\'s Pendant (heirloom, purpose unknown)'],
+      },
+      features: {
+        classFeatures: ['Lay on Hands', 'Divine Smite', 'Divine Sense', 'Channel Divinity x1/rest'],
+        racialTraits: ['Breath Weapon', 'Damage Resistance', 'Draconic Ancestry'],
+        background: 'Military Rank (Low Captain)',
+        feats: [],
+      },
+      spellsDetail: {
+        ability: 'Charisma',
+        saveDC: 12,
+        attackBonus: '+4',
+        prepared: '5 spells prepared',
+        known: ['Wrathful Smite', 'Bless', 'Shield of Faith', 'Thunderous Smite'],
+        slots: '1st: 3',
+      },
+      personality: {
+        traits: ['Deliberate and measured; thinks before speaking', 'Studies the TOME in private — won\'t let others touch it'],
+        ideals: ['A covenant made in blood is absolute'],
+        bonds: ['The memory of his parents\' sacrifice; the blood pact with Krovi'],
+        flaws: ['Cannot fully read the pact he\'s bound to — and is too proud to admit it'],
+      },
+      extras: {
+        languages: ['Common', 'Draconic', 'Dragontongue (partial)'],
+        inventoryWeight: '118 lb',
+        notes: 'The TOME contains encrypted rituals and mystical knowledge. Partially deciphered. Krovi\'s Blessing is a special ability from the blood pact — details unlocked through play.',
+      },
+    },
+  },
+
+  // ── 5. Eldrin (Miki) ──────────────────────────────────────────────────────
+  {
+    id: 5,
+    name: 'Eldrin',
+    title: 'Warden of the Whispering Warrens',
+    race: 'High Elf',
+    class: 'Druid',
+    subclass: 'Circle of the Land',
+    level: 4,
+    alignment: 'Neutral Good',
+    background: 'Spent two centuries in the Tauriel Forests guarding the holy warrens — sacred burrows entrusted to him by an order that has since gone silent. He was not alone: hundreds of rabbits lived under his protection, and he knew every one of them. An unknown force attacked without warning. He failed. Two rabbits survived: Cookie and Cream. Their descendants now travel with him — a small army, by rabbit standards — as he hunts the thing that destroyed everything he was sworn to protect.',
+    hp: 27,
+    ac: 14,
+    speed: 35,
+    stats: { str: 10, dex: 15, con: 12, int: 14, wis: 18, cha: 11 },
+    passivePerception: 14,
+    inspiration: true,
+    profBonus: 2,
+    skills: ['Animal Handling', 'Insight', 'Nature', 'Perception', 'Survival'],
+    abilities: [
+      'Wild Shape (2 uses) — prefers forest animals',
+      'Timeless Body — ages at 1/10 rate; immune to magical aging',
+      'Fey Ancestry — advantage vs. charm; immune to magical sleep',
+      'Keen Senses — proficiency in Perception',
+      'Toe (Fire Bunny) — bonded companion with pyromantic abilities',
+      'Kki (Healing Bunny) — bonded companion with restorative abilities',
+      'Swarm of Rabbits — tactical formation option with the warren army',
+      'Land\'s Stride — difficult terrain from plants doesn\'t cost extra movement',
+    ],
+    spells: ['Thorn Whip', 'Shillelagh', 'Thunderwave', 'Entangle', 'Healing Word', 'Speak with Animals', 'Moonbeam', 'Heat Metal', 'Flaming Sphere'],
+    equipment: [
+      'Druidic Staff — carved from Tauriel oakwood',
+      'Leather Armor',
+      'Bag of holding — holds rabbit emergency provisions',
+      'Toe\'s Carrier (fireproof satchel)',
+      'Kki\'s Sling (healing-runed)',
+      'Dried herbs and mushrooms (foraging stock)',
+      'Cookie\'s Descendant Roster — scroll listing every rabbit in the army',
+    ],
+    notes: 'Speaks in a near-whisper in urban environments. Becomes a different person in the wild — confident, decisive, completely at ease. Has a complicated relationship with fire despite Toe\'s nature. Will not harm a rabbit under any circumstances.',
+    lore: 'Eldrin has watched three mortal generations rise and fall. He stopped counting at four hundred and lost interest in the number somewhere around three-fifty. What he never lost interest in was the warrens — the soft sounds of the burrows at dawn, the way the rabbits learned to trust him over decades of quiet patience. When the attack came, he couldn\'t stop it. He still doesn\'t know what did it. Two survivors: Cookie and Cream. He wrapped them in his cloak and walked south and has been walking ever since, accumulating their descendants one generation at a time. The army is real. They follow him. He doesn\'t know if that\'s beautiful or terrible, but he knows he\'ll protect every one of them the way he failed to protect the others.',
+    sheet: {
+      core: {
+        hitDie: 'd8',
+        raceTraits: ['Darkvision 60 ft', 'Keen Senses', 'Fey Ancestry', 'Trance', 'Elf Weapon Training', 'Cantrip'],
+        classFeatures: ['Wild Shape', 'Druidic', 'Timeless Body', 'Land\'s Stride', 'Circle Spells'],
+        backgroundFeature: 'Warren\'s Keeper — centuries of animal behavior knowledge; animals are instinctively calm around him',
+        appearance: 'Ancient-seeming elf who looks perhaps 40. Silver-streaked hair, pine-needle green eyes, moving with the patience of old-growth timber. Usually has at least one rabbit somewhere on his person.',
+        backstory: 'Guardian of the Tauriel holy warrens for 200 years. Lost all charges to an unknown attacker. Traveling with surviving rabbit descendants to find and destroy whatever did it.',
+      },
+      abilityMethod: 'Point Buy',
+      abilityScores: { str: 10, dex: 15, con: 12, int: 14, wis: 18, cha: 11 },
+      proficiencies: {
+        savingThrows: ['Intelligence', 'Wisdom'],
+        armorWeapons: ['Light armor', 'Medium armor', 'Shields', 'Clubs', 'Daggers', 'Quarterstaffs', 'Scimitars', 'Sickles', 'Spears', 'Longswords', 'Shortswords', 'Longbows', 'Shortbows'],
+        tools: ['Herbalism Kit'],
+        skills: ['Animal Handling', 'Insight', 'Nature', 'Perception', 'Survival'],
+        languages: ['Common', 'Elvish', 'Druidic', 'Sylvan'],
       },
       combat: {
         armorClass: 14,
-        initiative: "+2 (Dex)",
-        speed: "30 ft",
-        hitPoints: "30",
-        hitDice: "5d8",
-        passivePerception: 13,
-        proficiencyBonus: "+3"
+        initiative: '+2 (Dex)',
+        speed: '35 ft (elf + land\'s stride)',
+        hitPoints: '27',
+        hitDice: '4d8',
+        passivePerception: 14,
+        proficiencyBonus: '+2',
       },
       attacks: [
-        { name: "Eldritch Blast", bonus: "+7", damage: "1d10+4 force (Agonizing)", tags: ["Spell", "120 ft"] },
-        { name: "Dagger", bonus: "+5", damage: "1d4+2 piercing", tags: ["Melee", "Thrown"] },
-        { name: "Hex", bonus: "Bonus", damage: "+1d6 necrotic to target", tags: ["Curse", "Concentration"] }
+        { name: 'Shillelagh Staff', bonus: '+6', damage: '1d8+4 bludgeoning', tags: ['Cantrip', 'Melee', 'Magic'] },
+        { name: 'Thorn Whip', bonus: '+6', damage: '1d6 piercing + pull 10 ft', tags: ['Cantrip', '30 ft'] },
+        { name: 'Moonbeam', bonus: 'CON save DC 14', damage: '2d10 radiant/turn', tags: ['Spell', 'Concentration'] },
       ],
       equipmentDetail: {
-        starting: ["Dagger", "Component pouch", "Silken robes", "Book of shadows"],
-        wealth: "15 gp hidden across false identities"
+        starting: ['Druidic Staff', 'Leather Armor', 'Herbalism Kit', 'Druidic Focus', 'Explorer\'s Pack'],
+        wealth: '22 gp',
+        companions: ['Toe (fire elemental bunny)', 'Kki (healing bunny)', 'Rabbit Army (25+ individuals)'],
       },
       features: {
-        classFeatures: ["Eldritch Invocations", "Pact of the Tome"],
-        racialTraits: ["Hellish Resistance", "Infernal Legacy"],
-        background: "False Identity - forged papers",
-        feats: []
+        classFeatures: ['Wild Shape (2/rest)', 'Land\'s Stride', 'Timeless Body', 'Circle Land Spells'],
+        racialTraits: ['Fey Ancestry', 'Keen Senses', 'Trance', 'Darkvision'],
+        background: 'Warren\'s Keeper',
+        feats: [],
       },
       spellsDetail: {
-        ability: "Charisma",
-        saveDC: 15,
-        attackBonus: "+7",
-        prepared: "Knows 8 spells / 3 cantrips",
-        known: ["Eldritch Blast", "Hex", "Shadow of Moil"],
-        slots: "2 pact slots (3rd level)"
+        ability: 'Wisdom',
+        saveDC: 14,
+        attackBonus: '+6',
+        prepared: '8 spells prepared',
+        known: ['Thorn Whip', 'Shillelagh', 'Thunderwave', 'Entangle', 'Healing Word', 'Speak with Animals', 'Moonbeam', 'Heat Metal', 'Flaming Sphere', 'Pass Without Trace'],
+        slots: '1st: 4, 2nd: 3',
       },
       personality: {
-        traits: ["Smiles while scheming", "Asks questions instead of giving answers"],
-        ideals: ["Freedom from the pact above all"],
-        bonds: ["Book of shadows contains true name rune"],
-        flaws: ["Takes risks to prove she controls the darkness"]
+        traits: ['Soft-spoken in cities, commanding in the wild', 'Remembers the name of every rabbit in the army'],
+        ideals: ['All small things deserve the same protection as great ones'],
+        bonds: ['Cookie and Cream\'s lineage — every rabbit in the army carries their blood'],
+        flaws: ['Cannot act against any rabbit\'s interest, even tactically'],
       },
       extras: {
-        languages: ["Common", "Infernal"],
-        inventoryWeight: "29 lb",
-        notes: "Eyes glow violet when channeling; keeps black candles for patron rites."
-      }
-    }
-  },
-  {
-    id: 8,
-    name: "Harran",
-    title: "Stonefist",
-    race: "Goliath",
-    class: "Fighter",
-    level: 5,
-    alignment: "Chaotic Neutral",
-    background: "Mercenary",
-    hp: 52,
-    ac: 17,
-    speed: 30,
-    stats: {
-      str: 18, dex: 12, con: 16, int: 9, wis: 13, cha: 10
+        languages: ['Common', 'Elvish', 'Druidic', 'Sylvan'],
+        inventoryWeight: '44 lb',
+        notes: 'Toe can produce pyromantic effects; Kki can provide minor healing. The rabbit army (25+) can be deployed as swarm formation. Eldrin has a fear response to large fires despite Toe\'s nature.',
+      },
     },
+  },
+
+  // ── 6. Cordo Tympazi (Ivan) ───────────────────────────────────────────────
+  {
+    id: 6,
+    name: 'Cordo Tympazi',
+    title: 'The Drunken Blade',
+    race: 'Wood Elf',
+    class: 'Monk',
+    subclass: 'Way of the Drunken Master',
+    level: 2,
+    alignment: 'Chaotic Neutral',
+    background: 'His mother gambled him away in a card game at age six. The winner — an elderly monk named Opta — raised him alongside other orphans in the Duran Mountains for seventy-eight years. When Opta died, Cordo was handed a list of names and told to find them. He\'s been working through the list ever since, between drinks.',
+    hp: 18,
+    ac: 15,
+    speed: 40,
+    stats: { str: 12, dex: 17, con: 13, int: 10, wis: 14, cha: 9 },
     passivePerception: 12,
-    inspiration: true,
-    profBonus: 3,
-    skills: ["Athletics", "Survival", "Perception"],
-    abilities: ["Second Wind", "Action Surge", "Battlemaster Maneuvers"],
+    inspiration: false,
+    profBonus: 2,
+    skills: ['Acrobatics', 'Athletics', 'Perception', 'Stealth'],
+    abilities: [
+      'Flurry of Blows — spend 1 ki for two bonus unarmed strikes',
+      'Patient Defense — spend 1 ki to Dodge as bonus action',
+      'Step of the Wind — spend 1 ki to Disengage + Dash',
+      'Unarmored Defense — AC = 10 + DEX + WIS',
+      'Drunken Technique — Flurry of Blows grants Disengage + +10 movement',
+      'Fey Ancestry — advantage vs. charm; immune to magical sleep',
+      'Fleet of Foot — 40 ft movement speed',
+      'Opta\'s Hitlist — a list of assassination targets, unknown purpose',
+      'The Charge Goat — unusual companion with combat utility',
+    ],
     spells: [],
-    equipment: ["Maul", "Heavy Crossbow", "Chain Mail"],
-    notes: "Keeps tally marks engraved on his maul's haft.",
-    lore: "Harran descends from a tribe of mountain dwellers who value strength above all else. He left his home to test his might against the strongest champions of the lowlands. His maul, 'Earthshaker', has felled giants and beasts alike. Though he speaks little, his actions speak volumes. He fights not for gold or glory, but for the thrill of the challenge and the honor of his ancestors.",
+    equipment: [
+      'Short sword',
+      'Dart (10)',
+      'A flask — always full, always the same flask',
+      'Cordo\'s Hitlist — a scroll of names in Opta\'s handwriting',
+      'Traveler\'s Clothes',
+      'An engraved badge from Opta\'s mountain school',
+      'The Charge Goat (travels with the party)',
+    ],
+    notes: 'Is almost always at least slightly drunk. His fighting style becomes more effective the more erratic he appears. Claims the goat just started following him. Has not told anyone what\'s on the hitlist.',
+    lore: 'Cordo Tympazi knows three things with certainty: Opta was the best person he ever met, Opta never explained anything to him, and the names on the hitlist are real. He spent seventy-eight years learning to fight in the Duran Mountains. He spent the next twenty-three carrying out targets from a list he doesn\'t fully understand, one name at a time, drinking between each one because that\'s the only way to keep Opta\'s silence from becoming unbearable. He doesn\'t know if he\'s being a good person or a bad one. He suspects Opta knew. He suspects that\'s the point.',
     sheet: {
       core: {
-        hitDie: "d10",
-        raceTraits: ["Powerful Build", "Stone's Endurance", "Mountain Born"],
-        classFeatures: ["Second Wind", "Action Surge", "Battlemaster Maneuvers"],
-        backgroundFeature: "Mercenary Life (job board contacts)",
-        appearance: "Towering goliath with shale-grey skin and tally marks etched into his maul.",
-        backstory: "Left the peaks to test strength against lowland champions and earn renown."
+        hitDie: 'd8',
+        raceTraits: ['Darkvision 60 ft', 'Keen Senses', 'Fey Ancestry', 'Fleet of Foot', 'Trance', 'Elf Weapon Training'],
+        classFeatures: ['Flurry of Blows', 'Patient Defense', 'Step of the Wind', 'Unarmored Defense', 'Drunken Technique'],
+        backgroundFeature: 'Opta\'s Training — deep knowledge of mountain terrain; unconventional but comprehensive martial education',
+        appearance: 'Wiry wood elf who moves like a loose spring. Usually has a flask in one hand. Expressions range from sleepy to inexplicably menacing.',
+        backstory: 'Gambled away by his mother at age 6. Raised by monk Opta for 78 years in the Duran Mountains. Currently working through a mysterious assassination hitlist Opta left him.',
       },
-      abilityMethod: "Standard Array",
-      abilityScores: { str: 18, dex: 12, con: 16, int: 9, wis: 13, cha: 10 },
+      abilityMethod: 'Point Buy',
+      abilityScores: { str: 12, dex: 17, con: 13, int: 10, wis: 14, cha: 9 },
       proficiencies: {
-        savingThrows: ["Strength", "Constitution"],
-        armorWeapons: ["All armor", "Shields", "Simple & martial weapons"],
-        tools: ["Vehicles (land)", "Dice set"],
-        skills: ["Athletics", "Survival", "Perception"],
-        languages: ["Common", "Giant"]
+        savingThrows: ['Strength', 'Dexterity'],
+        armorWeapons: ['Simple weapons', 'Shortswords'],
+        tools: ['Brewer\'s supplies (self-taught)'],
+        skills: ['Acrobatics', 'Athletics', 'Perception', 'Stealth'],
+        languages: ['Common', 'Elvish'],
+      },
+      combat: {
+        armorClass: 15,
+        initiative: '+3 (Dex)',
+        speed: '40 ft',
+        hitPoints: '18',
+        hitDice: '2d8',
+        passivePerception: 12,
+        proficiencyBonus: '+2',
+      },
+      attacks: [
+        { name: 'Unarmed Strike', bonus: '+5', damage: '1d4+3 bludgeoning', tags: ['Melee', 'Martial Arts'] },
+        { name: 'Shortsword', bonus: '+5', damage: '1d6+3 piercing', tags: ['Melee', 'Finesse'] },
+        { name: 'Flurry of Blows', bonus: '+5', damage: '1d4+3 × 2 (bonus action)', tags: ['Ki', '1 ki point'] },
+      ],
+      equipmentDetail: {
+        starting: ['Shortsword', 'Darts (10)', 'Explorer\'s Pack', 'Flask'],
+        wealth: '12 gp',
+        special: ['Cordo\'s Hitlist (Opta\'s handwriting)', 'Opta\'s school badge', 'The Charge Goat'],
+      },
+      features: {
+        classFeatures: ['Flurry of Blows', 'Patient Defense', 'Step of the Wind', 'Drunken Technique (+10 move, Disengage on Flurry)'],
+        racialTraits: ['Fleet of Foot', 'Fey Ancestry', 'Keen Senses', 'Darkvision'],
+        background: 'Opta\'s Training',
+        feats: ['Unlockable subclass: Way of the Balance Keeper at Level 3 (Light/Dark stacks system)'],
+      },
+      spellsDetail: {
+        ability: 'None',
+        saveDC: '—',
+        attackBonus: '—',
+        prepared: '',
+        known: ['Non-caster'],
+        slots: '—',
+      },
+      personality: {
+        traits: ['Appears drunk even when sober — the fighting style requires it', 'Never explains what\'s on the list'],
+        ideals: ['Opta had a plan; following it is the least Cordo can do'],
+        bonds: ['Opta — dead, and yet still the only person Cordo listens to'],
+        flaws: ['Will not stop until the list is done, regardless of moral complexity'],
+      },
+      extras: {
+        languages: ['Common', 'Elvish'],
+        inventoryWeight: '30 lb',
+        notes: 'Ki pool: 2 points. At Level 3, subclass upgrades to Way of the Balance Keeper (Light/Dark stacks mechanic). The Charge Goat has combat utility and won\'t be left behind.',
+      },
+    },
+  },
+
+  // ── 7. Mulek Sorrengail (Jonah) ───────────────────────────────────────────
+  {
+    id: 7,
+    name: 'Mulek Sorrengail',
+    title: 'The Fallen Prince',
+    race: 'Dwarf',
+    class: 'Fighter',
+    subclass: 'Battlemaster',
+    level: 3,
+    alignment: 'Lawful Neutral',
+    background: 'Prince of a dwarven kingdom that no longer exists. His father Shangdi died on his eighteenth birthday; his mother Andarna held the real power. Three months later, an alliance of high elves and humans — calling themselves Kaya\'s Stray Dogs — overthrew everything. He escaped with a scar on his chin and nothing else. He spent six years drinking, four years traveling with a knight named Scorne, one decisive battle that cost him Scorne, and five years in training under a woman who saved his life. Now he wants his kingdom back.',
+    hp: 30,
+    ac: 17,
+    speed: 25,
+    stats: { str: 18, dex: 10, con: 16, int: 12, wis: 13, cha: 10 },
+    passivePerception: 11,
+    inspiration: false,
+    profBonus: 2,
+    skills: ['Athletics', 'History', 'Intimidation', 'Perception'],
+    abilities: [
+      'Action Surge (1/rest)',
+      'Second Wind (1/rest)',
+      'Battlemaster Maneuvers — Commander\'s Strike, Disarming Attack, Precision Attack',
+      'Superiority Dice (4d8)',
+      'Dwarven Resilience — advantage vs. poison; resistance to poison damage',
+      'Stonecunning — expertise in stonework history checks',
+      'Tool Proficiency: Smith\'s Tools',
+      'Valthrak (Combustion Hammer) — custom weapon with gunpowder charge system',
+    ],
+    spells: [],
+    equipment: [
+      'Valthrak — Combustion Hammer (two-handed warhammer with gunpowder charges)',
+      'Chain Mail (+1)',
+      'The Pocketwatch — Shangdi\'s heirloom; worth 1500 gp, never for sale',
+      'Smith\'s Tools',
+      'Crossbow and bolts',
+      'A copper flask (in honor of Scorne)',
+      'A hand-drawn map of the fallen kingdom',
+    ],
+    notes: 'Deeply racist towards high elves and humans — a trauma response, not pride. Has a soft spot for any dwarf who\'s been wronged. Doesn\'t kill unless necessary; prefers surrender. Snobby with money but donates anonymously to dwarven refugee settlements.',
+    lore: 'The scar on his chin is from the night everything ended. He\'s touched it every day since. Shangdi\'s pocketwatch still runs. Scorne was the first person in six years who treated Mulek like a king rather than a refugee; losing him in battle was a wound that hasn\'t closed. Violet Veletti pulled him out of that battle literally — grabbed him by the collar and dragged him to safety — and spent the next five years forging him into something worthy of a throne. He thinks about her every morning. He intends to reclaim his kingdom. He intends to return to her. He doesn\'t know which comes first.',
+    sheet: {
+      core: {
+        hitDie: 'd10',
+        raceTraits: ['Darkvision 60 ft', 'Dwarven Resilience', 'Stonecunning', 'Tool Proficiency', 'Speed not reduced by armor'],
+        classFeatures: ['Action Surge', 'Second Wind', 'Fighting Style: Great Weapon Fighting', 'Battlemaster Maneuvers', 'Superiority Dice'],
+        backgroundFeature: 'Noble Blood — commands deference from dwarves who know his lineage; access to noble contacts',
+        appearance: 'Stocky dwarf with a scar across his chin and the posture of someone who used to hold a throne. His hammer is inscribed with the Sorrengail royal crest.',
+        backstory: 'Fallen prince of a dwarven kingdom overthrown by Kaya\'s Stray Dogs. Lost his knight companion Scorne. Trained by Violet Veletti. Seeking to reclaim his kingdom.',
+      },
+      abilityMethod: 'Standard Array',
+      abilityScores: { str: 18, dex: 10, con: 16, int: 12, wis: 13, cha: 10 },
+      proficiencies: {
+        savingThrows: ['Strength', 'Constitution'],
+        armorWeapons: ['All armor', 'Shields', 'Simple & martial weapons'],
+        tools: ['Smith\'s Tools', 'Vehicles (land)'],
+        skills: ['Athletics', 'History', 'Intimidation', 'Perception'],
+        languages: ['Common', 'Dwarvish'],
       },
       combat: {
         armorClass: 17,
-        initiative: "+1 (Dex)",
-        speed: "30 ft",
-        hitPoints: "52",
-        hitDice: "5d10",
-        passivePerception: 12,
-        proficiencyBonus: "+3"
+        initiative: '+0 (Dex)',
+        speed: '25 ft',
+        hitPoints: '30',
+        hitDice: '3d10',
+        passivePerception: 11,
+        proficiencyBonus: '+2',
       },
       attacks: [
-        { name: "Maul 'Earthshaker'", bonus: "+7", damage: "2d6+4 bludgeoning", tags: ["Melee", "Heavy", "Two-Handed"] },
-        { name: "Heavy Crossbow", bonus: "+4", damage: "1d10+1 piercing (100/400)", tags: ["Ranged", "Loading"] },
-        { name: "Precision Attack", bonus: "+d8", damage: "Superiority die to hit", tags: ["Maneuver"] }
+        { name: 'Valthrak (standard)', bonus: '+6', damage: '2d6+4 bludgeoning', tags: ['Melee', 'Heavy', 'Two-Handed'] },
+        { name: 'Valthrak (combustion)', bonus: '+6', damage: '2d6+4 bludgeoning + 1d8 fire', tags: ['Melee', 'Gunpowder Charge', 'Limited Uses'] },
+        { name: 'Disarming Attack', bonus: '+6', damage: 'Weapon + STR save DC 14 disarm', tags: ['Maneuver', 'Superiority Die'] },
       ],
       equipmentDetail: {
-        starting: ["Maul", "Heavy Crossbow", "Chain Mail", "Traveler's kit"],
-        wealth: "35 gp and carved dice set"
+        starting: ['Chain Mail (+1)', 'Valthrak (Combustion Hammer)', 'Crossbow', 'Smith\'s Tools'],
+        wealth: '55 gp (carefully managed)',
+        magic: ['Valthrak — Combustion Hammer (custom crafted, gunpowder charge system)', 'Pocketwatch — Shangdi\'s heirloom (1500 gp, not for sale)'],
       },
       features: {
-        classFeatures: ["Second Wind", "Action Surge", "Battlemaster Maneuvers"],
-        racialTraits: ["Powerful Build", "Stone's Endurance", "Mountain Born"],
-        background: "Mercenary Life - access to job boards",
-        feats: []
+        classFeatures: ['Action Surge', 'Second Wind', 'Great Weapon Fighting', 'Battlemaster (4d8 Superiority Dice)', 'Maneuvers: Commander\'s Strike, Disarming Attack, Precision Attack'],
+        racialTraits: ['Dwarven Resilience', 'Stonecunning', 'Darkvision'],
+        background: 'Noble Blood (fallen royalty)',
+        feats: [],
       },
       spellsDetail: {
-        ability: "None",
-        saveDC: "—",
-        attackBonus: "—",
-        prepared: "",
-        known: ["Non-caster"],
-        slots: "—"
+        ability: 'None',
+        saveDC: '—',
+        attackBonus: '—',
+        prepared: '',
+        known: ['Non-caster'],
+        slots: '—',
       },
       personality: {
-        traits: ["Speaks with actions more than words", "Measures foes with a steady gaze"],
-        ideals: ["Honor through tested strength"],
-        bonds: ["Earthshaker maul is his rite of passage"],
-        flaws: ["Seeks the toughest fight even when tactically unwise"]
+        traits: ['Addresses every dwarf formally; barely acknowledges elves or humans', 'Checks the pocketwatch at dawn and dusk'],
+        ideals: ['A king without a kingdom is still a king — until he proves otherwise'],
+        bonds: ['Violet Veletti (love)', 'Scorne (lost knight, kept promise to honor his memory)', 'Shangdi\'s Pocketwatch'],
+        flaws: ['Racism toward elves and humans limits his judgment; will not ask them for help'],
       },
       extras: {
-        languages: ["Common", "Giant"],
-        inventoryWeight: "92 lb",
-        notes: "Tallies foes on the maul; keeps quiet watch by the campfire."
-      }
-    }
-  }
+        languages: ['Common', 'Dwarvish'],
+        inventoryWeight: '115 lb',
+        notes: 'Combustion Hammer has limited gunpowder charges — tracked separately. Pocketwatch worth 1500 gp but Mulek will never sell it. Tends toward rock-collecting as a coping mechanism.',
+      },
+    },
+  },
+
+  // ── 8. Marco ─────────────────────────────────────────────────────────────
+  {
+    id: 8,
+    name: 'Marco',
+    title: 'Finder of the Gnome\'s Blade',
+    race: 'Forest Gnome',
+    class: 'Rogue',
+    subclass: 'Arcane Trickster',
+    level: 2,
+    alignment: 'Chaotic Evil',
+    background: 'Age ninety-nine. Grew up in the roughest quarter of New Gnome City — G-blok, as the locals call it — doing whatever was necessary to eat, own gnome hats, and survive. Has an extensive collection of gnome hats. Found a peculiar dagger wedged in a stone behind the local tavern. When he pulled it free, it spoke to him directly: it needed to be brought to something called the Unisekai Staff, or it could never be whole. Marco, being Marco, took this as an excellent excuse to leave the city.',
+    hp: 15,
+    ac: 14,
+    speed: 25,
+    stats: { str: 7, dex: 17, con: 12, int: 14, wis: 10, cha: 11 },
+    passivePerception: 12,
+    inspiration: true,
+    profBonus: 2,
+    skills: ['Acrobatics', 'Deception', 'Perception', 'Sleight of Hand', 'Stealth', 'Thieves\' Tools'],
+    abilities: [
+      'Sneak Attack (1d6) — extra damage when advantaged or ally adjacent to target',
+      'Cunning Action — Dash, Disengage, or Hide as bonus action',
+      'Gnome Cunning — advantage on INT/WIS/CHA saves vs. magic',
+      'Natural Illusionist — Minor Illusion at will',
+      'Speak with Small Beasts — communicate with small animals',
+      'Expert Forgery — can duplicate written documents',
+      'The Speaking Dagger — a unique blade that communicates; grants +1 to attack',
+      'Gnome Hat Collection — 11 gnome hats, each with a different personality',
+      'Garden Gnome Camouflage — can pass as a decorative lawn ornament when still',
+    ],
+    spells: ['Minor Illusion', 'Mage Hand', 'Blur (1/day via Arcane Trickster)'],
+    equipment: [
+      'The Speaking Dagger (+1 magical, communicates with Marco)',
+      'Leather Armor',
+      'Shortbow + 20 arrows',
+      'Thieves\' Tools',
+      'Disguise Kit',
+      'Gnome Hat Collection (11 hats, takes up unreasonable pack space)',
+      'Burglar\'s Pack',
+      'A set of loaded dice',
+    ],
+    notes: 'Height: approximately 3 feet. Weight: approximately 30 pounds. Age: 99. Has a godmother who is somehow connected to Tristan (Silver). Does not explain this relationship. Has never met a problem that couldn\'t be solved by either talking or running — preferably running.',
+    lore: 'Marco has done many things in ninety-nine years that he would describe as "necessary" and others would describe as "crimes." He is tiny, quick, and has a talent for being exactly where he\'s not expected. The dagger he found behind the tavern changed things — not because it gave him power, but because it gave him a quest, and quests mean travel, and travel means new cities with untouched gnome hat shops. The Speaking Dagger tells him the Unisekai Staff is real, that it\'s somewhere in the wider world, and that bringing the two together will accomplish something significant. Marco is not particularly interested in what, specifically. He\'s interested in the journey and the hats.',
+    sheet: {
+      core: {
+        hitDie: 'd8',
+        raceTraits: ['Darkvision 60 ft', 'Gnome Cunning', 'Natural Illusionist', 'Speak with Small Beasts'],
+        classFeatures: ['Sneak Attack', 'Thieves\' Cant', 'Cunning Action', 'Expertise (Stealth, Thieves\' Tools)'],
+        backgroundFeature: 'Criminal Network — knows how to find the local underworld in any city',
+        appearance: 'Three feet of concentrated chaos in a gnome hat. Changes hats to match the situation. Moves with the specific kind of confidence that belongs to people who have never been taken seriously and use it as camouflage.',
+        backstory: 'Grew up in G-blok, New Gnome City\'s roughest quarter. Found a Speaking Dagger that gave him a quest: find the Unisekai Staff. Now travels the world, hat collection in tow.',
+      },
+      abilityMethod: 'Point Buy',
+      abilityScores: { str: 7, dex: 17, con: 12, int: 14, wis: 10, cha: 11 },
+      proficiencies: {
+        savingThrows: ['Dexterity', 'Intelligence'],
+        armorWeapons: ['Light armor', 'Simple weapons', 'Hand crossbows', 'Longswords', 'Rapiers', 'Shortswords'],
+        tools: ['Thieves\' Tools', 'Disguise Kit', 'Forgery Kit'],
+        skills: ['Acrobatics', 'Deception', 'Perception', 'Sleight of Hand', 'Stealth', 'Thieves\' Tools'],
+        languages: ['Common', 'Gnomish', 'Thieves\' Cant'],
+      },
+      combat: {
+        armorClass: 14,
+        initiative: '+3 (Dex)',
+        speed: '25 ft',
+        hitPoints: '15',
+        hitDice: '2d8',
+        passivePerception: 12,
+        proficiencyBonus: '+2',
+      },
+      attacks: [
+        { name: 'Speaking Dagger (+1)', bonus: '+6', damage: '1d4+4 piercing', tags: ['Melee', 'Finesse', 'Magic'] },
+        { name: 'Shortbow', bonus: '+5', damage: '1d6+3 piercing', tags: ['Ranged', '80/320 ft'] },
+        { name: 'Sneak Attack Dagger', bonus: '+6', damage: '1d4+4 + 1d6 piercing', tags: ['Sneak Attack', 'When advantaged'] },
+      ],
+      equipmentDetail: {
+        starting: ['Leather Armor', 'Shortbow + 20 arrows', 'Thieves\' Tools', 'Burglar\'s Pack'],
+        wealth: '15 gp (rest spent on hats)',
+        magic: ['The Speaking Dagger (+1, communicates with Marco, seeks the Unisekai Staff)'],
+        collection: ['11 Gnome Hats — "The Formal," "The Tactical," "The Suspicious One," and 8 others'],
+      },
+      features: {
+        classFeatures: ['Sneak Attack (1d6)', 'Cunning Action', 'Expertise (Stealth, Thieves\' Tools)', 'Thieves\' Cant'],
+        racialTraits: ['Gnome Cunning', 'Natural Illusionist', 'Speak with Small Beasts', 'Darkvision'],
+        background: 'Criminal Network',
+        feats: ['Expert Forgery (forged documents and written materials)'],
+      },
+      spellsDetail: {
+        ability: 'Intelligence',
+        saveDC: 12,
+        attackBonus: '+4',
+        prepared: '2 cantrips (Arcane Trickster — Minor Illusion, Mage Hand)',
+        known: ['Minor Illusion', 'Mage Hand', 'Blur (via racial)'],
+        slots: '—',
+      },
+      personality: {
+        traits: ['Selects the day\'s hat based on vibes — will not explain the system', 'Freezes motionless when in open spaces, blending in as a lawn ornament'],
+        ideals: ['The Speaking Dagger said this matters. That\'s enough.'],
+        bonds: ['The Speaking Dagger — his first meaningful relationship', 'Gnome Hat Collection — non-negotiable'],
+        flaws: ['Chaotic Evil tendencies surface when threatened; ethics are situational'],
+      },
+      extras: {
+        languages: ['Common', 'Gnomish', 'Thieves\' Cant'],
+        inventoryWeight: '22 lb (plus hat collection: ~6 lb)',
+        notes: 'Garden Gnome Camouflage: When stationary for 1+ rounds, DC 15 Perception to identify as a creature rather than decoration. Connected to Tristan through his godmother — relationship unexplained. The Speaking Dagger occasionally has opinions about party decisions.',
+      },
+    },
+  },
 ];
 
-export default characters.map((char) => ({
+// Each character gets a thematic static color [r, g, b, a] used as shader multipliers.
+// Values intentionally in 0–9 range to match the shader's expected input scale.
+const CHARACTER_COLORS = [
+  [2, 5, 1, 4], // Apple π — earthy forest green
+  [7, 2, 1, 5], // Silver — ember red (Red Dragonborn + fire genie)
+  [3, 2, 6, 3], // Clod — Underdark violet-grey
+  [6, 4, 1, 4], // Esil Dei Krovi — dragon gold
+  [2, 7, 3, 5], // Eldrin — vibrant leaf green
+  [4, 5, 8, 3], // Cordo Tympazi — wind-blue
+  [5, 3, 2, 4], // Mulek Sorrengail — iron copper
+  [3, 6, 2, 7], // Marco — shadow gnome-green
+];
+
+export default characters.map((char, i) => ({
   ...char,
-  color: randomColor(),
+  color: CHARACTER_COLORS[i] ?? [4, 4, 4, 4],
 }));

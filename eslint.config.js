@@ -11,9 +11,6 @@ export default defineConfig([
     'server',
     'node_modules',
     '.ai-pr-loop',
-    '__head_interactive_tmp.jsx',
-    '__tmp_edit_labels.js',
-    'src/components/auth/SignupModal.jsx',
   ]),
   {
     files: ['**/*.{js,jsx}'],

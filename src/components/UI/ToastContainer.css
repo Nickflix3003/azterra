@@ -1,0 +1,118 @@
+/* ─── Toast Notification System ─────────────────────────────────────────── */
+
+.toast-container {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  max-width: 380px;
+  width: calc(100vw - 3rem);
+  pointer-events: none; /* let clicks pass through gaps */
+}
+
+/* ─── Single Toast ─────────────────────────────────────────────────────── */
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--azterra-border);
+  background: rgba(18, 15, 13, 0.96);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4);
+  color: var(--azterra-ink);
+  font-family: 'Inter', sans-serif;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  pointer-events: all;
+  animation: toast-slide-in 0.22s ease-out forwards;
+}
+
+@keyframes toast-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ─── Type accents ─────────────────────────────────────────────────────── */
+
+.toast--success {
+  border-left: 3px solid #4caf6e;
+}
+.toast--success .toast__icon {
+  color: #4caf6e;
+}
+
+.toast--error {
+  border-left: 3px solid #e05252;
+}
+.toast--error .toast__icon {
+  color: #e05252;
+}
+
+.toast--warn {
+  border-left: 3px solid var(--azterra-gold);
+}
+.toast--warn .toast__icon {
+  color: var(--azterra-gold);
+}
+
+.toast--info {
+  border-left: 3px solid #6ab0d4;
+}
+.toast--info .toast__icon {
+  color: #6ab0d4;
+}
+
+/* ─── Parts ────────────────────────────────────────────────────────────── */
+
+.toast__icon {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+}
+
+.toast__icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.toast__message {
+  flex: 1;
+  color: var(--azterra-ink);
+}
+
+.toast__dismiss {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--azterra-ink-dim);
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  opacity: 0.6;
+  transition: opacity 0.15s ease;
+}
+
+.toast__dismiss:hover {
+  opacity: 1;
+}
+
+.toast__dismiss svg {
+  width: 100%;
+  height: 100%;
+}

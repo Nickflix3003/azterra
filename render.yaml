@@ -1,0 +1,49 @@
+services:
+  - type: web
+    name: azterra-api
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      # ── Supabase ──────────────────────────────────────────────
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      # ── Auth ──────────────────────────────────────────────────
+      - key: JWT_SECRET
+        sync: false
+      - key: COOKIE_SECRET
+        sync: false
+      - key: SESSION_COOKIE_NAME
+        value: token
+      # ── URLs ─────────────────────────────────────────────────
+      # Set SITE_URL to your Vercel frontend URL after deploying there
+      # Set API_URL to your Render service URL (e.g. https://azterra-api.onrender.com)
+      # Set OAUTH_REDIRECT_URL to https://azterra-api.onrender.com/api/auth/callback
+      - key: SITE_URL
+        sync: false
+      - key: API_URL
+        sync: false
+      - key: OAUTH_REDIRECT_URL
+        sync: false
+      # ── CORS ──────────────────────────────────────────────────
+      # Set ALLOWED_ORIGINS to your Vercel frontend URL (comma-separated if multiple)
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: OAUTH_PROVIDER
+        value: google
+      # ── Admin ─────────────────────────────────────────────────
+      - key: DEFAULT_ADMIN_EMAIL
+        sync: false
+      - key: DEFAULT_ADMIN_PASSWORD
+        sync: false
+      - key: DEFAULT_ADMIN_NAME
+        value: Admin

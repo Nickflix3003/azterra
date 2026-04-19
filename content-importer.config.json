@@ -1,6 +1,6 @@
 {
-  "rootFolder": "AZTERRA",
-  "include": ["*"],
+  "rootFolder": "G:\\My Drive\\DND\\DND",
+  "include": ["**/*"],
   "exclude": [".obsidian", "Stories", "SECRETS - NO LOOKINGGGG"],
   "excludeFiles": ["template.md"],
   "extensions": [".md"],

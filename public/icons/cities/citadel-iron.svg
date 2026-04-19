@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="38%" r="58%">
+      <stop offset="0%" stop-color="#9CA3AF" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#0d0d0d"/>
+    </radialGradient>
+    <filter id="glow"><feGaussianBlur stdDeviation="1.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <filter id="sh"><feDropShadow dx="0" dy="1.5" stdDeviation="2.5" flood-color="rgba(0,0,0,0.75)"/></filter>
+  </defs>
+  <circle cx="24" cy="24" r="22" fill="url(#bg)" stroke="#9CA3AF" stroke-width="2.2" filter="url(#sh)"/>
+  <path d="M12 36 V18 h24 v18 z" fill="#c8ccd4" filter="url(#glow)" />
+  <path d="M12 18 h4 v-4 h-4 z  M20 18 h4 v-4 h-4 z  M28 18 h4 v-4 h-4 z  M36 18 h0 z" fill="#9CA3AF" filter="url(#glow)" />
+  <path d="M12 14 h4 v4 h4 v-4 h4 v4 h4 v-4 h4 v4 h4 v-4 h4 v4 h-24 v-4 z" fill="#c8ccd4" filter="url(#glow)" />
+  <rect x="17" y="21" width="3" height="7" fill="#0d0d0d" filter="url(#glow)"/>
+  <rect x="28" y="21" width="3" height="7" fill="#0d0d0d" filter="url(#glow)"/>
+  <path d="M20 36 v-9 a4 3 0 0 1 8 0 v9 z" fill="#0d0d0d" filter="url(#glow)" />
+</svg>

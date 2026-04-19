@@ -246,7 +246,7 @@ html, body, #root {
   position: absolute;
   top: 50%;
   left: 50%;
-  transform: translateY(-50%) rotateY(180deg);
+  transform: translate(-50%, -50%);
   width: 100%;
   height: 100%;
   border-radius: 50%;
@@ -345,20 +345,24 @@ html, body, #root {
 }
 
 .editor-info-panel {
-  position: absolute;
-  top: 1.5rem;
-  left: 1.5rem;
-  width: 320px;
-  padding: 1rem;
-  border-radius: 12px;
-  background: rgba(7, 12, 24, 0.92);
-  border: 1px solid rgba(255, 215, 0, 0.3);
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 400px;
+  max-width: 90vw;
+  height: 100vh;
+  overflow-y: auto;
+  padding: 0;
+  border-radius: 0;
+  background: rgba(7, 12, 24, 0.97);
+  border-left: 1px solid rgba(255, 215, 0, 0.3);
   color: #f8fafc;
-  z-index: 1000;
-  backdrop-filter: blur(8px);
+  z-index: 999;
+  backdrop-filter: blur(12px);
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0;
+  animation: slideIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .editor-info-panel__header {
@@ -366,32 +370,49 @@ html, body, #root {
   justify-content: space-between;
   align-items: center;
   gap: 0.5rem;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid rgba(255, 215, 0, 0.2);
+  background: rgba(255, 215, 0, 0.04);
+  flex-shrink: 0;
 }
 
 .editor-info-panel__header h2 {
   margin: 0;
-  font-size: 1.1rem;
-  letter-spacing: 0.02em;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 215, 0, 0.9);
 }
 
 .editor-info-panel__close {
   background: transparent;
   border: none;
-  color: #f8fafc;
-  font-size: 1.25rem;
+  color: rgba(248, 250, 252, 0.6);
+  font-size: 1.4rem;
   cursor: pointer;
+  line-height: 1;
+  padding: 0.2rem;
+  transition: color 0.15s;
+}
+
+.editor-info-panel__close:hover {
+  color: #f8fafc;
 }
 
 .editor-info-panel__subtitle {
   margin: 0;
   color: rgba(248, 250, 252, 0.85);
   font-size: 0.9rem;
+  padding: 0.75rem 1.5rem 0;
 }
 
 .editor-info-panel__form {
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
+  padding: 1.25rem 1.5rem;
+  flex: 1;
 }
 
 .editor-info-panel__field {
@@ -404,7 +425,8 @@ html, body, #root {
 }
 
 .editor-info-panel__field input,
-.editor-info-panel__field textarea {
+.editor-info-panel__field textarea,
+.editor-info-panel__select {
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   padding: 0.6rem;
@@ -415,6 +437,25 @@ html, body, #root {
 
 .editor-info-panel__field textarea {
   resize: vertical;
+}
+
+.editor-info-panel__select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='rgba(255,255,255,0.4)'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.7rem center;
+  padding-right: 2rem;
+  cursor: pointer;
+}
+.editor-info-panel__select:focus {
+  outline: none;
+  border-color: rgba(250,204,21,.55);
+  box-shadow: 0 0 0 2px rgba(250,204,21,.15);
+}
+.editor-info-panel__select option {
+  background: #0f172a;
+  color: #f8fafc;
 }
 
 .editor-info-panel__actions {
@@ -552,6 +593,7 @@ html, body, #root {
   color: #f87171;
 }
 
+/* When used standalone (floating on map) */
 .marker-palette {
   position: absolute;
   top: 1.5rem;
@@ -569,83 +611,95 @@ html, body, #root {
   backdrop-filter: blur(8px);
 }
 
-.marker-palette__header h3 {
-  margin: 0;
-  font-size: 1rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.marker-palette__header p {
-  margin: 0;
-  font-size: 0.8rem;
-  opacity: 0.75;
+/* When embedded inside the editor side panel — strip the outer box */
+.editor-side-panel .marker-palette {
+  position: static;
+  width: 100%;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  border: none;
+  backdrop-filter: none;
+  gap: 0.6rem;
 }
 
 .marker-palette__grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 0.5rem;
+  gap: 0.4rem;
 }
 
 .marker-palette__item {
-  border-radius: 0.75rem;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(17, 24, 39, 0.7);
+  border-radius: 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
   color: inherit;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.25rem;
-  padding: 0.5rem;
+  gap: 0.3rem;
+  padding: 0.55rem 0.35rem;
   cursor: pointer;
-  transition: border-color 0.2s ease, transform 0.2s ease;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+.marker-palette__item:hover {
+  border-color: rgba(255, 215, 0, 0.4);
+  background: rgba(255, 215, 0, 0.07);
+  transform: translateY(-1px);
 }
 
 .marker-palette__item img {
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
+  object-fit: contain;
+  image-rendering: auto;
 }
 
 .marker-palette__item--active {
   border-color: #ffd700;
-  box-shadow: 0 0 12px rgba(255, 215, 0, 0.35);
-  transform: translateY(-2px);
+  background: rgba(255, 215, 0, 0.12);
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+  transform: translateY(-1px);
 }
 
 .marker-palette__item span {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   text-align: center;
-  line-height: 1;
+  line-height: 1.2;
+  color: rgba(248, 250, 252, 0.85);
 }
 
 .marker-palette__groups {
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
+  gap: 0.75rem;
 }
 
 .marker-palette__group {
-  padding: 0.85rem;
-  border-radius: 0.85rem;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(8, 12, 24, 0.65);
+  /* No box — items sit directly in the panel */
 }
 
 .marker-palette__group-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 0.8rem;
-  letter-spacing: 0.08em;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: rgba(248, 250, 252, 0.75);
-  margin-bottom: 0.5rem;
+  color: rgba(255, 215, 0, 0.7);
+  margin-bottom: 0.4rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid rgba(255, 215, 0, 0.15);
 }
 
-.marker-palette__item small {
-  font-size: 0.7rem;
-  color: rgba(248, 250, 252, 0.55);
+.marker-palette__group-header small {
+  font-size: 0.65rem;
+  color: rgba(248, 250, 252, 0.4);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .region-panel {
@@ -746,6 +800,12 @@ html, body, #root {
   gap: 0.4rem;
 }
 
+.region-item__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .region-item__actions button {
   flex: 1;
   border-radius: 0.4rem;
@@ -753,8 +813,30 @@ html, body, #root {
   background: rgba(24, 37, 63, 0.6);
   color: inherit;
   cursor: pointer;
-  padding: 0.3rem;
+  padding: 0.3rem 0.5rem;
   font-size: 0.75rem;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.region-item__actions button:hover {
+  background: rgba(40, 60, 100, 0.8);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.region-item__action--danger {
+  color: #fca5a5 !important;
+  border-color: rgba(239, 68, 68, 0.35) !important;
+}
+
+.region-item__action--danger:hover {
+  background: rgba(239, 68, 68, 0.15) !important;
+  border-color: rgba(239, 68, 68, 0.6) !important;
+}
+
+/* Disabled buttons in editor panel */
+.editor-side-panel button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .region-item__details {
@@ -862,45 +944,117 @@ html, body, #root {
   height: 14px;
 }
 .editor-side-panel {
-  width: 600px;
-  max-width: 100vw;
+  /* Width is controlled by JS resize; these are the guard-rails */
+  width: 360px;
+  min-width: 280px;
+  max-width: 560px;
   height: 100%;
-  background: rgba(6, 10, 22, 0.95);
+  background: rgba(6, 10, 22, 0.97);
   border-left: 1px solid rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(16px);
+  backdrop-filter: blur(20px);
   color: #f8fafc;
   display: flex;
   flex-direction: column;
-  box-shadow: -12px 0 30px rgba(0, 0, 0, 0.45);
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.55);
   z-index: 6;
   position: relative;
-  min-width: 440px;
-  max-width: 720px;
 }
 
 .editor-side-panel__header {
-  padding: 1.5rem 1.25rem 1rem;
+  padding: 1.25rem 1.25rem 0.85rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.editor-side-panel__header-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
 }
 
 .editor-side-panel__label {
   margin: 0;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   letter-spacing: 0.35em;
   text-transform: uppercase;
-  color: rgba(248, 250, 252, 0.6);
+  color: rgba(248, 250, 252, 0.5);
 }
 
 .editor-side-panel__header h2 {
-  margin: 0.35rem 0 0;
-  font-size: 1.4rem;
-  letter-spacing: 0.08em;
+  margin: 0.2rem 0 0;
+  font-size: 1.25rem;
+  letter-spacing: 0.06em;
+}
+
+/* "View only" badge shown for non-editor roles */
+.editor-side-panel__role-badge {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  margin-top: 0.5rem;
+}
+
+/* Access note on home screen */
+.editor-side-panel__access-note {
+  grid-column: 1 / -1;
+  padding: 0.65rem 0.85rem;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 0.65rem;
+  font-size: 0.8rem;
+  color: #fca5a5;
+}
+
+/* Home cards icon */
+.editor-side-panel__home-icon {
+  display: flex;
+  align-items: center;
+  color: #fbbf24;
+  margin-bottom: 0.1rem;
+}
+.editor-side-panel__home-icon--muted {
+  color: rgba(248, 250, 252, 0.35);
+}
+
+/* Dot badge on Edit tab when a marker is selected */
+.editor-side-panel__tab-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fbbf24;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+/* Empty state inside Edit tab */
+.editor-side-panel__empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 2rem 1rem;
+  color: rgba(248, 250, 252, 0.4);
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+/* Draft point counter in region mode */
+.editor-side-panel__draft-count {
+  font-size: 0.82rem;
+  color: rgba(248, 250, 252, 0.7);
 }
 
 .editor-side-panel__tabs {
   display: flex;
-  gap: 0.5rem;
-  margin-top: 1rem;
+  gap: 0.4rem;
 }
 .editor-side-panel__tabs--sub {
   margin-bottom: 0.6rem;
@@ -908,8 +1062,9 @@ html, body, #root {
 
 .editor-side-panel__tabs button {
   flex: 1;
-  padding: 0.45rem 0.75rem;
+  padding: 0.4rem 0.6rem;
   border-radius: 999px;
+  position: relative;
   border: 1px solid rgba(255, 255, 255, 0.22);
   background: transparent;
   color: rgba(248, 250, 252, 0.75);
@@ -1053,9 +1208,8 @@ html, body, #root {
   color: rgba(248, 250, 252, 0.65);
 }
 
-.editor-side-panel .marker-palette,
-.editor-side-panel .editor-toolbox,
-.editor-side-panel .editor-info-panel {
+/* editor-side-panel overrides now live with each component's own CSS block */
+.editor-side-panel .editor-toolbox {
   position: static;
   width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -1072,7 +1226,8 @@ html, body, #root {
 .editor-side-panel__resizer {
   position: absolute;
   top: 0;
-  left: -6px;
+  right: -6px;
+  left: auto;
   width: 12px;
   height: 100%;
   cursor: col-resize;
@@ -1181,12 +1336,10 @@ html, body, #root {
   gap: 0.3rem;
 }
 .diag-panel {
-  position: fixed;
-  top: 5.5rem;
-  right: 1.25rem;
-  width: 320px;
-  z-index: 1400;
-  font-size: 0.9rem;
+  /* Inline when used inside editor panel; position: static by default */
+  position: static;
+  width: 100%;
+  font-size: 0.85rem;
   color: #e5e7eb;
 }
 
@@ -1374,7 +1527,7 @@ html, body, #root {
   position: absolute;
   right: -42px;
   top: 50%;
-  transform: translateY(-50%) rotateY(180deg);
+  transform: translateY(-50%);
   z-index: 8;
   display: flex;
   align-items: stretch;
@@ -1606,14 +1759,11 @@ html, body, #root {
   text-transform: uppercase;
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
   white-space: nowrap;
-  transform: translateY(-50%) rotateY(180deg);
+  transform: translateY(-50%);
   will-change: transform, opacity;
   transition: transform 160ms ease, opacity 160ms ease;
 }
-/* Collapsible editor panel on the right */
-.map-layout {
-  position: relative;
-}
+/* ── Collapsible editor panel (right side) ───────────────────────────────── */
 
 .editor-panel-shell {
   position: absolute;
@@ -1626,7 +1776,7 @@ html, body, #root {
 
 .editor-panel-shell__panel {
   pointer-events: auto;
-  transform: translateX(calc(-100% + 48px)); /* leave handle visible */
+  transform: translateX(calc(-100% + 48px)); /* leave toggle tab peeking out */
   opacity: 1;
   transition: transform 240ms ease;
   height: 100%;
@@ -1638,46 +1788,11 @@ html, body, #root {
   transform: translateX(0);
 }
 
-.editor-panel-shell__handle {
-  pointer-events: auto;
-  position: absolute;
-  right: -42px;
-  top: 50%;
-  transform: translateY(-50%) rotateY(180deg);
-  writing-mode: vertical-rl;
-  transform-origin: center;
-  padding: 0.5rem 0.35rem;
-  border-radius: 10px 0 0 10px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  background: linear-gradient(180deg, #fbbf24, #f97316);
-  color: #0f172a;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  cursor: pointer;
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.45);
-}
-
-.editor-panel-shell.is-closed .editor-panel-shell__handle {
-  opacity: 0.9;
-}
-
-
-.animate-fog-primary {
-  animation: driftPrimary 40s linear infinite; 
-  will-change: background-position;
-}
-
-.animate-fog-secondary {
-  animation: driftSecondary 30s linear infinite; 
-  will-change: background-position;
-}
-
 .editor-panel-shell__toggle-tab {
   position: absolute;
   right: -42px;
   top: 50%;
-  transform: translateY(-50%) rotateY(180deg);
+  transform: translateY(-50%) rotate(180deg);
   writing-mode: vertical-rl;
   padding: 0.55rem 0.4rem;
   border-radius: 10px 0 0 10px;
@@ -1696,6 +1811,17 @@ html, body, #root {
 .editor-panel-shell__toggle-tab:hover {
   filter: brightness(1.05);
 }
+
+.animate-fog-primary {
+  animation: driftPrimary 40s linear infinite;
+  will-change: background-position;
+}
+
+.animate-fog-secondary {
+  animation: driftSecondary 30s linear infinite;
+  will-change: background-position;
+}
+
 
 
 
@@ -1760,3 +1886,349 @@ html, body, #root {
   to { background-position: 500px -200px; }
 }
 
+/* ── Marker drag trash zone ──────────────────────────────────────────────────── */
+
+.marker-trash-zone {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1500;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 48px;
+  min-width: 180px;
+  border-radius: 20px;
+  background: rgba(30, 6, 6, 0.92);
+  border: 2px dashed rgba(239, 68, 68, 0.75);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 0 40px rgba(239, 68, 68, 0.35), 0 8px 28px rgba(0,0,0,0.6);
+  animation: trash-zone-in 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+  pointer-events: none;
+}
+
+.marker-trash-zone__icon {
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.marker-trash-zone__label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: rgba(239, 68, 68, 0.9);
+}
+
+@keyframes trash-zone-in {
+  from { opacity: 0; transform: translateX(-50%) scale(0.75); }
+  to   { opacity: 1; transform: translateX(-50%) scale(1); }
+}
+
+/* ── ConfirmModal ─────────────────────────────────────────────────────────── */
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+  animation: fade-in-overlay 180ms ease;
+}
+
+@keyframes fade-in-overlay {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.confirm-modal {
+  background: #1a1f2e;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  padding: 2rem 2rem 1.5rem;
+  max-width: 380px;
+  width: 90vw;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.7);
+  animation: confirm-pop 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes confirm-pop {
+  from { opacity: 0; transform: scale(0.88); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.confirm-modal__icon { font-size: 2rem; line-height: 1; }
+
+.confirm-modal__title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #f1f5f9;
+  text-align: center;
+}
+
+.confirm-modal__message {
+  margin: 0;
+  font-size: 0.88rem;
+  color: rgba(241, 245, 249, 0.6);
+  text-align: center;
+  line-height: 1.55;
+}
+
+.confirm-modal__actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  width: 100%;
+}
+
+.confirm-modal__btn {
+  flex: 1;
+  padding: 0.6rem 1.25rem;
+  border-radius: 10px;
+  border: none;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 150ms, transform 100ms;
+}
+
+.confirm-modal__btn:active { transform: scale(0.97); }
+
+.confirm-modal__btn--cancel {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(241, 245, 249, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.confirm-modal__btn--cancel:hover { background: rgba(255, 255, 255, 0.14); }
+
+.confirm-modal__btn--danger {
+  background: rgba(239, 68, 68, 0.85);
+  color: #fff;
+}
+
+.confirm-modal__btn--danger:hover { background: rgb(239, 68, 68); }
+
+.confirm-modal__btn--confirm {
+  background: rgba(34, 197, 94, 0.85);
+  color: #fff;
+}
+
+.confirm-modal__btn--confirm:hover { background: rgb(34, 197, 94); }
+
+/* ── Dual-range era slider ─────────────────────────────────────────────────── */
+.dual-range {
+  position: relative;
+  width: 100%;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  margin: 0.35rem 0 0.2rem;
+}
+.dual-range__track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: rgba(255,255,255,.12);
+  border-radius: 2px;
+  pointer-events: none;
+}
+.dual-range__fill {
+  position: absolute;
+  left: var(--range-start, 0%);
+  right: calc(100% - var(--range-end, 100%));
+  height: 100%;
+  background: linear-gradient(90deg, #facc15, #f97316);
+  border-radius: 2px;
+}
+.dual-range__input {
+  position: absolute;
+  width: 100%;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  height: 36px;
+  margin: 0;
+  padding: 0;
+  outline: none;
+}
+.dual-range__input::-webkit-slider-thumb {
+  pointer-events: all;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #facc15;
+  border: 2px solid #0f172a;
+  cursor: grab;
+  box-shadow: 0 0 0 2px rgba(250,204,21,.3), 0 2px 6px rgba(0,0,0,.5);
+  transition: box-shadow 150ms, transform 150ms;
+}
+.dual-range__input::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  transform: scale(1.2);
+  box-shadow: 0 0 0 4px rgba(250,204,21,.4);
+}
+.dual-range__input::-moz-range-thumb {
+  pointer-events: all;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #facc15;
+  border: 2px solid #0f172a;
+  cursor: grab;
+  box-shadow: 0 0 0 2px rgba(250,204,21,.3);
+}
+
+/* Era section in EditorInfoPanel */
+.editor-info-panel__field--era { gap: 0.4rem; }
+.era-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.era-header span {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: rgba(241,245,249,.6);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+.era-clear-btn {
+  font-size: 0.65rem;
+  color: rgba(241,245,249,.4);
+  background: none;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 5px;
+  padding: 0.15rem 0.45rem;
+  cursor: pointer;
+  transition: color 120ms, border-color 120ms;
+}
+.era-clear-btn:hover { color: #f87171; border-color: rgba(248,113,113,.4); }
+
+.era-year-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.45rem;
+}
+.era-year-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 1;
+}
+.era-year-field span {
+  font-size: 0.6rem;
+  color: rgba(241,245,249,.4);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.era-year-field input[type="number"] {
+  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+  color: #f1f5f9;
+  font-size: 0.82rem;
+  width: 100%;
+}
+.era-year-field input[type="number"]:focus {
+  outline: none;
+  border-color: rgba(250,204,21,.4);
+}
+.era-arrow {
+  font-size: 0.9rem;
+  color: rgba(241,245,249,.3);
+  padding-bottom: 0.35rem;
+}
+.era-hint {
+  font-size: 0.62rem;
+  color: rgba(250,204,21,.55);
+  font-style: italic;
+  margin: 0;
+}
+
+/* ── Pin / lock toggle ────────────────────────────────────────────────────── */
+.editor-info-panel__field--pin { gap: 0.35rem; }
+
+.pin-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 8px;
+  border: 1.5px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.05);
+  color: #94a3b8;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s, color 0.18s;
+  width: 100%;
+  justify-content: center;
+}
+.pin-toggle-btn:hover {
+  background: rgba(255,255,255,.09);
+  border-color: rgba(255,255,255,.22);
+  color: #f1f5f9;
+}
+.pin-toggle-btn--locked {
+  background: rgba(250,204,21,.1);
+  border-color: rgba(250,204,21,.35);
+  color: #fde68a;
+}
+.pin-toggle-btn--locked:hover {
+  background: rgba(250,204,21,.18);
+  border-color: rgba(250,204,21,.55);
+}
+
+/* ── Pinned marker lock badge ─────────────────────────────────────────────── */
+.custom-marker__wrapper { position: relative; }
+
+.custom-marker__lock {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  font-size: 10px;
+  line-height: 1;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,.8));
+}
+
+.custom-marker--pinned .custom-marker__wrapper {
+  opacity: 0.9;
+}
+
+/* ── Editor attribution footer ────────────────────────────────────────────── */
+.editor-attribution {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid rgba(255,255,255,.08);
+  font-size: 0.72rem;
+  color: rgba(255,255,255,.45);
+}
+.editor-attribution strong {
+  color: rgba(255,255,255,.7);
+  font-weight: 600;
+}
+.editor-attribution__date {
+  margin-left: auto;
+  font-style: italic;
+  color: rgba(255,255,255,.3);
+}

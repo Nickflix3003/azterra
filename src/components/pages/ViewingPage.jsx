@@ -1,1318 +1,608 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import characters from '../../data/characters_heroes';
-import npcsData from '../../data/npcs';
-import locationsData from '../../data/locations.json';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { useContent } from '../../context/ContentContext';
-import { canView as canViewHelper } from '../../utils/permissions';
-import '../UI/PageUI.css';
+import './PeoplePage.css';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
-const TABS = ['npcs', 'players'];
-const CAMPAIGNS = ['All', 'Main', 'Side'];
-const SECRET_OPTIONS = [
-  { id: 'aurora-ember', label: 'Aurora Ember' },
-  { id: 'silent-archive', label: 'Silent Archive' },
-  { id: 'gilded-horizon', label: 'Gilded Horizon' },
-  { id: 'amber-archive', label: 'Amber Archive' },
-  { id: 'shadow-court', label: 'Shadow Court' },
-];
-const ALL_SECRET_IDS = SECRET_OPTIONS.map((s) => s.id);
-const CARD_THEMES = [
-  {
-    id: 'sunset',
-    label: 'Sunset Mirage',
-    background: 'linear-gradient(135deg, rgba(247, 146, 86, 0.85), rgba(23, 14, 9, 0.95))',
-    foreground: '#ffe5ba',
-    accent: '#f79256',
-  },
-  {
-    id: 'aurora',
-    label: 'Aurora Veil',
-    background: 'linear-gradient(135deg, rgba(67, 206, 162, 0.8), rgba(24, 90, 157, 0.95))',
-    foreground: '#e7f5ff',
-    accent: '#43cea2',
-  },
-  {
-    id: 'nightfall',
-    label: 'Nightfall Alloy',
-    background: 'linear-gradient(135deg, rgba(41, 31, 53, 0.95), rgba(13, 13, 20, 0.95))',
-    foreground: '#f6d7ff',
-    accent: '#b084f7',
-  },
-  {
-    id: 'oasis',
-    label: 'Oasis Bloom',
-    background: 'linear-gradient(135deg, rgba(47, 72, 88, 0.92), rgba(24, 112, 105, 0.92))',
-    foreground: '#d6ffea',
-    accent: '#57c5b6',
-  },
-  {
-    id: 'emberstorm',
-    label: 'Ember Storm',
-    background: 'linear-gradient(145deg, rgba(191, 45, 28, 0.9), rgba(49, 4, 14, 0.95))',
-    foreground: '#ffe3d4',
-    accent: '#ff7b54',
-  },
-  {
-    id: 'luminant',
-    label: 'Luminant Frost',
-    background: 'linear-gradient(135deg, rgba(62, 70, 132, 0.9), rgba(31, 43, 72, 0.95))',
-    foreground: '#e4f3ff',
-    accent: '#9dbbff',
-  },
-  {
-    id: 'verdant',
-    label: 'Verdant Canopy',
-    background: 'linear-gradient(135deg, rgba(34, 68, 56, 0.9), rgba(12, 31, 23, 0.95))',
-    foreground: '#d9ffe0',
-    accent: '#6fcf97',
-  },
-  {
-    id: 'solstice',
-    label: 'Solstice Crown',
-    background: 'linear-gradient(135deg, rgba(232, 182, 56, 0.9), rgba(118, 67, 0, 0.95))',
-    foreground: '#fff5d6',
-    accent: '#f5c451',
-  },
-  {
-    id: 'tidal',
-    label: 'Tidal Horizon',
-    background: 'linear-gradient(135deg, rgba(19, 78, 112, 0.9), rgba(3, 30, 53, 0.95))',
-    foreground: '#d6f1ff',
-    accent: '#4cc9f0',
-  },
-  {
-    id: 'amethyst',
-    label: 'Amethyst Shroud',
-    background: 'linear-gradient(135deg, rgba(126, 67, 170, 0.9), rgba(35, 13, 53, 0.95))',
-    foreground: '#f5e0ff',
-    accent: '#d295ff',
-  },
-  {
-    id: 'foundry',
-    label: 'Iron Foundry',
-    background: 'linear-gradient(135deg, rgba(67, 70, 75, 0.92), rgba(20, 20, 24, 0.95))',
-    foreground: '#f2f2f2',
-    accent: '#f2a365',
-  },
-  {
-    id: 'crimsonwood',
-    label: 'Crimson Wood',
-    background: 'linear-gradient(135deg, rgba(120, 28, 44, 0.92), rgba(45, 10, 18, 0.95))',
-    foreground: '#ffdada',
-    accent: '#ff5e78',
-  },
-  {
-    id: 'auric',
-    label: 'Auric Temple',
-    background: 'linear-gradient(135deg, rgba(191, 161, 96, 0.9), rgba(42, 34, 18, 0.95))',
-    foreground: '#fff6db',
-    accent: '#f0d290',
-  },
-  {
-    id: 'cobalt',
-    label: 'Cobalt Drift',
-    background: 'linear-gradient(135deg, rgba(25, 53, 97, 0.9), rgba(10, 17, 30, 0.95))',
-    foreground: '#d7e8ff',
-    accent: '#5c7cfa',
-  },
-  {
-    id: 'dawnlight',
-    label: 'Dawnlight',
-    background: 'linear-gradient(135deg, rgba(255, 182, 133, 0.9), rgba(237, 118, 84, 0.95))',
-    foreground: '#fff6ec',
-    accent: '#ff9f68',
-  },
-  {
-    id: 'selenic',
-    label: 'Selenic Veil',
-    background: 'linear-gradient(135deg, rgba(32, 28, 61, 0.9), rgba(5, 5, 12, 0.95))',
-    foreground: '#e0e0ff',
-    accent: '#a5a6f6',
-  },
-  {
-    id: 'mistwood',
-    label: 'Mistwood Trail',
-    background: 'linear-gradient(135deg, rgba(56, 74, 60, 0.9), rgba(24, 33, 28, 0.95))',
-    foreground: '#eaf8ef',
-    accent: '#9ad1b4',
-  },
-  {
-    id: 'emberglow',
-    label: 'Emberglow Grove',
-    background: 'linear-gradient(135deg, rgba(208, 84, 48, 0.9), rgba(109, 29, 20, 0.95))',
-    foreground: '#ffe8d9',
-    accent: '#ffab76',
-  },
-];
+const API = import.meta.env.VITE_API_BASE_URL || '/api';
 
-function PeoplePage() {
-  const { role, user } = useAuth();
-  const { portraitConfig, portraitStatus, refreshPortraitStatus, generatePortrait } = useContent();
-  const isAdmin = role === 'admin';
-  const [tab, setTab] = useState('npcs');
-  const [campaign, setCampaign] = useState('All');
-  const [adminView, setAdminView] = useState(false);
-  const [visibleIds, setVisibleIds] = useState([]);
-  const [npcVisibility, setNpcVisibility] = useState([]);
-  const [locVisibility, setLocVisibility] = useState([]);
-  const [npcItems, setNpcItems] = useState([]);
-  const [locItems, setLocItems] = useState([]);
-  const [npcTruesight, setNpcTruesight] = useState([]);
-  const [locTruesight, setLocTruesight] = useState([]);
-  const [players, setPlayers] = useState([]);
-  const [error, setError] = useState('');
-  const [favPending, setFavPending] = useState(false);
-  const [pendingNpcEdits, setPendingNpcEdits] = useState({});
-  const [pendingLocEdits, setPendingLocEdits] = useState({});
-  const [pendingPlayerEdits, setPendingPlayerEdits] = useState({});
-  const [savingNpcId, setSavingNpcId] = useState(null);
-  const [savingLocId, setSavingLocId] = useState(null);
-  const [savingPlayerId, setSavingPlayerId] = useState(null);
-  const [viewFavorites, setViewFavorites] = useState([]);
-  const [expanded, setExpanded] = useState({});
-  const [previewSecrets, setPreviewSecrets] = useState([]);
-  const [cardOrder, setCardOrder] = useState({ locations: [], npcs: [], players: [] });
-  const [draggingCard, setDraggingCard] = useState(null);
-  const [editingCard, setEditingCard] = useState(null);
-  const [editorTab, setEditorTab] = useState('details');
-  const [portraitPending, setPortraitPending] = useState({});
-  const [playerMeta, setPlayerMeta] = useState({});
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    const load = async () => {
-      setError('');
-      try {
-        const visRes = await fetch(`${API_BASE_URL}/view/characters`, { credentials: 'include' });
-        const visData = await visRes.json();
-        if (visRes.ok) {
-          setVisibleIds(visData.visibleIds || []);
-        }
-        const npcRes = await fetch(`${API_BASE_URL}/view/npcs`, { credentials: 'include' });
-        const npcData = await npcRes.json();
-        if (npcRes.ok) {
-          const allNpc = npcData.items || [];
-          const visibleNpcIds = allNpc.filter((n) => n.visible !== false).map((n) => n.id);
-          setNpcVisibility(visibleNpcIds);
-          setNpcItems(allNpc);
-          setNpcTruesight(npcData.truesightIds || []);
-        }
-        const locRes = await fetch(`${API_BASE_URL}/view/locations`, { credentials: 'include' });
-        const locData = await locRes.json();
-        if (locRes.ok) {
-          const allLoc = locData.items || [];
-          const visibleLocIds = allLoc.filter((l) => l.visible !== false).map((l) => l.id);
-          setLocVisibility(visibleLocIds);
-          setLocItems(allLoc);
-          setLocTruesight(locData.truesightIds || []);
-        }
+function statLabel(key) {
+  return { str: 'STR', dex: 'DEX', con: 'CON', int: 'INT', wis: 'WIS', cha: 'CHA' }[key] || key;
+}
+function mod(v) { const m = Math.floor((v - 10) / 2); return (m >= 0 ? '+' : '') + m; }
 
-        if (user) {
-          const favRes = await fetch(`${API_BASE_URL}/view/favorites`, { credentials: 'include' });
-          const favData = await favRes.json();
-          if (favRes.ok) setViewFavorites(favData.viewFavorites || []);
+// ── HeroCard ─────────────────────────────────────────────────────────────────
 
-          const playerRes = await fetch(`${API_BASE_URL}/view/players`, { credentials: 'include' });
-          const playerData = await playerRes.json();
-          if (playerRes.ok) setPlayers(playerData.users || []);
+function HeroCard({ hero, isAdmin, isEditMode, locations }) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+  const cardRef = useRef(null);
 
-          if (isAdmin) {
-            const playerMetaRes = await fetch(`${API_BASE_URL}/entities/players`, {
-              credentials: 'include',
-            });
-            if (playerMetaRes.ok) {
-              const metaJson = await playerMetaRes.json();
-              const map = {};
-              (metaJson.items || []).forEach((item) => {
-                map[item.id] = item;
-              });
-              setPlayerMeta(map);
-            }
-          }
-        }
-      } catch (err) {
-        setError(err.message || 'Unable to load view data.');
-      }
-    };
-    load();
-  }, [user, isAdmin]);
+  const d = draft || hero;
 
-  useEffect(() => {
-    setAdminView(isAdmin);
-  }, [isAdmin]);
+  const set = (field, val) => setDraft(prev => ({ ...(prev || hero), [field]: val }));
 
-
-  const passesVisibility = (entity, viewer) => {
-    if (entity.truesight) return true;
-    if (!entity.visible) return false;
-    // Visible is true; now require secret to be unlocked if present
-    return canViewHelper(viewer, {
-      roles: ['guest', 'editor', 'admin', 'pending', 'player'],
-      secretId: entity.secretId,
-    });
-  };
-
-  const currentList = useMemo(() => {
-    const campaignFilter = (itemCampaign = 'Main') =>
-      campaign === 'All' || (itemCampaign || 'Main') === campaign;
-    const isPreviewingUser = isAdmin && !adminView;
-    const viewer = {
-      role: adminView && isAdmin ? 'admin' : role,
-      unlockedSecrets: isPreviewingUser
-        ? previewSecrets
-        : Array.isArray(user?.unlockedSecrets)
-        ? user.unlockedSecrets
-        : [],
-    };
-    if (tab === 'npcs') {
-      const source = npcItems.length ? npcItems : npcsData;
-      const base = source.map((n) => ({
-        ...n,
-        visible: n.visible !== false,
-        truesight: npcTruesight.includes(n.id),
-        campaign: n.campaign || 'Main',
-      }));
-      const filtered =
-        adminView && isAdmin ? base : base.filter((n) => passesVisibility(n, viewer));
-      return filtered.filter((n) => campaignFilter(n.campaign));
-    }
-    if (tab === 'players') {
-      const base =
-        players.length && adminView && isAdmin
-          ? players
-          : players.length
-          ? players.filter((p) => campaignFilter(p.campaign))
-          : characters
-              .filter((c) => (adminView && isAdmin) || visibleIds.includes(c.id))
-              .map((c) => ({ id: c.id, name: c.name, character: c, campaign: c.campaign || 'Main' }))
-              .filter((p) => campaignFilter(p.campaign));
-      const filtered =
-        adminView && isAdmin
-          ? base
-          : base.filter((p) =>
-              canViewHelper(viewer, {
-                roles: ['guest', 'editor', 'admin', 'pending', 'player'],
-                secretId: p.secretId,
-              })
-            );
-      return filtered;
-    }
-    return [];
-  }, [tab, players, visibleIds, npcItems, isAdmin, campaign, adminView, role, npcTruesight, previewSecrets, user]);
-
-  useEffect(() => {
-    if (tab !== 'players') return;
-    const ids = new Set();
-    currentList.forEach((item) => {
-      const character =
-        item.character || characters.find((c) => c.id === item.featuredCharacter) || characters.find((c) => c.id === item.id);
-      if (character?.id) ids.add(character.id);
-    });
-    ids.forEach((id) => refreshPortraitStatus(id));
-  }, [tab, currentList, refreshPortraitStatus]);
-
-  useEffect(() => {
-    setCardOrder((prev) => {
-      const ids = currentList.map((item) => `${tab}-${item.id}`);
-      const existing = (prev[tab] || []).filter((id) => ids.includes(id));
-      const nextOrder = [...existing, ...ids.filter((id) => !existing.includes(id))];
-      const prevOrder = prev[tab] || [];
-      const isSame = nextOrder.length === prevOrder.length && nextOrder.every((id, idx) => id === prevOrder[idx]);
-      if (isSame) return prev;
-      return { ...prev, [tab]: nextOrder };
-    });
-  }, [currentList, tab]);
-
-  useEffect(() => {
-    if (!adminView) {
-      setEditingCard(null);
-    }
-  }, [adminView]);
-
-  useEffect(() => {
-    if (!editingCard) return;
-    const list =
-      editingCard.type === 'locations'
-        ? locItems
-        : editingCard.type === 'npcs'
-        ? npcItems
-        : players;
-    const exists = list.some((entry) => String(entry.id) === String(editingCard.id));
-    if (!exists) {
-      setEditingCard(null);
-    }
-  }, [editingCard, locItems, npcItems, players]);
-
-  const orderedList = useMemo(() => {
-    const order = cardOrder[tab] || [];
-    const map = new Map(currentList.map((item) => [`${tab}-${item.id}`, item]));
-    const arranged = order.map((key) => map.get(key)).filter(Boolean);
-    const extras = currentList.filter((item) => !order.includes(`${tab}-${item.id}`));
-    return [...arranged, ...extras];
-  }, [cardOrder, currentList, tab]);
-
-
-  const toggleVisible = async (id, type) => {
-    if (!isAdmin || !user) return;
-    const endpoint = type === 'npc' ? 'npcs/visible' : 'locations/visible';
-    const state = type === 'npc' ? new Set(npcVisibility) : new Set(locVisibility);
-    if (state.has(id)) state.delete(id);
-    else state.add(id);
-    const payload = { visibleIds: Array.from(state) };
+  const save = async () => {
+    setSaving(true);
+    setMsg('');
     try {
-      await fetch(`${API_BASE_URL}/view/${endpoint}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify(payload),
-      });
-      if (type === 'npc') {
-        setNpcVisibility(payload.visibleIds);
-        setNpcItems((prev) => prev.map((n) => (n.id === id ? { ...n, visible: payload.visibleIds.includes(id) } : n)));
-      } else {
-        setLocVisibility(payload.visibleIds);
-        setLocItems((prev) => prev.map((l) => (l.id === id ? { ...l, visible: payload.visibleIds.includes(id) } : l)));
-      }
-    } catch (err) {
-      setError(err.message || 'Unable to update visibility.');
-    }
-  };
-
-  const toggleTruesight = async (id, type) => {
-    if (!isAdmin || !user) return;
-    const endpoint = type === 'npc' ? 'npcs/truesight' : 'locations/truesight';
-    const state = type === 'npc' ? new Set(npcTruesight) : new Set(locTruesight);
-    if (state.has(id)) state.delete(id);
-    else state.add(id);
-    const payload = { truesightIds: Array.from(state) };
-    try {
-      await fetch(`${API_BASE_URL}/view/${endpoint}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify(payload),
-      });
-      if (type === 'npc') {
-        setNpcTruesight(payload.truesightIds);
-        setNpcItems((prev) => prev.map((n) => (n.id === id ? { ...n, truesight: payload.truesightIds.includes(id) } : n)));
-      } else {
-        setLocTruesight(payload.truesightIds);
-        setLocItems((prev) => prev.map((l) => (l.id === id ? { ...l, truesight: payload.truesightIds.includes(id) } : l)));
-      }
-    } catch (err) {
-      setError(err.message || 'Unable to update truesight.');
-    }
-  };
-
-  const setNpcDraft = (id, field, value) => {
-    setPendingNpcEdits((prev) => ({
-      ...prev,
-      [id]: { ...(prev[id] || {}), [field]: value },
-    }));
-  };
-
-  const setLocDraft = (id, field, value) => {
-    setPendingLocEdits((prev) => ({
-      ...prev,
-      [id]: { ...(prev[id] || {}), [field]: value },
-    }));
-  };
-
-  const handleLocationImageFile = (locationId, file) => {
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setError('Please upload an image file (png, jpg, webp).');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      setLocDraft(locationId, 'heroImage', reader.result);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleLocationImageDrop = (event, locationId) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const file = event.dataTransfer?.files?.[0];
-    handleLocationImageFile(locationId, file);
-  };
-
-  const handleLocationImageBrowse = (event, locationId) => {
-    const file = event.target.files?.[0];
-    handleLocationImageFile(locationId, file);
-    event.target.value = '';
-  };
-
-  const handleDragStart = (event, tabName, key) => {
-    event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData('text/plain', key);
-    setDraggingCard(key);
-  };
-
-  const handleDragOver = (event, tabName, key) => {
-    event.preventDefault();
-    if (!draggingCard || draggingCard === key) return;
-    setCardOrder((prev) => {
-      const order = [...(prev[tabName] || [])];
-      const fromIdx = order.indexOf(draggingCard);
-      const toIdx = order.indexOf(key);
-      if (fromIdx === -1 || toIdx === -1) return prev;
-      order.splice(fromIdx, 1);
-      order.splice(toIdx, 0, draggingCard);
-      return { ...prev, [tabName]: order };
-    });
-  };
-
-  const handleDrop = (event) => {
-    event.preventDefault();
-    setDraggingCard(null);
-  };
-
-  const handleDragEnd = () => {
-    setDraggingCard(null);
-  };
-
-  const handlePortraitGenerate = async (characterId) => {
-    if (!characterId || !isAdmin || !user) return;
-    setPortraitPending((prev) => ({ ...prev, [characterId]: true }));
-    setError('');
-    try {
-      const result = await generatePortrait(characterId);
-      if (result.error) {
-        throw new Error(result.error);
-      }
-      await refreshPortraitStatus(characterId);
-    } catch (err) {
-      setError(err.message || 'Unable to generate portrait.');
-    } finally {
-      setPortraitPending((prev) => {
-        const copy = { ...prev };
-        delete copy[characterId];
-        return copy;
-      });
-    }
-  };
-
-  const openEditor = (itemType, itemId) => {
-    if (!adminView || !isAdmin) return;
-    setEditingCard({ type: itemType, id: itemId });
-    setEditorTab('details');
-  };
-
-  const closeEditor = () => {
-    if (editingCard) {
-      setExpanded((prev) => {
-        const copy = { ...prev };
-        delete copy[`${editingCard.type}-${editingCard.id}`];
-        return copy;
-      });
-    }
-    setEditingCard(null);
-  };
-
-  const mergedNpc = (item) => ({
-    ...item,
-    ...(pendingNpcEdits[item.id] || {}),
-  });
-
-  const mergedLoc = (item) => ({
-    ...item,
-    ...(pendingLocEdits[item.id] || {}),
-  });
-
-  const mergedPlayerMeta = (item) => ({
-    ...item,
-    ...(playerMeta[item.id] || {}),
-    ...(pendingPlayerEdits[item.id] || {}),
-  });
-
-  const saveNpc = async (id) => {
-    if (!isAdmin || !user) return;
-    const original = npcItems.find((n) => n.id === id);
-    if (!original) return;
-    const draft = mergedNpc(original);
-    setSavingNpcId(id);
-    setError('');
-    try {
-      const response = await fetch(`${API_BASE_URL}/entities/npcs/save`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+      const res = await fetch(`${API}/heroes/${hero.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          ...draft,
-          id: draft.id,
-          locationId: draft.locationId || null,
-          campaign: draft.campaign || 'Main',
+          name: d.name, title: d.title, race: d.race, class: d.class,
+          subclass: d.subclass, level: d.level, hp: d.hp, ac: d.ac,
+          speed: d.speed, alignment: d.alignment, notes: d.notes, lore: d.lore,
+          abilities: d.abilities, spells: d.spells, equipment: d.equipment,
         }),
       });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Unable to save NPC.');
-      }
-      const nextItems = Array.isArray(data.items) ? data.items : [data.item].filter(Boolean);
-      setNpcItems(
-        nextItems.map((entry) => ({
-          ...entry,
-          visible: npcVisibility.includes(entry.id),
-          truesight: npcTruesight.includes(entry.id),
-        }))
-      );
-      setPendingNpcEdits((prev) => {
-        const copy = { ...prev };
-        delete copy[id];
-        return copy;
-      });
-    } catch (err) {
-      setError(err.message || 'Unable to save NPC.');
-    } finally {
-      setSavingNpcId(null);
-    }
+      if (!res.ok) { const j = await res.json(); throw new Error(j.error || 'Save failed'); }
+      setMsg('Saved!');
+      setDraft(null);
+    } catch (e) { setMsg(e.message); }
+    finally { setSaving(false); }
   };
 
-  const saveLocation = async (id) => {
-    if (!isAdmin || !user) return;
-    const sanitizeLocation = (loc) => {
-      const { visible: _visible, truesight: _truesight, ...rest } = loc;
-      return {
-        ...rest,
-        campaign: loc.campaign || 'Main',
-        regionId: loc.regionId ?? null,
-        markerId: loc.markerId ?? null,
-      };
-    };
-    const merged = locItems.map((loc) =>
-      loc.id === id ? sanitizeLocation(mergedLoc(loc)) : sanitizeLocation(loc)
-    );
-    setSavingLocId(id);
-    setError('');
-    try {
-      const response = await fetch(`${API_BASE_URL}/locations/save`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({ locations: merged }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Unable to save location.');
-      }
-      const saved = Array.isArray(data.locations) ? data.locations : [];
-      setLocItems(
-        saved.map((loc) => ({
-          ...loc,
-          visible: locVisibility.includes(loc.id),
-          truesight: locTruesight.includes(loc.id),
-        }))
-      );
-      setPendingLocEdits((prev) => {
-        const copy = { ...prev };
-        delete copy[id];
-        return copy;
-      });
-    } catch (err) {
-      setError(err.message || 'Unable to save location.');
-    } finally {
-      setSavingLocId(null);
-    }
-  };
+  const color = hero.color || '#facc15';
 
-  const savePlayerMeta = async (player) => {
-    if (!isAdmin || !user || !player) return;
-    const merged = mergedPlayerMeta(player);
-    setSavingPlayerId(player.id);
-    setError('');
-    try {
-      const response = await fetch(`${API_BASE_URL}/entities/players/save`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          ...merged,
-          id: player.id,
-          name: merged.name || player.name,
-          description: merged.description || '',
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Unable to save player metadata.');
-      }
-      const nextItems = Array.isArray(data.items) ? data.items : [data.item].filter(Boolean);
-      const map = {};
-      nextItems.forEach((entry) => {
-        map[entry.id] = entry;
-      });
-      setPlayerMeta(map);
-      setPendingPlayerEdits((prev) => {
-        const copy = { ...prev };
-        delete copy[player.id];
-        return copy;
-      });
-    } catch (err) {
-      setError(err.message || 'Unable to save player metadata.');
-    } finally {
-      setSavingPlayerId(null);
-    }
-  };
-
-  const toggleFavorite = async (itemId) => {
-    if (!user) return;
-    setFavPending(true);
-    try {
-      const type =
-        tab === 'players' ? 'character' : tab === 'npcs' ? 'npc' : 'location';
-      await fetch(`${API_BASE_URL}/view/favorite`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({ type, id: itemId, favorite: !viewFavorites.includes(`${type}:${itemId}`) }),
-      });
-      const favRes = await fetch(`${API_BASE_URL}/view/favorites`, { credentials: 'include' });
-      const favData = await favRes.json();
-      if (favRes.ok) setViewFavorites(favData.viewFavorites || []);
-    } catch {
-      /* ignore */
-    } finally {
-      setFavPending(false);
-    }
-  };
-
-  const renderCard = (item) => {
-    const cardKey = `${tab}-${item.id}`;
-    const isExpanded = Boolean(expanded[cardKey]);
-    const isDragging = draggingCard === cardKey;
-    const toggleExpanded = () => {
-      const nextExpanded = !isExpanded;
-      setExpanded((prev) => ({
-        ...prev,
-        [cardKey]: nextExpanded,
-      }));
-      if (adminView && isAdmin) {
-        if (nextExpanded) {
-          openEditor(tab, item.id);
-        } else if (editingCard && editingCard.type === tab && String(editingCard.id) === String(item.id)) {
-          closeEditor();
-        }
-      }
-    };
-    const dragProps = {
-      draggable: true,
-      onDragStart: (event) => handleDragStart(event, tab, cardKey),
-      onDragOver: (event) => handleDragOver(event, tab, cardKey),
-      onDragEnd: handleDragEnd,
-      onDrop: handleDrop,
-    };
-
-    if (tab === 'players') {
-      const character = item.character || characters.find((c) => c.id === item.featuredCharacter) || characters.find((c) => c.id === item.id);
-      const merged = mergedPlayerMeta(item);
-      const visibleChars = characters.filter((c) => (adminView && isAdmin) || visibleIds.includes(c.id));
-      const portraitInfo = character ? portraitStatus[character.id] : null;
-      const portraitUrl = portraitInfo?.url;
-      const canGeneratePortrait =
-        isAdmin && adminView && character && (character.imageDescription || item.imageDescription);
-      const portraitDisabled = portraitConfig.checked && !portraitConfig.enabled;
-      return (
-        <div
-          className={`view-card ${isExpanded ? 'view-card--expanded' : ''} ${isDragging ? 'view-card--dragging' : ''}`}
-          onClick={toggleExpanded}
-          role="button"
-          tabIndex={0}
-          {...dragProps}
-        >
-          <div className="view-card__header">
-            <div>
-              <p className="account-card__eyebrow">{item.username ? `@${item.username}` : 'Player'}</p>
-              <h3>{item.name || character?.name}</h3>
-            </div>
-            {character && (
-              <button
-                type="button"
-                className={`fav-btn ${viewFavorites.includes(`character:${character.id}`) ? 'fav-btn--active' : ''}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleFavorite(character.id);
-                }}
-                disabled={favPending}
-              >
-                {viewFavorites.includes(`character:${character.id}`) ? '★' : '☆'}
-              </button>
-            )}
+  return (
+    <div
+      ref={cardRef}
+      className={`pp-card pp-card--hero ${open ? 'pp-card--open' : ''}`}
+      style={{ '--hero-color': color }}
+    >
+      <div className="pp-card__header" role="button" tabIndex={0}
+        onClick={() => setOpen(v => !v)}
+        onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && setOpen(v => !v)}
+      >
+        <div className="pp-card__title-row">
+          <span className="pp-card__accent" />
+          <div>
+            <p className="pp-card__eyebrow">{d.title || (d.race + ' ' + d.class)}</p>
+            <h3 className="pp-card__name">{d.name}</h3>
           </div>
-          {character && (
-            <div className="view-card__body">
-              {portraitUrl ? (
-                <div className="view-card__media" style={{ maxHeight: 220 }}>
-                  <img src={portraitUrl} alt={`${character.name} portrait`} />
-                </div>
+        </div>
+        <div className="pp-card__meta-row">
+          {d.class && <span className="pp-badge">{d.class}{d.subclass ? ` · ${d.subclass}` : ''}</span>}
+          {d.level != null && <span className="pp-badge pp-badge--gold">Lv. {d.level}</span>}
+          <span className="pp-card__chevron">{open ? '▲' : '▼'}</span>
+        </div>
+      </div>
+
+      {open && (
+        <div className="pp-card__body" onClick={e => e.stopPropagation()}>
+          {/* Stats row */}
+          {d.stats && (
+            <div className="pp-section">
+              <p className="pp-section__label">Stats</p>
+              <div className="pp-stats-grid">
+                {Object.entries(d.stats).map(([k, v]) => (
+                  <div key={k} className="pp-stat">
+                    <span className="pp-stat__val">{v}</span>
+                    <span className="pp-stat__mod">{mod(v)}</span>
+                    <span className="pp-stat__key">{statLabel(k)}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="pp-inline-stats">
+                {d.hp != null && <span><strong>HP</strong> {d.hp}</span>}
+                {d.ac != null && <span><strong>AC</strong> {d.ac}</span>}
+                {d.speed != null && <span><strong>Speed</strong> {d.speed} ft</span>}
+                {d.passivePerception != null && <span><strong>PP</strong> {d.passivePerception}</span>}
+              </div>
+            </div>
+          )}
+
+          {/* Abilities */}
+          {(d.abilities?.length > 0 || isEditMode) && (
+            <div className="pp-section">
+              <p className="pp-section__label">Abilities</p>
+              {isEditMode ? (
+                <textarea className="pp-textarea" rows={5}
+                  value={Array.isArray(d.abilities) ? d.abilities.join('\n') : (d.abilities || '')}
+                  onChange={e => set('abilities', e.target.value.split('\n'))} />
               ) : (
-                <p className="account-muted">No portrait yet.</p>
-              )}
-              <p className="account-muted">
-                {character.class} · {character.race}
-              </p>
-              {isAdmin && adminView ? (
-                <label className="admin-field">
-                  <span>Description</span>
-                  <textarea
-                    value={merged.description || ''}
-                    rows={3}
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={(e) =>
-                      setPendingPlayerEdits((prev) => ({
-                        ...prev,
-                        [item.id]: { ...(prev[item.id] || {}), description: e.target.value },
-                      }))
-                    }
-                  />
-                </label>
-              ) : (
-                merged.description && <p className="account-muted">{merged.description}</p>
+                <ul className="pp-list">
+                  {(Array.isArray(d.abilities) ? d.abilities : [d.abilities]).map((a, i) => (
+                    <li key={i}>{a}</li>
+                  ))}
+                </ul>
               )}
             </div>
           )}
-          {isExpanded && (
-            <div className="view-card__body">
-              <p className="account-muted">Visible Characters</p>
-              <div className="mini-list">
-                {visibleChars.length ? visibleChars.map((c) => <span key={c.id}>{c.name}</span>) : <span>No characters visible.</span>}
-              </div>
-              {character && canGeneratePortrait && (
-                <div className="view-card__actions" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    type="button"
-                    className="admin-toggle-btn"
-                    disabled={portraitDisabled || portraitPending[character.id]}
-                    title={portraitDisabled ? 'Image generation unavailable (missing API key)' : ''}
-                    onClick={() => handlePortraitGenerate(character.id)}
-                  >
-                    {portraitPending[character.id]
-                      ? 'Generating...'
-                      : portraitInfo?.exists
-                      ? 'Regenerate Portrait'
-                      : 'Generate Portrait'}
-                  </button>
-                  {portraitDisabled && (
-                    <p className="account-muted">Portrait generation disabled (no key).</p>
-                  )}
-                </div>
-              )}
-              {isAdmin && adminView && (
-                <div className="view-card__actions" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    type="button"
-                    className="admin-toggle-btn"
-                    disabled={savingPlayerId === item.id}
-                    onClick={() => savePlayerMeta(item)}
-                  >
-                    {savingPlayerId === item.id ? 'Saving...' : 'Save Description'}
-                  </button>
-                </div>
-              )}
-              {isAdmin && adminView && item.secretId && (
-                <div className="secret-meta">
-                  <p className="account-muted">Requires secret: {item.secretId}</p>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      );
-    }
-    if (tab === 'npcs') {
-      const npcDraft = mergedNpc(item);
-      const locationOptions = (locItems.length ? locItems : locationsData.locations || []).sort((a, b) =>
-        (a.name || '').localeCompare(b.name || '')
-      );
-      return (
-        <div
-          className={`view-card ${isExpanded ? 'view-card--expanded' : ''} ${isDragging ? 'view-card--dragging' : ''}`}
-          onClick={toggleExpanded}
-          role="button"
-          tabIndex={0}
-          {...dragProps}
-        >
-          <div className="view-card__header">
-            <div>
-              <p className="account-card__eyebrow">{item.type}</p>
-              <h3>{item.name}</h3>
-            </div>
-            <div className="view-card__actions">
-              {user && (
-                <button
-                  type="button"
-                  className={`fav-btn ${viewFavorites.includes(`npc:${item.id}`) ? 'fav-btn--active' : ''}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleFavorite(item.id);
-                  }}
-                  disabled={favPending}
-                >
-                  {viewFavorites.includes(`npc:${item.id}`) ? '★' : '☆'}
-                </button>
-              )}
-            </div>
-          </div>
-          {isAdmin && adminView ? (
-            <label className="admin-field" onClick={(e) => e.stopPropagation()}>
-              <span>Description</span>
-              <textarea
-                value={npcDraft.blurb || ''}
-                rows={2}
-                onChange={(e) => setNpcDraft(npcDraft.id, 'blurb', e.target.value)}
-              />
-            </label>
-          ) : (
-            <p className="account-muted">{item.blurb}</p>
-          )}
-          {isExpanded && (
-            <div className="view-card__body">
-              <p className="account-muted">Related Locations</p>
-              <div className="mini-list">
-                {locationOptions.length
-                  ? locationOptions
-                      .filter((loc) => npcDraft.locationId && String(loc.id) === String(npcDraft.locationId))
-                      .map((loc) => <span key={loc.id}>{loc.name}</span>)
-                  : <span>None linked.</span>}
-              </div>
-              {isAdmin && adminView && (
-                <div className="view-card__actions" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    type="button"
-                    className="admin-toggle-btn"
-                    disabled={savingNpcId === item.id}
-                    onClick={() => saveNpc(item.id)}
-                  >
-                    {savingNpcId === item.id ? 'Saving...' : 'Save NPC'}
-                  </button>
-                </div>
-              )}
-              {isAdmin && adminView && item.secretId && (
-                <div className="secret-meta">
-                  <p className="account-muted">Requires secret: {item.secretId}</p>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      );
-    }
-    if (tab === 'locations') {
-      const locDraft = mergedLoc(item);
-      const relatedNpcs = (npcItems.length ? npcItems : npcsData).filter(
-        (n) => n.locationId && String(n.locationId) === String(locDraft.id)
-      );
-      const relatedChars = players.filter((p) => p.locationId && String(p.locationId) === String(locDraft.id));
-      const heroImage = locDraft.heroImage || locDraft.image || locDraft.imageUrl || '';
-      const theme = CARD_THEMES.find((opt) => opt.id === locDraft.cardStyle) || CARD_THEMES[0];
-      const titleContent = adminView && isAdmin ? (
-        <div>
-          <p className="account-card__eyebrow">{locDraft.category || locDraft.type}</p>
-          <h3>{locDraft.name}</h3>
-        </div>
-      ) : (
-        <>
-          <p className="account-card__eyebrow">{item.category || item.type}</p>
-          <h3>{item.name}</h3>
-        </>
-      );
-      return (
-        <div
-          className={`view-card view-card--media ${isExpanded ? 'view-card--expanded' : ''} ${isDragging ? 'view-card--dragging' : ''}`}
-          style={{ background: theme.background, color: theme.foreground }}
-          onClick={toggleExpanded}
-          role="button"
-          tabIndex={0}
-          {...dragProps}
-        >
-          <div className="view-card__media">
-            {heroImage ? (
-              <img src={heroImage} alt={`${locDraft.name} illustration`} />
-            ) : (
-              <div className="view-card__media-placeholder">No image yet. Drop one in editor mode.</div>
-            )}
-            <div className="view-card__title-overlay">
-              <div>{titleContent}</div>
-              <div className="view-card__media-actions">
-                {(isExpanded || (adminView && isAdmin)) && user && (
-                  <button
-                    type="button"
-                    className={`fav-btn ${viewFavorites.includes(`location:${item.id}`) ? 'fav-btn--active' : ''}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleFavorite(item.id);
-                    }}
-                    disabled={favPending}
-                  >
-                    {viewFavorites.includes(`location:${item.id}`) ? '★' : '☆'}
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-          {isExpanded && (
-            <div
-              className={`view-card__expanded ${adminView && isAdmin ? 'view-card__expanded--admin' : ''}`}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="view-card__details">
-                <div className="view-card__detail-block">
-                  <p className="detail-label">Description</p>
-                  <p>{locDraft.description || 'No description provided.'}</p>
-                </div>
-                <div className="view-card__detail-block">
-                  <p className="detail-label">NPCs here</p>
-                  <div className="mini-list">
-                    {relatedNpcs.length ? relatedNpcs.map((n) => <span key={n.id}>{n.name}</span>) : <span>No NPCs linked.</span>}
-                  </div>
-                </div>
-                <div className="view-card__detail-block">
-                  <p className="detail-label">Characters here</p>
-                  <div className="mini-list">
-                    {relatedChars.length ? relatedChars.map((c) => <span key={c.id}>{c.name}</span>) : <span>No characters linked.</span>}
-                  </div>
-                </div>
-                {heroImage && (
-                  <div className="view-card__detail-image">
-                    <img src={heroImage} alt={`${locDraft.name} detail`} />
-                  </div>
-                )}
-                {isAdmin && adminView && item.secretId && (
-                  <div className="secret-meta">
-                    <p className="account-muted">Requires secret: {item.secretId}</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      );
-    }
-    return null;
-  };
 
-  const renderEditorPanel = () => {
-    if (!adminView || !isAdmin || !editingCard) return null;
-    if (editingCard.type === 'locations') {
-      const source = locItems.find((loc) => String(loc.id) === String(editingCard.id));
-      if (!source) return null;
-      const draft = mergedLoc(source);
-      const heroImage = draft.heroImage || draft.image || draft.imageUrl || '';
-      return (
-        <div className="editor-panel-overlay" onClick={closeEditor}>
-          <div className="editor-panel" onClick={(e) => e.stopPropagation()}>
-            <div className="editor-panel__header">
-              <div>
-                <p className="editor-panel__eyebrow">Location Editor</p>
-                <h2>{draft.name || 'Unnamed Location'}</h2>
-              </div>
-              <button type="button" className="editor-panel__close" onClick={closeEditor} aria-label="Close editor">
-                X
-              </button>
-            </div>
-            <div className="editor-panel__tabs">
-              {['details', 'visual'].map((tabName) => (
-                <button
-                  key={tabName}
-                  type="button"
-                  className={`editor-panel__tab ${editorTab === tabName ? 'editor-panel__tab--active' : ''}`}
-                  onClick={() => setEditorTab(tabName)}
-                >
-                  {tabName === 'details' ? 'Details' : 'Visual'}
-                </button>
-              ))}
-            </div>
-            {editorTab === 'details' ? (
-              <div className="editor-panel__content">
-                <label className="admin-field">
-                  <span>Category</span>
-                  <input value={draft.category || ''} onChange={(e) => setLocDraft(draft.id, 'category', e.target.value)} />
-                </label>
-                <label className="admin-field">
-                  <span>Name</span>
-                  <input value={draft.name || ''} onChange={(e) => setLocDraft(draft.id, 'name', e.target.value)} />
-                </label>
-                <label className="admin-field">
-                  <span>Description</span>
-                  <textarea
-                    value={draft.description || ''}
-                    onChange={(e) => setLocDraft(draft.id, 'description', e.target.value)}
-                    rows={3}
-                  />
-                </label>
-                <label className="admin-field">
-                  <span>Campaign</span>
-                  <input value={draft.campaign || ''} onChange={(e) => setLocDraft(draft.id, 'campaign', e.target.value)} />
-                </label>
-                <label className="admin-field">
-                  <span>Region ID</span>
-                  <input
-                    value={draft.regionId ?? ''}
-                    onChange={(e) => setLocDraft(draft.id, 'regionId', e.target.value ? Number(e.target.value) : null)}
-                  />
-                </label>
-                <label className="admin-field">
-                  <span>Marker ID</span>
-                  <input
-                    value={draft.markerId ?? ''}
-                    onChange={(e) => setLocDraft(draft.id, 'markerId', e.target.value ? Number(e.target.value) : null)}
-                  />
-                </label>
-                <label className="admin-field">
-                  <span>Secret</span>
-                  <select
-                    value={draft.secretId || ''}
-                    onChange={(e) => setLocDraft(draft.id, 'secretId', e.target.value || undefined)}
-                  >
-                    <option value="">None (public when visible)</option>
-                    {SECRET_OPTIONS.map((opt) => (
-                      <option key={opt.id} value={opt.id}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="editor-panel__toggles">
-                  <label className="visibility-toggle">
-                    <input type="checkbox" checked={draft.visible !== false} onChange={() => toggleVisible(draft.id, 'loc')} />
-                    <span>{draft.visible !== false ? 'Visible' : 'Hidden'}</span>
-                  </label>
-                  <label className="visibility-toggle">
-                    <input type="checkbox" checked={draft.truesight || false} onChange={() => toggleTruesight(draft.id, 'loc')} />
-                    <span>{draft.truesight ? 'Truesight' : 'No Truesight'}</span>
-                  </label>
-                </div>
-                <div className="editor-panel__actions">
-                  <button
-                    type="button"
-                    className="admin-toggle-btn"
-                    onClick={() => saveLocation(draft.id)}
-                    disabled={savingLocId === draft.id}
-                  >
-                    {savingLocId === draft.id ? 'Saving...' : 'Save Location'}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="editor-panel__content">
-                <div
-                  className="view-card__image-drop"
-                  onDrop={(e) => handleLocationImageDrop(e, draft.id)}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                  }}
-                >
-                  <p>Drag & drop an image to update this location.</p>
-                  <label className="view-card__image-upload">
-                    Browse
-                    <input type="file" accept="image/*" onChange={(e) => handleLocationImageBrowse(e, draft.id)} />
-                  </label>
-                  {heroImage && <img src={heroImage} alt={`${draft.name} preview`} />}
-                </div>
-                <p className="detail-label">Card Themes</p>
-                <div className="visual-theme-grid">
-                  {CARD_THEMES.map((theme) => (
-                    <button
-                      key={theme.id}
-                      type="button"
-                      className={`visual-theme ${draft.cardStyle === theme.id ? 'visual-theme--active' : ''}`}
-                      style={{ background: theme.background, color: theme.foreground }}
-                      onClick={() => setLocDraft(draft.id, 'cardStyle', theme.id)}
-                    >
-                      <span>{theme.label}</span>
-                    </button>
+          {/* Spells */}
+          {(d.spells?.length > 0 || isEditMode) && (
+            <div className="pp-section">
+              <p className="pp-section__label">Spells</p>
+              {isEditMode ? (
+                <textarea className="pp-textarea" rows={4}
+                  value={Array.isArray(d.spells) ? d.spells.join('\n') : (d.spells || '')}
+                  onChange={e => set('spells', e.target.value.split('\n'))} />
+              ) : (
+                <div className="pp-tag-list">
+                  {(Array.isArray(d.spells) ? d.spells : []).map((s, i) => (
+                    <span key={i} className="pp-tag">{s}</span>
                   ))}
                 </div>
-              </div>
+              )}
+            </div>
+          )}
+
+          {/* Equipment */}
+          {(d.equipment?.length > 0 || isEditMode) && (
+            <div className="pp-section">
+              <p className="pp-section__label">Equipment</p>
+              {isEditMode ? (
+                <textarea className="pp-textarea" rows={4}
+                  value={Array.isArray(d.equipment) ? d.equipment.join('\n') : (d.equipment || '')}
+                  onChange={e => set('equipment', e.target.value.split('\n'))} />
+              ) : (
+                <ul className="pp-list pp-list--compact">
+                  {(Array.isArray(d.equipment) ? d.equipment : []).map((eq, i) => (
+                    <li key={i}>{eq}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {/* Lore */}
+          <div className="pp-section">
+            <p className="pp-section__label">Lore</p>
+            {isEditMode ? (
+              <textarea className="pp-textarea pp-textarea--lore" rows={6}
+                value={d.lore || ''}
+                onChange={e => set('lore', e.target.value)} />
+            ) : (
+              d.lore
+                ? <p className="pp-lore-text">{d.lore}</p>
+                : <p className="pp-empty">No lore added yet.</p>
             )}
           </div>
-        </div>
-      );
-    }
-    if (editingCard.type === 'npcs') {
-      const source = npcItems.find((npc) => String(npc.id) === String(editingCard.id));
-      if (!source) return null;
-      const draft = mergedNpc(source);
-      const locationOptions = (locItems.length ? locItems : locationsData.locations || []).sort((a, b) =>
-        (a.name || '').localeCompare(b.name || '')
-      );
-      return (
-        <div className="editor-panel-overlay" onClick={closeEditor}>
-          <div className="editor-panel" onClick={(e) => e.stopPropagation()}>
-            <div className="editor-panel__header">
-              <div>
-                <p className="editor-panel__eyebrow">NPC Editor</p>
-                <h2>{draft.name || 'Unnamed NPC'}</h2>
-              </div>
-              <button type="button" className="editor-panel__close" onClick={closeEditor} aria-label="Close editor">
-                X
-              </button>
+
+          {/* Notes */}
+          {(d.notes || isEditMode) && (
+            <div className="pp-section">
+              <p className="pp-section__label">Notes</p>
+              {isEditMode ? (
+                <textarea className="pp-textarea" rows={3}
+                  value={d.notes || ''}
+                  onChange={e => set('notes', e.target.value)} />
+              ) : (
+                <p className="pp-notes-text">{d.notes}</p>
+              )}
             </div>
-            <div className="editor-panel__content">
-              <label className="admin-field">
-                <span>Role</span>
-                <input value={draft.type || ''} onChange={(e) => setNpcDraft(draft.id, 'type', e.target.value)} />
-              </label>
-              <label className="admin-field">
+          )}
+
+          {/* Edit fields */}
+          {isEditMode && (
+            <div className="pp-section pp-edit-grid">
+              <label className="pp-field">
                 <span>Name</span>
-                <input value={draft.name || ''} onChange={(e) => setNpcDraft(draft.id, 'name', e.target.value)} />
+                <input value={d.name || ''} onChange={e => set('name', e.target.value)} />
               </label>
-              <label className="admin-field">
-                <span>Blurb</span>
-                <textarea value={draft.blurb || ''} onChange={(e) => setNpcDraft(draft.id, 'blurb', e.target.value)} rows={3} />
+              <label className="pp-field">
+                <span>Title</span>
+                <input value={d.title || ''} onChange={e => set('title', e.target.value)} />
               </label>
-              <label className="admin-field">
-                <span>Campaign</span>
-                <input value={draft.campaign || ''} onChange={(e) => setNpcDraft(draft.id, 'campaign', e.target.value)} />
+              <label className="pp-field">
+                <span>Race</span>
+                <input value={d.race || ''} onChange={e => set('race', e.target.value)} />
               </label>
-              <label className="admin-field">
-                <span>Linked Location</span>
-                <select
-                  value={draft.locationId || ''}
-                  onChange={(e) => setNpcDraft(draft.id, 'locationId', e.target.value ? Number(e.target.value) : null)}
-                >
-                  <option value="">No location</option>
-                  {locationOptions.map((loc) => (
-                    <option key={loc.id} value={loc.id}>
-                      {loc.name}
-                    </option>
-                  ))}
-                </select>
+              <label className="pp-field">
+                <span>Class</span>
+                <input value={d.class || ''} onChange={e => set('class', e.target.value)} />
               </label>
-              <label className="admin-field">
-                <span>Secret</span>
-                <select
-                  value={draft.secretId || ''}
-                  onChange={(e) => setNpcDraft(draft.id, 'secretId', e.target.value || undefined)}
-                >
-                  <option value="">None (public when visible)</option>
-                  {SECRET_OPTIONS.map((opt) => (
-                    <option key={opt.id} value={opt.id}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
+              <label className="pp-field">
+                <span>Subclass</span>
+                <input value={d.subclass || ''} onChange={e => set('subclass', e.target.value)} />
               </label>
-              <div className="editor-panel__toggles">
-                <label className="visibility-toggle">
-                  <input type="checkbox" checked={draft.visible !== false} onChange={() => toggleVisible(draft.id, 'npc')} />
-                  <span>{draft.visible !== false ? 'Visible' : 'Hidden'}</span>
-                </label>
-                <label className="visibility-toggle">
-                  <input type="checkbox" checked={draft.truesight || false} onChange={() => toggleTruesight(draft.id, 'npc')} />
-                  <span>{draft.truesight ? 'Truesight' : 'No Truesight'}</span>
-                </label>
-              </div>
-              <div className="editor-panel__actions">
-                <button
-                  type="button"
-                  className="admin-toggle-btn"
-                  onClick={() => saveNpc(draft.id)}
-                  disabled={savingNpcId === draft.id}
-                >
-                  {savingNpcId === draft.id ? 'Saving...' : 'Save NPC'}
-                </button>
-              </div>
+              <label className="pp-field">
+                <span>Level</span>
+                <input type="number" value={d.level || ''} onChange={e => set('level', Number(e.target.value))} />
+              </label>
+              <label className="pp-field">
+                <span>HP</span>
+                <input type="number" value={d.hp || ''} onChange={e => set('hp', Number(e.target.value))} />
+              </label>
+              <label className="pp-field">
+                <span>AC</span>
+                <input type="number" value={d.ac || ''} onChange={e => set('ac', Number(e.target.value))} />
+              </label>
+              <label className="pp-field">
+                <span>Speed</span>
+                <input type="number" value={d.speed || ''} onChange={e => set('speed', Number(e.target.value))} />
+              </label>
+              <label className="pp-field">
+                <span>Alignment</span>
+                <input value={d.alignment || ''} onChange={e => set('alignment', e.target.value)} />
+              </label>
             </div>
-          </div>
+          )}
+
+          {isEditMode && draft && (
+            <div className="pp-actions">
+              {msg && <span className="pp-msg">{msg}</span>}
+              <button className="pp-btn pp-btn--save" disabled={saving} onClick={save}>
+                {saving ? 'Saving…' : 'Save Hero'}
+              </button>
+              <button className="pp-btn pp-btn--cancel" onClick={() => setDraft(null)}>
+                Discard
+              </button>
+            </div>
+          )}
+
+          {/* Attribution */}
+          {(hero.createdBy || hero.updatedBy) && (
+            <div className="pp-attribution">
+              {hero.createdBy && (
+                <span className="pp-attribution__item">
+                  ✍️ Added by <strong>{hero.createdBy}</strong>
+                </span>
+              )}
+              {hero.updatedBy && hero.updatedBy !== hero.createdBy && (
+                <span className="pp-attribution__item">
+                  · Edited by <strong>{hero.updatedBy}</strong>
+                </span>
+              )}
+              {hero.updatedAt && (
+                <span className="pp-attribution__date">
+                  {new Date(hero.updatedAt).toLocaleDateString()}
+                </span>
+              )}
+            </div>
+          )}
         </div>
-      );
-    }
-    return null;
+      )}
+    </div>
+  );
+}
+
+// ── NpcCard ──────────────────────────────────────────────────────────────────
+
+function NpcCard({ npc, isAdmin, isEditMode, locations, onUpdate, onDelete }) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  const d = draft || npc;
+
+  const set = (field, val) => setDraft(prev => ({ ...(prev || npc), [field]: val }));
+
+  const linkedLocation = locations.find(l => String(l.id) === String(d.locationId));
+
+  const save = async () => {
+    setSaving(true);
+    setMsg('');
+    try {
+      const res = await fetch(`${API}/entities/npcs/${npc.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: d.name, type: d.type, role: d.role, blurb: d.blurb,
+          locationId: d.locationId || null, visible: d.visible,
+        }),
+      });
+      if (!res.ok) { const j = await res.json(); throw new Error(j.error || 'Save failed'); }
+      const j = await res.json();
+      onUpdate(j.item);
+      setMsg('Saved!');
+      setDraft(null);
+    } catch (e) { setMsg(e.message); }
+    finally { setSaving(false); }
+  };
+
+  const doDelete = async () => {
+    setDeleting(true);
+    try {
+      const res = await fetch(`${API}/entities/npcs/${npc.id}`, {
+        method: 'DELETE', credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Delete failed');
+      onDelete(npc.id);
+    } catch (e) { setMsg(e.message); setDeleting(false); setConfirmDelete(false); }
   };
 
   return (
-    <>
-      <div className="page-container people-page">
-         <div className="people-page__scrim" aria-hidden="true" />
-        <header className="characters-header">
+    <div className={`pp-card pp-card--npc ${open ? 'pp-card--open' : ''}`}>
+      <div className="pp-card__header" role="button" tabIndex={0}
+        onClick={() => setOpen(v => !v)}
+        onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && setOpen(v => !v)}
+      >
+        <div className="pp-card__title-row">
+          <span className="pp-card__accent pp-card__accent--npc" />
           <div>
-            <p className="account-card__eyebrow">People</p>
-            <h1>Campaign View</h1>
-            <p className="nav-hint">Browse visible players, NPCs, and locations. Admins can toggle visibility.</p>
-          </div>
-          {isAdmin && (
-            <div className="admin-toggle">
-              <button
-                type="button"
-                className={`admin-toggle-btn ${adminView ? 'admin-toggle-btn--active' : ''}`}
-                onClick={() => setAdminView((v) => !v)}
-              >
-                {adminView ? 'Admin View' : 'User View'}
-              </button>
-              {!adminView && (
-                <div className="mini-list" aria-label="Preview secrets">
-                  {SECRET_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      className={`secret-preview-button ${previewSecrets.includes(opt.id) ? 'secret-preview-button--active' : ''}`}
-                      onClick={() =>
-                        setPreviewSecrets((prev) =>
-                          prev.includes(opt.id) ? prev.filter((id) => id !== opt.id) : [...prev, opt.id]
-                        )
-                      }
-                    >
-                      {previewSecrets.includes(opt.id) ? '★' : '☆'} {opt.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </header>
-
-        <div className="characters-tabs">
-          {TABS.map((name) => (
-            <button
-              key={name}
-              className={`tab-btn ${tab === name ? 'tab-btn--active' : ''}`}
-              type="button"
-              onClick={() => setTab(name)}
-            >
-              {name === 'players' && 'Players / Characters'}
-              {name === 'npcs' && 'NPCs'}
-            </button>
-          ))}
-          <div className="campaign-tabs">
-            {CAMPAIGNS.map((c) => (
-              <button
-                key={c}
-                className={`tab-btn ${campaign === c ? 'tab-btn--active' : ''}`}
-                type="button"
-                onClick={() => setCampaign(c)}
-              >
-                {c} Campaign
-              </button>
-            ))}
+            <p className="pp-card__eyebrow">{d.type || d.role || 'NPC'}</p>
+            <h3 className="pp-card__name">{d.name}</h3>
           </div>
         </div>
-
-        {error && <p className="account-error">{error}</p>}
-
-        <div className="view-grid">
-          {orderedList.map((item) => (
-            <div key={`${tab}-${item.id}`}>{renderCard(item)}</div>
-          ))}
+        <div className="pp-card__meta-row">
+          {linkedLocation && (
+            <span className="pp-badge pp-badge--loc">📍 {linkedLocation.name}</span>
+          )}
+          <span className="pp-card__chevron">{open ? '▲' : '▼'}</span>
         </div>
       </div>
-      {renderEditorPanel()}
-    </>
+
+      {open && (
+        <div className="pp-card__body" onClick={e => e.stopPropagation()}>
+          {isEditMode && isAdmin ? (
+            <>
+              <div className="pp-edit-grid">
+                <label className="pp-field">
+                  <span>Name</span>
+                  <input value={d.name || ''} onChange={e => set('name', e.target.value)} />
+                </label>
+                <label className="pp-field">
+                  <span>Type / Role</span>
+                  <input value={d.type || ''} onChange={e => set('type', e.target.value)} />
+                </label>
+                <label className="pp-field pp-field--full">
+                  <span>Description</span>
+                  <textarea className="pp-textarea" rows={3}
+                    value={d.blurb || ''}
+                    onChange={e => set('blurb', e.target.value)} />
+                </label>
+                <label className="pp-field pp-field--full">
+                  <span>Location</span>
+                  <select value={d.locationId || ''}
+                    onChange={e => set('locationId', e.target.value ? Number(e.target.value) : null)}>
+                    <option value="">— No location —</option>
+                    {[...locations].sort((a, b) => (a.name || '').localeCompare(b.name || '')).map(loc => (
+                      <option key={loc.id} value={loc.id}>{loc.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="pp-field pp-field--check">
+                  <input type="checkbox" checked={d.visible !== false}
+                    onChange={e => set('visible', e.target.checked)} />
+                  <span>Visible to players</span>
+                </label>
+              </div>
+              <div className="pp-actions">
+                {msg && <span className="pp-msg">{msg}</span>}
+                <button className="pp-btn pp-btn--save" disabled={saving} onClick={save}>
+                  {saving ? 'Saving…' : 'Save'}
+                </button>
+                {draft && (
+                  <button className="pp-btn pp-btn--cancel" onClick={() => { setDraft(null); setMsg(''); }}>
+                    Discard
+                  </button>
+                )}
+                {!confirmDelete ? (
+                  <button className="pp-btn pp-btn--delete" onClick={() => setConfirmDelete(true)}>
+                    Delete NPC
+                  </button>
+                ) : (
+                  <>
+                    <button className="pp-btn pp-btn--delete-confirm" disabled={deleting} onClick={doDelete}>
+                      {deleting ? 'Deleting…' : 'Confirm Delete'}
+                    </button>
+                    <button className="pp-btn pp-btn--cancel" onClick={() => setConfirmDelete(false)}>
+                      Cancel
+                    </button>
+                  </>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              {d.blurb && <p className="pp-blurb">"{d.blurb}"</p>}
+              {linkedLocation && (
+                <div className="pp-section">
+                  <p className="pp-section__label">Location</p>
+                  <p className="pp-location-link">📍 {linkedLocation.name}
+                    {linkedLocation.type && <span className="pp-muted"> · {linkedLocation.type}</span>}
+                  </p>
+                </div>
+              )}
+              {d.secretId && isAdmin && (
+                <div className="pp-section">
+                  <p className="pp-section__label">Secret</p>
+                  <span className="pp-badge pp-badge--secret">🔒 {d.secretId}</span>
+                </div>
+              )}
+              {/* Attribution */}
+              {(npc.createdBy || npc.updatedBy) && (
+                <div className="pp-attribution">
+                  {npc.createdBy && (
+                    <span className="pp-attribution__item">
+                      ✍️ Added by <strong>{npc.createdBy}</strong>
+                    </span>
+                  )}
+                  {npc.updatedBy && npc.updatedBy !== npc.createdBy && (
+                    <span className="pp-attribution__item">
+                      · Edited by <strong>{npc.updatedBy}</strong>
+                    </span>
+                  )}
+                  {npc.updatedAt && (
+                    <span className="pp-attribution__date">
+                      {new Date(npc.updatedAt).toLocaleDateString()}
+                    </span>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Section header ────────────────────────────────────────────────────────────
+
+function SectionHeader({ title, count, open, onToggle, children }) {
+  return (
+    <div className={`pp-section-hd ${open ? 'pp-section-hd--open' : ''}`}>
+      <div className="pp-section-hd__main" role="button" tabIndex={0}
+        onClick={onToggle}
+        onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && onToggle()}
+      >
+        <div>
+          <h2 className="pp-section-hd__title">{title}</h2>
+          <p className="pp-section-hd__count">{count} {count === 1 ? 'entry' : 'entries'}</p>
+        </div>
+        <span className="pp-section-hd__arrow">{open ? '▲' : '▼'}</span>
+      </div>
+      {children && <div className="pp-section-hd__actions">{children}</div>}
+    </div>
+  );
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
+
+function PeoplePage() {
+  const { role, user } = useAuth();
+  const isAdmin = role === 'admin';
+  const canEdit = ['player', 'editor', 'admin'].includes(role);
+
+  const [heroes, setHeroes] = useState([]);
+  const [npcs, setNpcs] = useState([]);
+  const [locations, setLocations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [heroOpen, setHeroOpen] = useState(true);
+  const [npcOpen, setNpcOpen] = useState(true);
+  const [editMode, setEditMode] = useState(false);
+  const [adding, setAdding] = useState(false);
+
+  const load = useCallback(async () => {
+    setError('');
+    try {
+      const [hRes, nRes, lRes] = await Promise.all([
+        fetch(`${API}/heroes`, { credentials: 'include' }),
+        fetch(`${API}/entities/npcs`, { credentials: 'include' }),
+        fetch(`${API}/locations`, { credentials: 'include' }),
+      ]);
+      if (hRes.ok) { const j = await hRes.json(); setHeroes(j.heroes || []); }
+      if (nRes.ok) { const j = await nRes.json(); setNpcs(j.items || []); }
+      if (lRes.ok) { const j = await lRes.json(); setLocations(j.locations || []); }
+    } catch (e) { setError(e.message || 'Unable to load people data.'); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleNpcUpdate = (updated) => {
+    setNpcs(prev => prev.map(n => String(n.id) === String(updated.id) ? updated : n));
+  };
+
+  const handleNpcDelete = (id) => {
+    setNpcs(prev => prev.filter(n => String(n.id) !== String(id)));
+  };
+
+  const addNpc = async () => {
+    if (!isAdmin || !user) return;
+    setAdding(true);
+    try {
+      const res = await fetch(`${API}/entities/npcs/save`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ name: 'New NPC', type: 'Unknown', blurb: '', visible: true }),
+      });
+      if (!res.ok) throw new Error('Failed to create NPC');
+      const j = await res.json();
+      if (j.item) setNpcs(prev => [...prev, j.item]);
+      setNpcOpen(true);
+    } catch (e) { setError(e.message); }
+    finally { setAdding(false); }
+  };
+
+  const visibleNpcs = isAdmin && editMode ? npcs : npcs.filter(n => n.visible !== false);
+
+  return (
+    <div className="pp-page">
+      <div className="pp-page__bg" aria-hidden="true" />
+
+      <header className="pp-header">
+        <div>
+          <p className="pp-eyebrow">Azterra</p>
+          <h1 className="pp-title">People of the World</h1>
+          <p className="pp-subtitle">The heroes and notable figures shaping the realm.</p>
+        </div>
+        {canEdit && (
+          <button
+            className={`pp-edit-toggle ${editMode ? 'pp-edit-toggle--active' : ''}`}
+            onClick={() => setEditMode(v => !v)}
+          >
+            {editMode ? '✏️ Edit Mode On' : '✏️ Edit Mode'}
+          </button>
+        )}
+      </header>
+
+      {error && <p className="pp-error">{error}</p>}
+      {loading && <p className="pp-loading">Loading…</p>}
+
+      {/* ── The Party ─────────────────────────────────────── */}
+      {!loading && (
+        <section className="pp-section-wrap">
+          <SectionHeader
+            title="The Party"
+            count={heroes.length}
+            open={heroOpen}
+            onToggle={() => setHeroOpen(v => !v)}
+          />
+          {heroOpen && (
+            <div className="pp-cards">
+              {heroes.length === 0 && <p className="pp-empty-state">No heroes found.</p>}
+              {heroes.map(h => (
+                <HeroCard
+                  key={h.id}
+                  hero={h}
+                  isAdmin={isAdmin}
+                  isEditMode={editMode}
+                  locations={locations}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* ── Notable Figures ───────────────────────────────── */}
+      {!loading && (
+        <section className="pp-section-wrap">
+          <SectionHeader
+            title="Notable Figures"
+            count={visibleNpcs.length}
+            open={npcOpen}
+            onToggle={() => setNpcOpen(v => !v)}
+          >
+            {isAdmin && editMode && (
+              <button className="pp-btn pp-btn--add" disabled={adding} onClick={addNpc}>
+                {adding ? 'Adding…' : '+ Add NPC'}
+              </button>
+            )}
+          </SectionHeader>
+          {npcOpen && (
+            <div className="pp-cards">
+              {visibleNpcs.length === 0 && <p className="pp-empty-state">No notable figures found.</p>}
+              {visibleNpcs.map(n => (
+                <NpcCard
+                  key={n.id}
+                  npc={n}
+                  isAdmin={isAdmin}
+                  isEditMode={editMode}
+                  locations={locations}
+                  onUpdate={handleNpcUpdate}
+                  onDelete={handleNpcDelete}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+    </div>
   );
 }
 
