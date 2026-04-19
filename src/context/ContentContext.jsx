@@ -9,6 +9,7 @@ import React, {
 } from 'react';
 import { normalizeContentList } from '../constants/contentConstants';
 import fallbackContent from '../data/content.json';
+import { fetchWithRetry } from '../utils/fetchWithRetry';
 
 const ContentContext = createContext(null);
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -26,7 +27,7 @@ export function ContentProvider({ children }) {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch(`${API_BASE_URL}/content`, { credentials: 'include' });
+      const response = await fetchWithRetry(`${API_BASE_URL}/content`, { credentials: 'include' });
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.error || 'Failed to load content.');
@@ -53,7 +54,7 @@ export function ContentProvider({ children }) {
   useEffect(() => {
     const fetchPortraitConfig = async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/portraits/config`, { credentials: 'include' });
+        const res = await fetchWithRetry(`${API_BASE_URL}/portraits/config`, { credentials: 'include' });
         const data = await res.json();
         if (res.ok) {
           setPortraitConfig({ enabled: Boolean(data.enabled), checked: true });

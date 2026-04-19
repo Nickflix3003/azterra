@@ -29,6 +29,7 @@ import CampaignPage from './components/pages/CampaignPage';
 import MagicHubPage from './components/pages/MagicHubPage';
 import MagicSystemPage from './components/pages/MagicSystemPage';
 import LoadingScreenDemo from './components/pages/LoadingScreenDemo';
+import ServerWarmingBanner from './components/UI/ServerWarmingBanner';
 
 
 
@@ -40,6 +41,7 @@ function HashApp() {
           Skip to main content
         </a>
         <Header />
+        <ServerWarmingBanner />
         <main id="main-content" className="app-content" role="main">
           <Routes>
             {/* 1. Map (Default Home) */}

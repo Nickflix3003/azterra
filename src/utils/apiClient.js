@@ -12,6 +12,8 @@
  *   const result = await apiPost('/admin/updateRole', { userId, newRole });
  */
 
+import { fetchWithRetry } from './fetchWithRetry';
+
 const BASE = import.meta.env.VITE_API_BASE_URL || '/api';
 
 async function request(method, path, body) {
@@ -27,7 +29,7 @@ async function request(method, path, body) {
 
   let response;
   try {
-    response = await fetch(url, options);
+    response = await fetchWithRetry(url, options);
   } catch {
     throw new Error('Network error — check your connection and that the server is running.');
   }

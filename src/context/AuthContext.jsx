@@ -2,6 +2,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
 import { canView as baseCanView } from '../utils/permissions';
 import { supabase } from '../lib/supabaseClient';
+import { fetchWithRetry } from '../utils/fetchWithRetry';
 
 const AuthContext = createContext({
   user: null,
@@ -85,7 +86,7 @@ async function request({ path, method = 'GET', body, headers = {} }) {
   if (body !== undefined) {
     init.body = typeof body === 'string' ? body : JSON.stringify(body);
   }
-  const response = await fetch(`${API_BASE_URL}${path}`, init);
+  const response = await fetchWithRetry(`${API_BASE_URL}${path}`, init);
   const contentType = response.headers.get('content-type') || '';
   const data = contentType.includes('application/json') ? await response.json().catch(() => ({})) : {};
   if (!response.ok) {
