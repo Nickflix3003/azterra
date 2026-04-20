@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from 'react';
 import { canView as baseCanView } from '../utils/permissions';
-import { supabase } from '../lib/supabaseClient';
+import { getSupabaseRedirectUrl, supabase } from '../lib/supabaseClient';
 import { fetchWithRetry } from '../utils/fetchWithRetry';
 import { API_BASE_URL } from '../utils/apiBase';
 
@@ -131,8 +131,12 @@ export function AuthProvider({ children }) {
   }, []);
 
   const startOAuth = useCallback(({ provider } = {}) => {
-    const query = provider ? `?provider=${encodeURIComponent(provider)}` : '';
-    window.location.href = `${API_BASE_URL}/auth/login${query}`;
+    const params = new URLSearchParams();
+    if (provider) params.set('provider', provider);
+    const redirectTo = getSupabaseRedirectUrl();
+    if (redirectTo) params.set('redirect_to', redirectTo);
+    const query = params.toString();
+    window.location.href = `${API_BASE_URL}/auth/login${query ? `?${query}` : ''}`;
   }, []);
 
   const updateAccount = useCallback(async ({ username, profilePicture, profile }) => {
@@ -161,7 +165,11 @@ export function AuthProvider({ children }) {
       return request({
         path: '/auth/login/email',
         method: 'POST',
-        body: { email: trimmedEmail, username: username?.trim() },
+        body: {
+          email: trimmedEmail,
+          username: username?.trim(),
+          redirectTo: getSupabaseRedirectUrl(),
+        },
       });
     },
     []

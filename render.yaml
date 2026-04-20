@@ -30,6 +30,8 @@ services:
       # Optional FRONTEND_CALLBACK_URL: override if the callback URL differs from SITE_URL/auth/callback.
       # API_URL: Render service URL (e.g. https://azterra-api.onrender.com).
       # OAUTH_REDIRECT_URL (optional): only if you still use legacy GET /api/auth/callback in Supabase.
+      # The normal SPA flow must return to the frontend /auth/callback route, never the Render API host.
+      # Keep SITE_URL and FRONTEND_CALLBACK_URL on the frontend domain, and API_URL on the Render domain.
       - key: SITE_URL
         sync: false
       - key: API_URL

@@ -10,6 +10,7 @@ import {
   verifyToken,
 } from './utils.js';
 import { db, throwIfError } from './db.js';
+import { AuthRedirectError, resolveFrontendCallbackUrl } from './authRedirect.js';
 
 const router = Router();
 
@@ -63,11 +64,23 @@ function getSiteUrl() {
   return (process.env.SITE_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '') || '/';
 }
 
+function readRedirectOverride(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 /** Supabase `redirect_to` after OAuth — must match a URL allowed in Supabase Auth → Redirect URLs. */
-function getFrontendCallbackUrl() {
-  if (process.env.FRONTEND_CALLBACK_URL) return process.env.FRONTEND_CALLBACK_URL;
-  const site = getSiteUrl();
-  return site && site !== '/' ? `${site}/auth/callback` : 'http://localhost:5173/p15/auth/callback';
+function getFrontendCallbackUrl(requestRedirectTo) {
+  return resolveFrontendCallbackUrl({ requestRedirectTo }).url;
+}
+
+function handleInvalidRedirect(res, err, context) {
+  if (err instanceof AuthRedirectError) {
+    console.error(`[auth] rejected callback URL during ${context}:`, err.details?.value || '(missing)', err.message);
+    return res.status(400).json({ error: err.message });
+  }
+
+  console.error(`[auth] callback resolution failed during ${context}:`, err);
+  return res.status(500).json({ error: 'Unable to resolve auth redirect URL.' });
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -153,7 +166,12 @@ router.get('/login', (req, res) => {
   const supabaseUrl = process.env.SUPABASE_URL;
   if (!supabaseUrl) return res.status(500).json({ error: 'Supabase is not configured.' });
   const provider = String(req.query.provider || process.env.OAUTH_PROVIDER || 'google');
-  const redirectTo = getFrontendCallbackUrl();
+  let redirectTo;
+  try {
+    redirectTo = getFrontendCallbackUrl(readRedirectOverride(req.query.redirect_to));
+  } catch (err) {
+    return handleInvalidRedirect(res, err, 'GET /api/auth/login');
+  }
   const params = new URLSearchParams({ provider, redirect_to: redirectTo });
   return res.redirect(`${supabaseUrl}/auth/v1/authorize?${params.toString()}`);
 });
@@ -185,12 +203,18 @@ router.post('/login/email', async (req, res) => {
   const email = (req.body?.email || '').toLowerCase().trim();
   const desiredUsername = (req.body?.username || '').trim();
   if (!email) return res.status(400).json({ error: 'Email is required.' });
+  let redirectTo;
+  try {
+    redirectTo = getFrontendCallbackUrl(readRedirectOverride(req.body?.redirectTo));
+  } catch (err) {
+    return handleInvalidRedirect(res, err, 'POST /api/auth/login/email');
+  }
 
   const supabaseAnon = getSupabaseAnon();
   const { data, error } = await supabaseAnon.auth.signInWithOtp({
     email,
     options: {
-      emailRedirectTo: getFrontendCallbackUrl(),
+      emailRedirectTo: redirectTo,
       data: desiredUsername ? { username: desiredUsername } : undefined,
     },
   });

@@ -65,6 +65,12 @@ Create `.env` for the server:
 - `SUPABASE_JWT_SECRET=` (to verify Supabase access tokens)
 - `SUPABASE_URL=`, `SUPABASE_SERVICE_ROLE=` (for Supabase auth middleware on `/api/hello` and protected routes)
 
+Auth callback notes:
+- `VITE_SUPABASE_REDIRECT_URL` should point at the frontend callback route (`${origin}${BASE_URL}/auth/callback`), never the Render API URL or `/api/auth/callback`.
+- `SITE_URL=` or `FRONTEND_URL=` should point at the frontend origin so OAuth and magic-link auth derive `${SITE_URL}/auth/callback`.
+- `FRONTEND_CALLBACK_URL=` is an optional fallback-only override for the same frontend callback route.
+- `API_URL=` should point at the backend origin and is used to reject bad callback URLs that point back at the API host.
+
 ### Content import workflow
 1) Set source folders/patterns in `content-importer.config.json` (rootFolder, include/exclude globs, extensions).  
 2) Run `npm run import-content` to scan markdown, normalize entries, and write `server/data/content.json` + `content-diagnostics.json` with validation (missing IDs, invalid regions/map links, unreadable files).  
