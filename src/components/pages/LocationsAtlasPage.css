@@ -1400,6 +1400,31 @@
   border-top: 1px solid rgba(255,255,255,0.06);
 }
 
+.edit-status {
+  margin-right: auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.38rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(250, 204, 21, 0.22);
+  background:
+    linear-gradient(135deg, rgba(250, 204, 21, 0.12), rgba(148, 163, 184, 0.08)),
+    rgba(15, 23, 42, 0.72);
+  color: rgba(248, 250, 252, 0.86);
+  font-size: 0.67rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.edit-status--error {
+  border-color: rgba(248, 113, 113, 0.34);
+  background:
+    linear-gradient(135deg, rgba(127, 29, 29, 0.3), rgba(30, 41, 59, 0.14)),
+    rgba(15, 23, 42, 0.72);
+  color: #fecaca;
+}
+
 /* ── Tags ───────────────────────────────────────────────────────────────── */
 
 .atlas-loc-card__tag {

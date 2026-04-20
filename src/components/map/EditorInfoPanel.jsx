@@ -57,10 +57,13 @@ function EditorInfoPanel({
   isOpen,
   draft,
   onFieldChange,
+  onFieldBlur,
+  onFieldCommit,
   onSave,
   onCancel,
   canAutoSave = false,
   saveWarning = '',
+  saveState = null,
   canDelete = false,
   onDelete,
 }) {
@@ -78,11 +81,37 @@ function EditorInfoPanel({
   const handleInputChange = (field) => (event) => {
     onFieldChange(field, event.target.value);
   };
+  const handleFieldBlur = () => {
+    onFieldBlur?.();
+  };
+  const handleSingleLineKeyDown = (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      onFieldCommit?.();
+    }
+  };
+  const handleTextareaKeyDown = (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+      event.preventDefault();
+      onFieldCommit?.();
+    }
+  };
 
   // Era values (stored as numbers or undefined)
   const timeStart = draft.timeStart != null ? Number(draft.timeStart) : undefined;
   const timeEnd   = draft.timeEnd   != null ? Number(draft.timeEnd)   : undefined;
   const hasEra    = timeStart != null || timeEnd != null;
+  const saveStatusText = saveState?.error
+    ? `Retry save: ${saveState.error}`
+    : saveState?.saving
+      ? 'Saving…'
+      : saveState?.dirty
+        ? 'Unsaved changes'
+        : saveState?.lastSavedAt
+          ? Date.now() - saveState.lastSavedAt < 15000
+            ? 'Saved just now'
+            : 'Saved'
+          : '';
 
   return (
     <aside className="editor-info-panel" aria-label="Edit location">
@@ -107,6 +136,8 @@ function EditorInfoPanel({
             type="text"
             value={draft.name ?? ''}
             onChange={handleInputChange('name')}
+            onBlur={handleFieldBlur}
+            onKeyDown={handleSingleLineKeyDown}
             placeholder="Location name…"
           />
         </label>
@@ -117,6 +148,8 @@ function EditorInfoPanel({
             type="text"
             value={draft.type ?? ''}
             onChange={handleInputChange('type')}
+            onBlur={handleFieldBlur}
+            onKeyDown={handleSingleLineKeyDown}
             placeholder="e.g. City, Dungeon, Ruin…"
           />
         </label>
@@ -127,6 +160,7 @@ function EditorInfoPanel({
             className="editor-info-panel__select"
             value={draft.regionId != null ? String(draft.regionId) : ''}
             onChange={(e) => onFieldChange('regionId', e.target.value !== '' ? e.target.value : null)}
+            onBlur={handleFieldBlur}
           >
             <option value="">— No region —</option>
             {[...regions]
@@ -157,6 +191,8 @@ function EditorInfoPanel({
             rows={5}
             value={draft.lore ?? ''}
             onChange={handleInputChange('lore')}
+            onBlur={handleFieldBlur}
+            onKeyDown={handleTextareaKeyDown}
             placeholder="History, legends, world context…"
           />
         </label>
@@ -167,6 +203,8 @@ function EditorInfoPanel({
             rows={3}
             value={draft.description ?? ''}
             onChange={handleInputChange('description')}
+            onBlur={handleFieldBlur}
+            onKeyDown={handleTextareaKeyDown}
             placeholder="What does this place look like?"
           />
         </label>
@@ -208,6 +246,8 @@ function EditorInfoPanel({
                 max={1000}
                 value={timeStart ?? ''}
                 onChange={(e) => onFieldChange('timeStart', e.target.value === '' ? undefined : Number(e.target.value))}
+                onBlur={handleFieldBlur}
+                onKeyDown={handleSingleLineKeyDown}
                 placeholder="0"
               />
             </label>
@@ -220,6 +260,8 @@ function EditorInfoPanel({
                 max={1000}
                 value={timeEnd ?? ''}
                 onChange={(e) => onFieldChange('timeEnd', e.target.value === '' ? undefined : Number(e.target.value))}
+                onBlur={handleFieldBlur}
+                onKeyDown={handleSingleLineKeyDown}
                 placeholder="1000"
               />
             </label>
@@ -250,9 +292,15 @@ function EditorInfoPanel({
             disabled={!canAutoSave}
             title={!canAutoSave ? 'Editor access required to save' : undefined}
           >
-            Save
+            Save Now
           </button>
         </div>
+
+        {canAutoSave && saveStatusText && (
+          <p className={`editor-save-status ${saveState?.error ? 'editor-save-status--error' : ''}`}>
+            {saveStatusText}
+          </p>
+        )}
 
         {(!canAutoSave || saveWarning) && (
           <p className="editor-warning">

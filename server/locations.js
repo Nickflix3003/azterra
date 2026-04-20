@@ -48,8 +48,12 @@ router.use('/images', express.static(LOCATION_IMAGES_DIR));
 // ── DB helpers ────────────────────────────────────────────────────────────────
 
 function rowToLocation(row) {
+  const numericId =
+    typeof row.id === 'string' && /^-?\d+$/.test(row.id)
+      ? Number(row.id)
+      : row.id;
   return {
-    id: row.id,
+    id: numericId,
     name: row.name,
     type: row.type || '',
     iconKey: row.icon_key || '',
@@ -72,6 +76,22 @@ function rowToLocation(row) {
     createdBy: row.created_by || null,
     updatedBy: row.updated_by || null,
   };
+}
+
+async function getNextLocationId() {
+  const { data, error } = await db().from('locations').select('id');
+  throwIfError(error, 'locations next id fetch');
+  const maxId = (data || []).reduce((max, row) => {
+    const raw = row?.id;
+    const next =
+      typeof raw === 'number'
+        ? raw
+        : typeof raw === 'string' && /^-?\d+$/.test(raw)
+          ? Number(raw)
+          : null;
+    return next != null ? Math.max(max, next) : max;
+  }, 0);
+  return maxId + 1;
 }
 
 function locationToRow(loc) {
@@ -108,6 +128,26 @@ router.get('/', async function(_req, res) {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Unable to load locations.' });
+  }
+});
+
+// POST /api/locations
+router.post('/', authRequired, editorRequired, async function(req, res) {
+  try {
+    const actor = (req.user && (req.user.username || req.user.name)) || 'unknown';
+    const nextId = await getNextLocationId();
+    const row = locationToRow({
+      ...req.body,
+      id: nextId,
+      createdBy: actor,
+      updatedBy: actor,
+    });
+    const { data, error } = await db().from('locations').insert(row).select().single();
+    throwIfError(error, 'locations POST insert');
+    return res.status(201).json({ location: rowToLocation(data) });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Unable to create location.' });
   }
 });
 
@@ -171,6 +211,22 @@ router.patch('/:id', authRequired, editorRequired, async function(req, res) {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Unable to update location.' });
+  }
+});
+
+// DELETE /api/locations/:id
+router.delete('/:id', authRequired, editorRequired, async function(req, res) {
+  const { id } = req.params;
+  try {
+    const { data: existing, error: fetchErr } = await db().from('locations').select('id').eq('id', String(id)).single();
+    throwIfError(fetchErr, 'locations DELETE fetch');
+    if (!existing) return res.status(404).json({ error: 'Location not found.' });
+    const { error } = await db().from('locations').delete().eq('id', String(id));
+    throwIfError(error, 'locations DELETE');
+    return res.json({ success: true, id: typeof existing.id === 'string' && /^-?\d+$/.test(existing.id) ? Number(existing.id) : existing.id });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Unable to delete location.' });
   }
 });
 

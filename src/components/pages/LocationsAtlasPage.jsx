@@ -96,6 +96,19 @@ function groupByType(locations) {
   return Object.values(groups).sort((a, b) => b.items.length - a.items.length);
 }
 
+function buildLocationPatchFromDraft(draft) {
+  return {
+    name: draft.name,
+    description: draft.description,
+    lore: draft.lore,
+    type: draft.type,
+    regionId: draft.regionId || null,
+    tags: draft.tags
+      ? draft.tags.split(',').map((tag) => tag.trim()).filter(Boolean)
+      : [],
+  };
+}
+
 // =============================================================================
 // EmblemPicker
 // =============================================================================
@@ -255,7 +268,17 @@ function GalleryUploader({ locationId, onUploaded }) {
 // =============================================================================
 // LocationCard — collapsed row or full-width detail panel
 // =============================================================================
-function LocationCard({ location, regions, isEditMode, onSaveLocation, npcs, focusedLocationId }) {
+function LocationCard({
+  location,
+  regions,
+  isEditMode,
+  onLocationChange,
+  onCommitLocation,
+  onSyncLocation,
+  getLocationSaveState,
+  npcs,
+  focusedLocationId,
+}) {
   const cfg     = getTypeConfig(location.type);
   const iconSrc = locationIconSrc(location);
   const [imgErr, setImgErr]   = useState(false);
@@ -285,9 +308,8 @@ function LocationCard({ location, regions, isEditMode, onSaveLocation, npcs, foc
   }, [location.gallery]);
 
   // Edit draft
-  const [draft,   setDraft]   = useState(null);
-  const [saving,  setSaving]  = useState(false);
-  const [saveErr, setSaveErr] = useState('');
+  const [draft, setDraft] = useState(null);
+  const saveState = getLocationSaveState?.(location.id) || {};
 
   useEffect(() => {
     if (isEditMode) {
@@ -301,30 +323,23 @@ function LocationCard({ location, regions, isEditMode, onSaveLocation, npcs, foc
       });
     } else {
       setDraft(null);
-      setSaveErr('');
     }
-  }, [isEditMode, location]);
+  }, [isEditMode, location.id]);
 
-  const updateDraft = (key, val) => setDraft((d) => ({ ...d, [key]: val }));
+  const updateDraft = (key, val, options = {}) => {
+    setDraft((current) => {
+      const next = { ...current, [key]: val };
+      onLocationChange?.(location.id, buildLocationPatchFromDraft(next), options);
+      return next;
+    });
+  };
 
-  const handleSave = async () => {
-    if (!draft || !onSaveLocation) return;
-    setSaving(true);
-    setSaveErr('');
-    try {
-      const payload = {
-        ...draft,
-        regionId: draft.regionId || null,
-        tags: draft.tags
-          ? draft.tags.split(',').map((t) => t.trim()).filter(Boolean)
-          : [],
-      };
-      await onSaveLocation(location.id, payload);
-    } catch (err) {
-      setSaveErr(err.message || 'Save failed');
-    } finally {
-      setSaving(false);
-    }
+  const handleSave = () => {
+    if (!draft || !onCommitLocation) return;
+    onCommitLocation(location.id, {
+      successMode: 'immediate',
+      successMessage: `Saved "${draft.name || location.name}".`,
+    });
   };
 
   const handleRemoveGalleryImage = async (idx) => {
@@ -336,10 +351,41 @@ function LocationCard({ location, regions, isEditMode, onSaveLocation, npcs, foc
       if (!res.ok) throw new Error('Remove failed');
       const data = await res.json();
       setGallery(data.gallery);
+      onSyncLocation?.(location.id, { gallery: data.gallery });
     } catch (err) {
       console.error('Gallery remove failed:', err);
     }
   };
+
+  const handleFieldBlur = () => {
+    onCommitLocation?.(location.id, { successMode: 'none' });
+  };
+
+  const handleSingleLineKeyDown = (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      handleSave();
+    }
+  };
+
+  const handleTextareaKeyDown = (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+      event.preventDefault();
+      handleSave();
+    }
+  };
+
+  const saveStateText = saveState.error
+    ? `Retry save: ${saveState.error}`
+    : saveState.saving
+      ? 'Saving…'
+      : saveState.dirty
+        ? 'Unsaved changes'
+        : saveState.lastSavedAt
+          ? Date.now() - saveState.lastSavedAt < 15000
+            ? 'Saved just now'
+            : 'Saved'
+          : '';
 
   const locNpcs = useMemo(
     () => (npcs || []).filter((n) => String(n.locationId) === String(location.id)),
@@ -551,12 +597,18 @@ function LocationCard({ location, regions, isEditMode, onSaveLocation, npcs, foc
                     type="text"
                     value={draft.name}
                     onChange={(e) => updateDraft('name', e.target.value)}
+                    onBlur={handleFieldBlur}
+                    onKeyDown={handleSingleLineKeyDown}
                     placeholder="Location name\u2026"
                   />
                 </label>
                 <label className="edit-field">
                   <span>Type</span>
-                  <select value={draft.type} onChange={(e) => updateDraft('type', e.target.value)}>
+                  <select
+                    value={draft.type}
+                    onChange={(e) => updateDraft('type', e.target.value)}
+                    onBlur={handleFieldBlur}
+                  >
                     <option value="">-- Select type --</option>
                     {Object.entries(TYPE_CONFIG).map(([k, v]) => (
                       <option key={k} value={k}>{v.icon} {v.label}</option>
@@ -565,7 +617,11 @@ function LocationCard({ location, regions, isEditMode, onSaveLocation, npcs, foc
                 </label>
                 <label className="edit-field edit-field--full">
                   <span>Kingdom / Region</span>
-                  <select value={draft.regionId} onChange={(e) => updateDraft('regionId', e.target.value)}>
+                  <select
+                    value={draft.regionId}
+                    onChange={(e) => updateDraft('regionId', e.target.value)}
+                    onBlur={handleFieldBlur}
+                  >
                     <option value="">Uncharted (no region)</option>
                     {(regions || []).map((r) => (
                       <option key={r.id} value={String(r.id)}>
@@ -580,6 +636,8 @@ function LocationCard({ location, regions, isEditMode, onSaveLocation, npcs, foc
                     type="text"
                     value={draft.description}
                     onChange={(e) => updateDraft('description', e.target.value)}
+                    onBlur={handleFieldBlur}
+                    onKeyDown={handleSingleLineKeyDown}
                     placeholder="Brief description\u2026"
                   />
                 </label>
@@ -588,6 +646,8 @@ function LocationCard({ location, regions, isEditMode, onSaveLocation, npcs, foc
                   <textarea
                     value={draft.lore}
                     onChange={(e) => updateDraft('lore', e.target.value)}
+                    onBlur={handleFieldBlur}
+                    onKeyDown={handleTextareaKeyDown}
                     placeholder="History, secrets, legends\u2026"
                     rows={4}
                   />
@@ -598,6 +658,8 @@ function LocationCard({ location, regions, isEditMode, onSaveLocation, npcs, foc
                     type="text"
                     value={draft.tags}
                     onChange={(e) => updateDraft('tags', e.target.value)}
+                    onBlur={handleFieldBlur}
+                    onKeyDown={handleSingleLineKeyDown}
                     placeholder="e.g. safe, haunted, quest-hub"
                   />
                 </label>
@@ -620,20 +682,27 @@ function LocationCard({ location, regions, isEditMode, onSaveLocation, npcs, foc
                   ))}
                   <GalleryUploader
                     locationId={location.id}
-                    onUploaded={(newGallery) => setGallery(newGallery)}
+                    onUploaded={(newGallery) => {
+                      setGallery(newGallery);
+                      onSyncLocation?.(location.id, { gallery: newGallery });
+                    }}
                   />
                 </div>
               </div>
 
               <div className="loc-edit-actions">
-                {saveErr && <span className="edit-error">{saveErr}</span>}
+                {saveStateText && (
+                  <span className={`edit-status ${saveState.error ? 'edit-status--error' : ''}`}>
+                    {saveStateText}
+                  </span>
+                )}
                 <button
                   type="button"
                   className="edit-btn edit-btn--save"
                   onClick={handleSave}
-                  disabled={saving}
+                  disabled={saveState.saving}
                 >
-                  {saving ? 'Saving\u2026' : '\u2713 Save Location'}
+                  {saveState.saving ? 'Saving\u2026' : '\u2713 Save Location'}
                 </button>
               </div>
             </div>
@@ -685,7 +754,7 @@ function RegionBanner({
   region, locations, regions,
   isOpen, onToggle,
   onSelectRegion,
-  isEditMode, onSaveRegion, onSaveLocation,
+  isEditMode, onSaveRegion, onLocationChange, onCommitLocation, onSyncLocation, getLocationSaveState,
   npcs, focusedLocationId,
 }) {
   const bannerColor  = region.color       || '#334155';
@@ -907,7 +976,10 @@ function RegionBanner({
                       location={loc}
                       regions={regions}
                       isEditMode={isEditMode}
-                      onSaveLocation={onSaveLocation}
+                      onLocationChange={onLocationChange}
+                      onCommitLocation={onCommitLocation}
+                      onSyncLocation={onSyncLocation}
+                      getLocationSaveState={getLocationSaveState}
                       npcs={npcs}
                       focusedLocationId={focusedLocationId}
                     />
@@ -1131,7 +1203,13 @@ function LoreGraph({ regions, locations, onSelect }) {
 // =============================================================================
 export default function LocationsAtlasPage() {
   const { role }                       = useAuth();
-  const { locations, setLocations }    = useLocationData();
+  const {
+    locations,
+    updateLocation,
+    updateLocationLocal,
+    flushPendingLocationSaves,
+    getLocationSaveState,
+  } = useLocationData();
   const { regions = [], setRegions }   = useRegions();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -1225,22 +1303,21 @@ export default function LocationsAtlasPage() {
     );
   }, [setRegions]);
 
-  const handleSaveLocation = useCallback(async (id, updates) => {
-    const res = await fetch(`${API}/api/locations/${id}`, {
-      method: 'PATCH',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updates),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Save failed');
-    }
-    const { location: saved } = await res.json();
-    setLocations((prev) =>
-      prev.map((l) => String(l.id) === String(id) ? { ...l, ...saved } : l)
-    );
-  }, [setLocations]);
+  const handleLocationChange = useCallback((id, updates, options = {}) => {
+    updateLocation(id, updates, options);
+  }, [updateLocation]);
+
+  const handleCommitLocation = useCallback((id, options = {}) => {
+    return flushPendingLocationSaves([id], options);
+  }, [flushPendingLocationSaves]);
+
+  const handleSyncLocation = useCallback((id, updates) => {
+    updateLocationLocal(id, updates);
+  }, [updateLocationLocal]);
+
+  useEffect(() => () => {
+    flushPendingLocationSaves(undefined, { successMode: 'none' }).catch(() => null);
+  }, [flushPendingLocationSaves]);
 
   return (
     <div className="locations-atlas custom-scrollbar">
@@ -1336,7 +1413,10 @@ export default function LocationsAtlasPage() {
               onSelectRegion={handleSelect}
               isEditMode={isEditMode}
               onSaveRegion={handleSaveRegion}
-              onSaveLocation={handleSaveLocation}
+              onLocationChange={handleLocationChange}
+              onCommitLocation={handleCommitLocation}
+              onSyncLocation={handleSyncLocation}
+              getLocationSaveState={getLocationSaveState}
               npcs={npcs}
               focusedLocationId={focusedLocationId}
             />
@@ -1360,7 +1440,10 @@ export default function LocationsAtlasPage() {
               onSelectRegion={handleSelect}
               isEditMode={isEditMode}
               onSaveRegion={() => {}}
-              onSaveLocation={handleSaveLocation}
+              onLocationChange={handleLocationChange}
+              onCommitLocation={handleCommitLocation}
+              onSyncLocation={handleSyncLocation}
+              getLocationSaveState={getLocationSaveState}
               npcs={npcs}
               focusedLocationId={focusedLocationId}
             />

@@ -217,7 +217,18 @@ function InteractiveMap({
   const { toast } = useToast();
   const { cloudsEnabled, fogEnabled, vignetteEnabled, heatmapMode, intensities, setIntensity } =
     useMapEffects();
-  const { locations, setLocations, selectedLocationId, selectLocation } = useLocationData();
+  const {
+    locations,
+    setLocations,
+    selectedLocationId,
+    selectLocation,
+    createLocation,
+    updateLocation,
+    updateLocationLocal,
+    deleteLocation,
+    flushPendingLocationSaves,
+    getLocationSaveState,
+  } = useLocationData();
   const { regions, setRegions, selectedRegionId: activeRegionId, selectRegion } = useRegions();
   const {
     entries: contentEntries,
@@ -292,9 +303,9 @@ function InteractiveMap({
   const center  = MAP_CENTER;
   const zoom    = INTERACTIVE_MIN_ZOOM_LEVEL;
 
-  const serializedLocations = useMemo(() => JSON.stringify(locations), [locations]);
-  const serializedRegions   = useMemo(() => JSON.stringify(regions),   [regions]);
-  const canAutoSave = ['player', 'editor', 'admin'].includes(role);
+  const serializedLocations = lastSavedSnapshotRef.current;
+  const serializedRegions   = useMemo(() => JSON.stringify(regions), [regions]);
+  const canAutoSave         = ['player', 'editor', 'admin'].includes(role);
 
   const filteredLocations = useMemo(
     () =>
@@ -371,35 +382,6 @@ function InteractiveMap({
   );
 
   // ── Data fetching ────────────────────────────────────────────────────────────
-
-  useEffect(() => {
-    let isMounted = true;
-    const fetchLocations = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/locations`);
-        const data     = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Failed to load locations.');
-        const nextLocations = Array.isArray(data.locations)
-          ? normalizeLocations(data.locations)
-          : normalizeLocations(getFallbackLocations());
-        if (isMounted) {
-          setLocations(nextLocations);
-          lastSavedSnapshotRef.current    = JSON.stringify(nextLocations);
-          skipNextAutoSaveRef.current     = true;
-        }
-      } catch (error) {
-        console.error('Unable to load locations', error);
-        if (isMounted) {
-          const fallback = normalizeLocations(getFallbackLocations());
-          setLocations(fallback);
-          lastSavedSnapshotRef.current = JSON.stringify(fallback);
-          skipNextAutoSaveRef.current  = true;
-        }
-      }
-    };
-    fetchLocations();
-    return () => { isMounted = false; };
-  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -527,6 +509,9 @@ function InteractiveMap({
   // ── Location handlers ────────────────────────────────────────────────────────
 
   const handleLocationClick = (location) => {
+    if (editorSelection?.id && editorSelection.id !== location.id) {
+      flushPendingLocationSaves([editorSelection.id], { successMode: 'none' }).catch(() => null);
+    }
     selectLocation(location.id);
     if (isEditorMode) {
       setEditorSelection({
@@ -547,6 +532,9 @@ function InteractiveMap({
   };
 
   const handleClosePanel = () => {
+    if (editorSelection?.id) {
+      flushPendingLocationSaves([editorSelection.id], { successMode: 'none' }).catch(() => null);
+    }
     selectLocation(null);
     setEditorSelection(null);
   };
@@ -605,18 +593,18 @@ function InteractiveMap({
       if (isOverTrash) {
         // Snap marker back to its origin so it doesn't visually stay at the drop point.
         if (origin) {
-          setLocations((prev) => prev.map((loc) =>
-            loc.id === id ? { ...loc, lat: origin.lat, lng: origin.lng } : loc
-          ));
+          updateLocationLocal(id, { lat: origin.lat, lng: origin.lng });
         }
         const target = locations.find((loc) => loc.id === id);
         setPendingConfirm({
           title:   'Delete Marker',
           message: `Delete "${target?.name || 'this marker'}" from the map? This cannot be undone.`,
-          onConfirm: () => {
-            setLocations((prev) => prev.filter((loc) => loc.id !== id));
-            if (editorSelection?.id === id) setEditorSelection(null);
+          onConfirm: async () => {
             setPendingConfirm(null);
+            await deleteLocation(id, {
+              successMessage: `"${target?.name || 'Location'}" deleted.`,
+            }).catch(() => null);
+            if (editorSelection?.id === id) setEditorSelection(null);
           },
         });
         return;
@@ -624,12 +612,8 @@ function InteractiveMap({
     }
 
     // Normal reposition.
-    setLocations((prev) =>
-      prev.map((location) =>
-        location.id === id ? { ...location, lat: coords.lat, lng: coords.lng } : location
-      )
-    );
-  }, [locations, editorSelection]);
+    updateLocation(id, { lat: coords.lat, lng: coords.lng }, { mode: 'immediate', successMode: 'none' });
+  }, [deleteLocation, editorSelection, locations, updateLocation, updateLocationLocal]);
 
   // ── Region helpers ───────────────────────────────────────────────────────────
 
@@ -803,11 +787,12 @@ function InteractiveMap({
 
   const handleAssignLocationToRegion = () => {
     if (!selectedLocation || !activeRegionId) return;
-    setLocations((prev) =>
-      prev.map((location) =>
-        location.id === selectedLocation.id ? { ...location, regionId: activeRegionId } : location
-      )
-    );
+    setEditorSelection((prev) => (
+      prev && prev.id === selectedLocation.id
+        ? { ...prev, draft: { ...prev.draft, regionId: activeRegionId } }
+        : prev
+    ));
+    updateLocation(selectedLocation.id, { regionId: activeRegionId }, { mode: 'immediate', successMode: 'none' });
   };
 
   // ── Label handlers ───────────────────────────────────────────────────────────
@@ -902,74 +887,77 @@ function InteractiveMap({
     if (typeId) setSelectedPaletteItem(null);
   };
 
-  const handlePlaceMarker = (latlng) => {
+  const openEditorForLocation = useCallback((location) => {
+    selectLocation(location.id);
+    setEditorSelection({
+      id: location.id,
+      draft: {
+        name: location.name || '',
+        type: location.type || '',
+        lore: location.lore || '',
+        description: location.description || '',
+        pinned: location.pinned ?? false,
+        timeStart: location.timeStart,
+        timeEnd: location.timeEnd,
+        regionId: location.regionId ?? null,
+      },
+    });
+  }, [selectLocation]);
+
+  const handlePlaceMarker = async (latlng) => {
     const placementConfig = getPlacementConfig({
       paletteItem: selectedPaletteItem,
       activeTypeId: activePlacementTypeId,
     });
     if (!placementConfig) return;
     const typeConfig = getTypeConfig(placementConfig.typeId);
-    const nextId =
-      locations.reduce(
-        (maxId, location) => (typeof location.id === 'number' ? Math.max(maxId, location.id) : maxId),
-        0
-      ) + 1;
-    const newLocation = normalizeLocationEntry({
-      id:          nextId,
-      name:        placementConfig.label ? `New ${placementConfig.label}` : `New ${typeConfig.label}`,
-      type:        placementConfig.typeId,
-      iconKey:     placementConfig.iconKey,
-      description: '',
-      category:    typeConfig.label,
-      tags:        [],
-      regionId:    null,
-      lat:         latlng.lat,
-      lng:         latlng.lng,
-      createdBy:   user?.username || user?.name || 'unknown',
-      createdAt:   new Date().toISOString(),
-    });
-    setLocations((prev) => [...prev, newLocation]);
-    selectLocation(newLocation.id);
-    setEditorSelection({
-      id:    newLocation.id,
-      draft: { name: newLocation.name, type: newLocation.type, description: newLocation.description },
-    });
+    try {
+      const created = await createLocation({
+        name:        placementConfig.label ? `New ${placementConfig.label}` : `New ${typeConfig.label}`,
+        type:        placementConfig.typeId,
+        iconKey:     placementConfig.iconKey,
+        description: '',
+        category:    typeConfig.label,
+        tags:        [],
+        regionId:    null,
+        lat:         latlng.lat,
+        lng:         latlng.lng,
+      }, {
+        successMessage: `Placed "${placementConfig.label ? `New ${placementConfig.label}` : `New ${typeConfig.label}`}" on the map.`,
+      });
+      openEditorForLocation(created);
+    } catch {
+      // toast handled by shared location context
+    }
   };
 
   // ── Drag-from-palette-to-map ─────────────────────────────────────────────────
 
   // Direct placement used by palette drag-and-drop (item is known, not from state)
-  const placeMarkerWithItem = useCallback((latlng, item) => {
+  const placeMarkerWithItem = useCallback(async (latlng, item) => {
     if (!item) return;
     const placementConfig = getPlacementConfig({ paletteItem: item, activeTypeId: item.type });
     if (!placementConfig) return;
     const typeConfig = getTypeConfig(placementConfig.typeId);
-    const nextId =
-      locations.reduce(
-        (maxId, location) => (typeof location.id === 'number' ? Math.max(maxId, location.id) : maxId),
-        0
-      ) + 1;
-    const newLocation = normalizeLocationEntry({
-      id:          nextId,
-      name:        placementConfig.label ? `New ${placementConfig.label}` : `New ${typeConfig.label}`,
-      type:        placementConfig.typeId,
-      iconKey:     placementConfig.iconKey,
-      description: '',
-      category:    typeConfig.label,
-      tags:        [],
-      regionId:    null,
-      lat:         latlng.lat,
-      lng:         latlng.lng,
-      createdBy:   user?.username || user?.name || 'unknown',
-      createdAt:   new Date().toISOString(),
-    });
-    setLocations((prev) => [...prev, newLocation]);
-    selectLocation(newLocation.id);
-    setEditorSelection({
-      id:    newLocation.id,
-      draft: { name: newLocation.name, type: newLocation.type, description: newLocation.description, lore: '' },
-    });
-  }, [locations, selectLocation]);
+    try {
+      const created = await createLocation({
+        name:        placementConfig.label ? `New ${placementConfig.label}` : `New ${typeConfig.label}`,
+        type:        placementConfig.typeId,
+        iconKey:     placementConfig.iconKey,
+        description: '',
+        category:    typeConfig.label,
+        tags:        [],
+        regionId:    null,
+        lat:         latlng.lat,
+        lng:         latlng.lng,
+      }, {
+        successMessage: `Placed "${placementConfig.label ? `New ${placementConfig.label}` : `New ${typeConfig.label}`}" on the map.`,
+      });
+      openEditorForLocation(created);
+    } catch {
+      // toast handled by shared location context
+    }
+  }, [createLocation, openEditorForLocation]);
 
   const handleMapDragOver = useCallback((e) => {
     if (!isEditorMode) return;
@@ -1027,11 +1015,29 @@ function InteractiveMap({
       }));
       const normalized = normalizeLocations(parsedLocations);
       setLocations(normalized);
-      skipNextAutoSaveRef.current = true;
       selectLocation(null);
       setEditorSelection(null);
       setImportError('');
       setJsonBuffer(JSON.stringify(normalized, null, 2));
+      if (canAutoSave && user) {
+        fetch(`${API_BASE_URL}/locations/save`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ locations: normalized }),
+        })
+          .then(async (response) => {
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.error || 'Unable to import locations.');
+            setLocations(normalizeLocations(data.locations || []));
+            setSaveWarning('');
+            toast.success(`Imported ${normalized.length} locations.`);
+          })
+          .catch((error) => {
+            setSaveWarning(error.message || 'Unable to import locations.');
+            toast.error(error.message || 'Unable to import locations.');
+          });
+      }
     } catch (error) {
       setImportError(error.message || 'Unable to import JSON.');
     }
@@ -1101,14 +1107,19 @@ function InteractiveMap({
   useEffect(() => {
     if (isEditorMode) {
       selectLocation(null);
+      setSaveWarning('');
     } else {
+      if (editorSelection?.id) {
+        flushPendingLocationSaves([editorSelection.id], { successMode: 'none' }).catch(() => null);
+      }
       setEditorSelection(null);
       setActivePlacementTypeId(null);
       setIsRegionMode(false);
       setIsPlacingLabel(false);
       selectRegion(null);
+      setSaveWarning('');
     }
-  }, [isEditorMode, selectLocation, selectRegion]);
+  }, [editorSelection?.id, flushPendingLocationSaves, isEditorMode, selectLocation, selectRegion]);
 
   useEffect(() => {
     if (!isEditorMode) return;
@@ -1201,9 +1212,10 @@ function InteractiveMap({
 
   // Cleanup timeouts on unmount
   useEffect(() => () => {
-    if (saveTimeoutRef.current)       clearTimeout(saveTimeoutRef.current);
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     if (regionSaveTimeoutRef.current) clearTimeout(regionSaveTimeoutRef.current);
-  }, []);
+    flushPendingLocationSaves(undefined, { successMode: 'none' }).catch(() => null);
+  }, [flushPendingLocationSaves]);
 
   // ── Map interaction side-effects ─────────────────────────────────────────────
 
@@ -1329,14 +1341,28 @@ function InteractiveMap({
   const selectedLocation = locations.find((location) => location.id === selectedLocationId) || null;
   const selectedRegion   = regions.find((region) => region.id === activeRegionId)           || null;
 
-  const handleEditorFieldChange = (field, value) => {
+  const handleEditorFieldChange = useCallback((field, value) => {
+    if (!editorSelection) return;
+
+    const nextValue = value === undefined ? null : value;
     setEditorSelection((prev) => {
       if (!prev) return prev;
-      return { ...prev, draft: { ...prev.draft, [field]: value } };
+      return { ...prev, draft: { ...prev.draft, [field]: nextValue } };
     });
-  };
 
-  const handleEditorSave = () => {
+    if (!canAutoSave) {
+      setSaveWarning('Only approved editors can save changes to the shared map.');
+      return;
+    }
+
+    setSaveWarning('');
+    const mode = field === 'pinned' || field === 'regionId' ? 'immediate' : 'debounced';
+    updateLocation(editorSelection.id, { [field]: nextValue }, { mode, successMode: 'none' }).catch((error) => {
+      setSaveWarning(error.message || 'Unable to save location.');
+    });
+  }, [canAutoSave, editorSelection, updateLocation]);
+
+  const legacyHandleEditorSave = () => {
     if (!editorSelection) return;
 
     // Build the updated locations array immediately so we can both update
@@ -1368,9 +1394,9 @@ function InteractiveMap({
     }
   };
 
-  const handleEditorCancel = () => setEditorSelection(null);
+  const legacyHandleEditorCancel = () => setEditorSelection(null);
 
-  const handleDeleteLocation = () => {
+  const legacyHandleDeleteLocation = () => {
     if (!editorSelection) return;
     if (!canAutoSave) {
       setSaveWarning('Only approved editors can save changes to the shared map.');
@@ -1398,6 +1424,68 @@ function InteractiveMap({
   };
 
   // ── Rendered slot components ─────────────────────────────────────────────────
+
+  const handleEditorCommit = useCallback(() => {
+    if (!editorSelection?.id || !canAutoSave) {
+      if (!canAutoSave) {
+        setSaveWarning('Only approved editors can save changes to the shared map.');
+      }
+      return Promise.resolve();
+    }
+
+    setSaveWarning('');
+    const name = editorSelection.draft?.name || selectedLocation?.name || 'Location';
+    return flushPendingLocationSaves([editorSelection.id], {
+      successMode: 'immediate',
+      successMessage: `Saved "${name}".`,
+    }).catch((error) => {
+      setSaveWarning(error.message || 'Unable to save location.');
+      return null;
+    });
+  }, [canAutoSave, editorSelection, flushPendingLocationSaves, selectedLocation?.name]);
+
+  const handleEditorBlur = useCallback(() => {
+    if (!editorSelection?.id || !canAutoSave) return;
+    flushPendingLocationSaves([editorSelection.id], { successMode: 'none' }).catch((error) => {
+      setSaveWarning(error.message || 'Unable to save location.');
+    });
+  }, [canAutoSave, editorSelection?.id, flushPendingLocationSaves]);
+
+  const handleEditorSave = useCallback(() => {
+    handleEditorCommit();
+  }, [handleEditorCommit]);
+
+  const handleEditorCancel = useCallback(() => {
+    if (editorSelection?.id && canAutoSave) {
+      flushPendingLocationSaves([editorSelection.id], { successMode: 'none' }).catch(() => null);
+    }
+    setEditorSelection(null);
+    selectLocation(null);
+  }, [canAutoSave, editorSelection?.id, flushPendingLocationSaves, selectLocation]);
+
+  const handleDeleteLocation = useCallback(() => {
+    if (!editorSelection) return;
+    if (!canAutoSave) {
+      setSaveWarning('Only approved editors can save changes to the shared map.');
+      return;
+    }
+
+    const target = locations.find((loc) => loc.id === editorSelection.id);
+    setPendingConfirm({
+      title: 'Delete Location',
+      message: `Delete "${target?.name || 'this location'}" from the map? This cannot be undone.`,
+      onConfirm: async () => {
+        await deleteLocation(editorSelection.id, {
+          successMessage: `"${target?.name || 'Location'}" deleted.`,
+        }).catch((error) => {
+          setSaveWarning(error.message || 'Unable to delete location.');
+        });
+        setEditorSelection(null);
+        if (selectedLocationId === editorSelection.id) selectLocation(null);
+        setPendingConfirm(null);
+      },
+    });
+  }, [canAutoSave, deleteLocation, editorSelection, locations, selectLocation, selectedLocationId]);
 
   const editorDraft = editorSelection?.draft ?? null;
 
@@ -1435,10 +1523,13 @@ function InteractiveMap({
       isOpen
       draft={editorDraft}
       onFieldChange={handleEditorFieldChange}
+      onFieldBlur={handleEditorBlur}
+      onFieldCommit={handleEditorCommit}
       onSave={handleEditorSave}
       onCancel={handleEditorCancel}
       canAutoSave={canAutoSave}
       saveWarning={saveWarning}
+      saveState={getLocationSaveState(editorSelection.id)}
       canDelete={canAutoSave}
       onDelete={handleDeleteLocation}
     />

@@ -464,6 +464,28 @@ html, body, #root {
   gap: 0.5rem;
 }
 
+.editor-save-status {
+  margin: -0.1rem 0 0;
+  padding: 0.55rem 0.8rem;
+  border-radius: 10px;
+  border: 1px solid rgba(250, 204, 21, 0.22);
+  background:
+    linear-gradient(135deg, rgba(250, 204, 21, 0.14), rgba(148, 163, 184, 0.08)),
+    rgba(15, 23, 42, 0.72);
+  color: rgba(248, 250, 252, 0.88);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.editor-save-status--error {
+  border-color: rgba(248, 113, 113, 0.34);
+  background:
+    linear-gradient(135deg, rgba(127, 29, 29, 0.28), rgba(30, 41, 59, 0.12)),
+    rgba(15, 23, 42, 0.72);
+  color: #fecaca;
+}
+
 .panel-button {
   padding: 0.55rem 1.1rem;
   border-radius: 8px;
