@@ -17,10 +17,38 @@ export const supabase = supabaseUrl && supabaseAnonKey
     })
   : null;
 
+function isSafeFrontendRedirectUrl(rawValue) {
+  if (!rawValue) return false;
+
+  let url;
+  try {
+    url = new URL(rawValue);
+  } catch {
+    return false;
+  }
+
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    return false;
+  }
+
+  if (url.pathname.startsWith('/api/')) {
+    return false;
+  }
+
+  return true;
+}
+
 /** Frontend OAuth return path; matches server `getFrontendCallbackUrl` when unset. */
 export function getSupabaseRedirectUrl() {
-  if (import.meta.env.VITE_SUPABASE_REDIRECT_URL) {
-    return import.meta.env.VITE_SUPABASE_REDIRECT_URL;
+  const configuredRedirectUrl = import.meta.env.VITE_SUPABASE_REDIRECT_URL;
+  if (configuredRedirectUrl) {
+    if (isSafeFrontendRedirectUrl(configuredRedirectUrl)) {
+      return configuredRedirectUrl;
+    }
+
+    console.warn(
+      'Ignoring VITE_SUPABASE_REDIRECT_URL because it points at an invalid auth callback. Falling back to the frontend /auth/callback route.'
+    );
   }
   if (typeof window === 'undefined') return '';
   const origin = window.location.origin.replace(/\/$/, '');
