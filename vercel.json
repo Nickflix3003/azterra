@@ -3,6 +3,10 @@
     {
       "source": "/api/:path*",
       "destination": "https://azterra-api.onrender.com/api/:path*"
+    },
+    {
+      "source": "/auth/callback",
+      "destination": "/"
     }
   ],
   "headers": [
