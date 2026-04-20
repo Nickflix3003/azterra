@@ -13,11 +13,10 @@
  */
 
 import { fetchWithRetry } from './fetchWithRetry';
-
-const BASE = '/api';
+import { API_BASE_URL } from './apiBase';
 
 async function request(method, path, body) {
-  const url = `${BASE}${path}`;
+  const url = `${API_BASE_URL}${path}`;
   const options = {
     method,
     credentials: 'include',

@@ -3,6 +3,7 @@ import React, { createContext, useContext, useEffect, useMemo, useState, useCall
 import { canView as baseCanView } from '../utils/permissions';
 import { supabase } from '../lib/supabaseClient';
 import { fetchWithRetry } from '../utils/fetchWithRetry';
+import { API_BASE_URL } from '../utils/apiBase';
 
 const AuthContext = createContext({
   user: null,
@@ -26,7 +27,6 @@ const AuthContext = createContext({
   canView: () => false,
 });
 
-const API_BASE_URL = '/api';
 const PENDING_USERNAME_KEY = 'azterra:pending-username';
 
 const GUEST_USER = {
@@ -205,12 +205,12 @@ export function AuthProvider({ children }) {
     setLoading(false);
   };
 
-  const refreshUser = async () => {
+  const refreshUser = useCallback(async () => {
     const data = await request({ path: '/auth/me' });
     setUser(normalizeUser(data.user));
     setToken('session-cookie');
     return data.user;
-  };
+  }, []);
 
   useEffect(() => {
     if (!normalizedUser || !normalizedUser.id) return;
@@ -276,6 +276,7 @@ export function AuthProvider({ children }) {
       loginWithGoogle,
       signupWithGoogle,
       signupWithEmail,
+      refreshUser,
     ]
   );
 

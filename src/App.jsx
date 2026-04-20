@@ -31,7 +31,22 @@ import MagicSystemPage from './components/pages/MagicSystemPage';
 import LoadingScreenDemo from './components/pages/LoadingScreenDemo';
 import ServerWarmingBanner from './components/UI/ServerWarmingBanner';
 
+/** Normalize pathname for comparison (no trailing slash except root). */
+function normalizePathname(pathname) {
+  if (!pathname || pathname === '/') return '/';
+  return pathname.replace(/\/+$/, '') || '/';
+}
 
+/**
+ * True when the browser hit the OAuth return URL on the real path (not hash).
+ * Tolerates trailing slashes and Vite `base` (e.g. /p15).
+ */
+function isAuthCallbackPath(pathname, baseUrl) {
+  const rawBase = (baseUrl || '/').replace(/\/$/, '');
+  const base = rawBase === '/' ? '' : rawBase;
+  const expected = normalizePathname(`${base}/auth/callback`);
+  return normalizePathname(pathname) === expected;
+}
 
 function HashApp() {
   return (
@@ -125,13 +140,14 @@ function HashApp() {
 }
 
 function App() {
-  const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+  const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '') || '/';
+  const basenameForRouter = base === '/' ? '/' : base;
   const isAuthCallback =
-    typeof window !== 'undefined' && window.location.pathname === `${base}/auth/callback`;
+    typeof window !== 'undefined' && isAuthCallbackPath(window.location.pathname, import.meta.env.BASE_URL);
 
   if (isAuthCallback) {
     return (
-      <BrowserRouter basename={base || '/'}>
+      <BrowserRouter basename={basenameForRouter}>
         <Routes>
           <Route path="/auth/callback" element={<AuthCallback />} />
         </Routes>

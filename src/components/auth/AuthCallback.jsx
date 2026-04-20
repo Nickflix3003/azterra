@@ -2,8 +2,29 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabaseClient';
 import { fetchWithRetry } from '../../utils/fetchWithRetry';
+import { API_BASE_URL } from '../../utils/apiBase';
 
-const API_BASE_URL = '/api';
+/** Full URL to the SPA entry after login (same origin + Vite base, e.g. / or /p15/). */
+function getPostLoginLocationHref() {
+  const base = import.meta.env.BASE_URL || '/';
+  return new URL(base, window.location.origin).href;
+}
+
+async function refreshUserWithRetry(refreshUser, { attempts = 4, delayMs = 350 } = {}) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      await refreshUser();
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (i < attempts - 1) {
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
+    }
+  }
+  throw lastErr;
+}
 
 // This page receives the OAuth redirect from Supabase (via the frontend
 // redirect_to URL). Supabase resolves the PKCE/implicit flow in the browser
@@ -29,8 +50,7 @@ function AuthCallback() {
 
       try {
         setStatus('Verifying with server…');
-        // Use absolute URL so the session cookie is set on the API domain
-        // (azterra-api.onrender.com), not on the Vercel proxy domain.
+        // Same-origin `/api` so Set-Cookie applies to the page host (Vercel → proxy → Render).
         const res = await fetchWithRetry(`${API_BASE_URL}/auth/session`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -44,8 +64,8 @@ function AuthCallback() {
         }
 
         setStatus('Signing you in…');
-        await refreshUser();
-        window.location.replace('/');
+        await refreshUserWithRetry(refreshUser);
+        window.location.replace(getPostLoginLocationHref());
       } catch (err) {
         console.error('AuthCallback error:', err);
         setError(err.message || 'Login failed. Please try again.');
@@ -72,14 +92,14 @@ function AuthCallback() {
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [refreshUser]);
 
   if (error) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', fontFamily: 'sans-serif', padding: '2rem', textAlign: 'center' }}>
         <h2 style={{ color: '#e53e3e', marginBottom: '1rem' }}>Login Failed</h2>
         <p style={{ color: '#718096', maxWidth: '400px' }}>{error}</p>
-        <a href="/" style={{ marginTop: '1.5rem', color: '#667eea', textDecoration: 'underline' }}>← Back to Azterra</a>
+        <a href={import.meta.env.BASE_URL || '/'} style={{ marginTop: '1.5rem', color: '#667eea', textDecoration: 'underline' }}>← Back to Azterra</a>
       </div>
     );
   }

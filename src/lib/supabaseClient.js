@@ -17,6 +17,7 @@ export const supabase = supabaseUrl && supabaseAnonKey
     })
   : null;
 
+/** Frontend OAuth return path; matches server `getFrontendCallbackUrl` when unset. */
 export function getSupabaseRedirectUrl() {
   if (import.meta.env.VITE_SUPABASE_REDIRECT_URL) {
     return import.meta.env.VITE_SUPABASE_REDIRECT_URL;

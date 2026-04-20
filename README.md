@@ -13,7 +13,7 @@ Interactive campaign OS for Dungeon Masters: a Leaflet-powered world map, atlas,
 ## How it works (frontend)
 - Built with Vite + React + React Router (HashRouter by default; BrowserRouter only for the auth callback).
 - Leaflet map (`src/components/map/InteractiveMap.jsx`) uses layered effects, marker palette, filters, and region hover cards. Tiles live in `docs/tiles` so the built site can run from static hosting under `base: '/p15/'`.
-- Contexts coordinate data + effects (`src/context/*`): auth, content, map effects, regions, and locations. API calls go to `VITE_API_BASE_URL` with graceful fallbacks to `src/data/*.json` when the backend is down.
+- Contexts coordinate data + effects (`src/context/*`): auth, content, map effects, regions, and locations. API calls use same-origin `/api` (Vite dev proxy or Vercel rewrite to Render). Optional `VITE_API_BASE_URL` in local `.env.local` can target a different API during development.
 - Feature surfaces: Map, Atlas (viewer + editor), Compendium (almanac/societies/cosmos/heroes), Campaign, Players + public profiles, Secrets pages, Admin dashboard, and detail routes for regions/locations.
 
 ## Project layout
@@ -53,9 +53,9 @@ npm run preview  # optional check
 Use `.env.example` as a template for both client + server settings.
 
 Create `.env.local` for the client (Vite):
-- `VITE_API_BASE_URL=http://localhost:4000/api`
+- `VITE_API_BASE_URL=http://localhost:4000/api` (optional if you use the Vite `/api` proxy)
 - `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (enable Supabase auth)
-- `VITE_SUPABASE_REDIRECT_URL` (defaults to `${origin}/p15/auth/callback`)
+- `VITE_SUPABASE_REDIRECT_URL` (optional; defaults to `${origin}${BASE_URL}/auth/callback` — use the **frontend** callback, not the Render API URL)
 
 Create `.env` for the server:
 - `PORT=4000`

@@ -63,15 +63,11 @@ function getSiteUrl() {
   return (process.env.SITE_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '') || '/';
 }
 
+/** Supabase `redirect_to` after OAuth — must match a URL allowed in Supabase Auth → Redirect URLs. */
 function getFrontendCallbackUrl() {
   if (process.env.FRONTEND_CALLBACK_URL) return process.env.FRONTEND_CALLBACK_URL;
   const site = getSiteUrl();
   return site && site !== '/' ? `${site}/auth/callback` : 'http://localhost:5173/p15/auth/callback';
-}
-
-function getOAuthRedirectUrl() {
-  const apiUrl = (process.env.API_URL || '').replace(/\/$/, '');
-  return process.env.OAUTH_REDIRECT_URL || (apiUrl ? `${apiUrl}/api/auth/callback` : '/api/auth/callback');
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -226,7 +222,9 @@ router.post('/login/password', async (req, res) => {
   return res.json({ user: sanitizeUser(user) });
 });
 
-// GET /api/auth/callback — OAuth code exchange
+// GET /api/auth/callback — legacy OAuth code exchange (server sets cookie + redirects).
+// Canonical production flow: Supabase redirects to the **frontend** `SITE_URL/auth/callback`,
+// then the SPA calls POST /api/auth/session with the access_token.
 router.get('/callback', async (req, res) => {
   if (!requireSupabase(res)) return;
   const code = req.query.code;

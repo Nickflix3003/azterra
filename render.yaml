@@ -25,12 +25,16 @@ services:
       - key: SESSION_COOKIE_NAME
         value: token
       # ── URLs ─────────────────────────────────────────────────
-      # Set SITE_URL to your Vercel frontend URL after deploying there
-      # Set API_URL to your Render service URL (e.g. https://azterra-api.onrender.com)
-      # Set OAUTH_REDIRECT_URL to https://azterra-api.onrender.com/api/auth/callback
+      # SITE_URL: Vercel frontend origin (e.g. https://your-app.vercel.app). Used for OAuth
+      #   redirect_to → {SITE_URL}/auth/callback and magic-link emailRedirectTo.
+      # Optional FRONTEND_CALLBACK_URL: override if the callback URL differs from SITE_URL/auth/callback.
+      # API_URL: Render service URL (e.g. https://azterra-api.onrender.com).
+      # OAUTH_REDIRECT_URL (optional): only if you still use legacy GET /api/auth/callback in Supabase.
       - key: SITE_URL
         sync: false
       - key: API_URL
+        sync: false
+      - key: FRONTEND_CALLBACK_URL
         sync: false
       - key: OAUTH_REDIRECT_URL
         sync: false
