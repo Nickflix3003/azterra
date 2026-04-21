@@ -91,6 +91,7 @@ function RegionLayer({
   regions = [],
   draftPoints = [],
   selectedRegionId = null,
+  highlightedRegionId = null,
   onRegionClick,
   onRegionHoverChange,
   interactionEnabled = false,
@@ -144,9 +145,12 @@ function RegionLayer({
               positions={positions}
               pathOptions={{
                 color: region.borderColor || '#ea580c',
-                weight: region.id === selectedRegionId ? 4 : 2,
+                weight: region.id === selectedRegionId ? 4 : region.id === highlightedRegionId ? 3.5 : 2,
                 fillColor: region.color || '#f97316',
-                fillOpacity: region.opacity ?? 0.3,
+                fillOpacity: region.id === highlightedRegionId
+                  ? Math.max(region.opacity ?? 0.3, 0.45)
+                  : region.opacity ?? 0.3,
+                className: region.id === highlightedRegionId ? 'region-polygon--timeline-hovered' : '',
                 pane: 'overlayPane',
               }}
               interactive={interactionEnabled}
@@ -203,7 +207,10 @@ function RegionLayer({
               key={`label-${label.id}`}
               position={label.centroid}
               icon={L.divIcon({
-                className: 'region-label-icon',
+                className: [
+                  'region-label-icon',
+                  region.id === highlightedRegionId ? 'region-label-icon--highlighted' : '',
+                ].join(' '),
                 html: labelMarkup.html,
                 iconSize: [labelMarkup.width, labelMarkup.height],
                 iconAnchor: [

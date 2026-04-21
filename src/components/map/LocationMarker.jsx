@@ -38,6 +38,7 @@ export default function LocationMarker({
   onLocationClick,
   onHoverChange,
   isSelected,
+  isTimelineHovered = false,
   isEditorMode,
   onDragEnd,
   onDragStart,
@@ -178,10 +179,11 @@ export default function LocationMarker({
           'custom-marker',
           `custom-marker--${location.type}`,
           isSelected  ? 'custom-marker--selected' : '',
+          isTimelineHovered ? 'custom-marker--timeline-hovered' : '',
           isPinned    ? 'custom-marker--pinned'   : '',
         ].join(' '),
         html: `
-          <div class="custom-marker__wrapper ${isHovered ? 'is-hovered' : ''}">
+          <div class="custom-marker__wrapper ${isHovered || isTimelineHovered ? 'is-hovered' : ''}">
             <img
               src="${iconSrc}"
               alt="${safeName}"

@@ -224,6 +224,10 @@ html, body, #root {
   box-shadow: 0 0 12px rgba(255, 215, 0, 0.5);
 }
 
+.custom-marker--timeline-hovered .custom-marker__wrapper {
+  box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.55), 0 0 24px rgba(250, 204, 21, 0.35);
+}
+
 .custom-marker__image {
   display: block;
   filter: drop-shadow(0 0 8px rgba(0, 0, 0, 0.45));
@@ -1480,6 +1484,14 @@ html, body, #root {
 .region-label-icon {
   pointer-events: none;
   mix-blend-mode: screen;
+}
+
+.region-label-icon--highlighted {
+  filter: drop-shadow(0 0 14px rgba(250, 204, 21, 0.55));
+}
+
+.region-polygon--timeline-hovered {
+  filter: drop-shadow(0 0 12px rgba(250, 204, 21, 0.35));
 }
 
 .region-label-svg {

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './Timeline.css';
 import { isVisibleInYear, toOptionalYear } from '../../utils/eraUtils';
 import { useLocationData } from '../../context/LocationDataContext';
@@ -6,7 +6,9 @@ import { useRegions } from '../../context/RegionDataContext';
 import { useTimelineData } from '../../context/TimelineDataContext';
 
 const MIN_ZOOM_SPAN = 20;
-const LANE_ROW_HEIGHT_REM = 2.55;
+const COMPACT_ERA_ROW_HEIGHT_REM = 0.86;
+const COMPACT_TRACK_ROW_HEIGHT_REM = 0.64;
+const EDITOR_ROW_HEIGHT_REM = 2.7;
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -30,6 +32,11 @@ function formatRange(startYear, endYear) {
 function getPercent(year, minYear, maxYear) {
   const safeYear = clamp(year, minYear, maxYear);
   return ((safeYear - minYear) / Math.max(1, maxYear - minYear)) * 100;
+}
+
+function getHoverKey(entity) {
+  if (!entity?.type || entity?.id == null) return '';
+  return `${entity.type}:${entity.id}`;
 }
 
 function getCurrentEra(eras, currentYear) {
@@ -89,11 +96,13 @@ function buildTrackEntities(locations, regions, minYear, maxYear) {
       return {
         key: `location:${location.id}`,
         id: location.id,
-        entityType: 'location',
-        label: location.name || 'Unnamed location',
-        subtitle: location.type || 'Location',
+        type: 'location',
+        name: location.name || 'Unnamed location',
         color: '#facc15',
-        ...interval,
+        timeStart: interval.start,
+        timeEnd: interval.end,
+        start: interval.start,
+        end: interval.end,
       };
     });
 
@@ -104,36 +113,44 @@ function buildTrackEntities(locations, regions, minYear, maxYear) {
       return {
         key: `region:${region.id}`,
         id: region.id,
-        entityType: 'region',
-        label: region.name || 'Unnamed region',
-        subtitle: region.category || 'Region',
+        type: 'region',
+        name: region.name || 'Unnamed region',
         color: region.color || '#fb923c',
-        ...interval,
+        timeStart: interval.start,
+        timeEnd: interval.end,
+        start: interval.start,
+        end: interval.end,
       };
     });
 
   return [...locationTracks, ...regionTracks].sort((left, right) => {
     if (left.start !== right.start) return left.start - right.start;
     if (left.end !== right.end) return left.end - right.end;
-    return left.label.localeCompare(right.label);
+    return left.name.localeCompare(right.name);
   });
 }
 
 function buildEraBands(eras, minYear, maxYear) {
-  return eras.map((era) => {
-    const interval = normalizeInterval(era.startYear, era.endYear, minYear, maxYear);
-    return {
-      key: `era:${era.id}`,
-      id: era.id,
-      label: era.label || 'Era',
-      color: era.color || '#7c3aed',
-      ...interval,
-    };
-  }).sort((left, right) => {
-    if (left.start !== right.start) return left.start - right.start;
-    if (left.end !== right.end) return left.end - right.end;
-    return left.label.localeCompare(right.label);
-  });
+  return eras
+    .map((era) => {
+      const interval = normalizeInterval(era.startYear, era.endYear, minYear, maxYear);
+      return {
+        key: `era:${era.id}`,
+        id: era.id,
+        type: 'era',
+        name: era.label || 'Era',
+        color: era.color || '#7c3aed',
+        startYear: interval.start,
+        endYear: interval.end,
+        start: interval.start,
+        end: interval.end,
+      };
+    })
+    .sort((left, right) => {
+      if (left.start !== right.start) return left.start - right.start;
+      if (left.end !== right.end) return left.end - right.end;
+      return left.name.localeCompare(right.name);
+    });
 }
 
 function packIntoLanes(items, viewStart, viewEnd) {
@@ -203,6 +220,11 @@ function getBarPosition(start, end, viewStart, viewEnd) {
   };
 }
 
+function getYearFromClientX(clientX, rect, minYear, maxYear) {
+  const percent = clamp((clientX - rect.left) / Math.max(rect.width, 1), 0, 1);
+  return clamp(Math.round(minYear + percent * (maxYear - minYear)), minYear, maxYear);
+}
+
 export default function Timeline({
   currentYear,
   onYearChange,
@@ -211,6 +233,7 @@ export default function Timeline({
   isEditorMode = false,
   canManageEras = false,
   hoveredEntity = null,
+  onHoverEntityChange,
   minYear = -50,
   maxYear = 1000,
 }) {
@@ -227,7 +250,11 @@ export default function Timeline({
 
   const [isExpanded, setIsExpanded] = useState(false);
   const [viewWindow, setViewWindow] = useState({ start: minYear, end: maxYear });
+  const [localHoveredItem, setLocalHoveredItem] = useState(null);
+
   const sliderShellRef = useRef(null);
+  const editorAxisRef = useRef(null);
+  const dragStateRef = useRef(null);
 
   useEffect(() => {
     setViewWindow({ start: minYear, end: maxYear });
@@ -247,6 +274,13 @@ export default function Timeline({
       onYearChange(visibleEnd);
     }
   }, [currentYear, onYearChange, visibleEnd, visibleStart]);
+
+  useEffect(() => {
+    if (!isExpanded && localHoveredItem) {
+      setLocalHoveredItem(null);
+      onHoverEntityChange?.(null);
+    }
+  }, [isExpanded, localHoveredItem, onHoverEntityChange]);
 
   const visibleLocationCount = timelineActive
     ? locations.filter((location) => isVisibleInYear(location, currentYear, true, isEditorMode)).length
@@ -271,14 +305,19 @@ export default function Timeline({
     [eras, maxYear, minYear]
   );
 
-  const packedTracks = useMemo(
+  const packedCompactTracks = useMemo(
     () => packIntoLanes(trackEntities, visibleStart, visibleEnd),
     [trackEntities, visibleEnd, visibleStart]
   );
 
-  const packedEras = useMemo(
+  const packedCompactEras = useMemo(
     () => packIntoLanes(eraBands, visibleStart, visibleEnd),
     [eraBands, visibleEnd, visibleStart]
+  );
+
+  const packedEditorEras = useMemo(
+    () => packIntoLanes(eraBands, minYear, maxYear),
+    [eraBands, maxYear, minYear]
   );
 
   const tickValues = useMemo(
@@ -286,13 +325,30 @@ export default function Timeline({
     [visibleEnd, visibleStart]
   );
 
-  const hoveredKey = hoveredEntity?.type && hoveredEntity?.id != null
-    ? `${hoveredEntity.type}:${hoveredEntity.id}`
-    : '';
+  const editorTickValues = useMemo(
+    () => buildTickValues(minYear, maxYear),
+    [maxYear, minYear]
+  );
 
+  const activeHoveredItem = localHoveredItem || hoveredEntity || null;
+  const hoveredKey = getHoverKey(activeHoveredItem);
   const sliderPercent = getPercent(safeCurrentYear, visibleStart, visibleEnd);
   const globalMarkerPercent = getPercent(currentYear, minYear, maxYear);
   const zoomWindowPosition = getWindowPosition(visibleStart, visibleEnd, minYear, maxYear);
+
+  const handleHoverItem = useCallback((item) => {
+    setLocalHoveredItem(item);
+    if (item?.type === 'location' || item?.type === 'region') {
+      onHoverEntityChange?.(item);
+      return;
+    }
+    onHoverEntityChange?.(null);
+  }, [onHoverEntityChange]);
+
+  const clearHoverItem = useCallback(() => {
+    setLocalHoveredItem(null);
+    onHoverEntityChange?.(null);
+  }, [onHoverEntityChange]);
 
   const handleResetZoom = () => {
     setViewWindow({ start: minYear, end: maxYear });
@@ -345,6 +401,73 @@ export default function Timeline({
     flushPendingEraSaves([eraId]).catch(() => null);
   };
 
+  const handleEraPointerMove = useCallback((event) => {
+    const dragState = dragStateRef.current;
+    const rect = editorAxisRef.current?.getBoundingClientRect();
+    if (!dragState || !rect?.width) return;
+
+    const nextAnchorYear = getYearFromClientX(event.clientX, rect, minYear, maxYear);
+    const delta = nextAnchorYear - dragState.anchorYear;
+    let nextStart = dragState.startYear;
+    let nextEnd = dragState.endYear;
+
+    if (dragState.mode === 'move') {
+      const span = dragState.endYear - dragState.startYear;
+      nextStart = clamp(dragState.startYear + delta, minYear, maxYear - span);
+      nextEnd = nextStart + span;
+    } else if (dragState.mode === 'start') {
+      nextStart = clamp(dragState.startYear + delta, minYear, dragState.endYear);
+    } else {
+      nextEnd = clamp(dragState.endYear + delta, dragState.startYear, maxYear);
+    }
+
+    updateEra(dragState.eraId, {
+      startYear: nextStart,
+      endYear: nextEnd,
+    }, { mode: 'debounced' });
+  }, [maxYear, minYear, updateEra]);
+
+  const handleEraPointerUp = useCallback(() => {
+    const dragState = dragStateRef.current;
+    if (!dragState) return;
+
+    dragStateRef.current = null;
+    document.body.style.cursor = '';
+    document.removeEventListener('pointermove', handleEraPointerMove);
+    document.removeEventListener('pointerup', handleEraPointerUp);
+    flushPendingEraSaves([dragState.eraId]).catch(() => null);
+  }, [flushPendingEraSaves, handleEraPointerMove]);
+
+  const handleBeginEraDrag = useCallback((event, era, mode = 'move') => {
+    if (event.button !== undefined && event.button !== 0) return;
+    const rect = editorAxisRef.current?.getBoundingClientRect();
+    if (!rect?.width) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const startYear = toOptionalYear(era.startYear) ?? minYear;
+    const endYear = toOptionalYear(era.endYear) ?? maxYear;
+
+    dragStateRef.current = {
+      eraId: era.id,
+      mode,
+      startYear,
+      endYear,
+      anchorYear: getYearFromClientX(event.clientX, rect, minYear, maxYear),
+    };
+
+    document.body.style.cursor = mode === 'move' ? 'grabbing' : 'ew-resize';
+    document.addEventListener('pointermove', handleEraPointerMove);
+    document.addEventListener('pointerup', handleEraPointerUp);
+  }, [handleEraPointerMove, handleEraPointerUp, maxYear, minYear]);
+
+  useEffect(() => () => {
+    document.body.style.cursor = '';
+    document.removeEventListener('pointermove', handleEraPointerMove);
+    document.removeEventListener('pointerup', handleEraPointerUp);
+  }, [handleEraPointerMove, handleEraPointerUp]);
+
   return (
     <section
       className={[
@@ -361,206 +484,98 @@ export default function Timeline({
         onClick={() => setIsExpanded((prev) => !prev)}
       >
         <span className="timeline-bar__expand-icon">{isExpanded ? 'v' : '^'}</span>
-        <span className="timeline-bar__expand-label">{isExpanded ? 'Collapse Timeline' : 'Expand Timeline'}</span>
       </button>
 
       {isExpanded && (
-        <div className="timeline-window">
-          <div className="timeline-window__header">
-            <div>
-              <p className="timeline-window__eyebrow">Chronology</p>
-              <h3>Stacked time bands</h3>
-            </div>
-            <div className="timeline-window__header-meta">
-              <strong>{formatRange(visibleStart, visibleEnd)}</strong>
-              <span>
-                {hoveredEntity?.name
-                  ? `Highlighting ${hoveredEntity.name}`
-                  : 'Hover a city or region to spotlight its band'}
+        <div className="timeline-window timeline-window--compact" onMouseLeave={clearHoverItem}>
+          <div className="timeline-window__compact-meta">
+            <span className="timeline-window__chip">{formatRange(visibleStart, visibleEnd)}</span>
+            {activeHoveredItem?.name && (
+              <span className="timeline-window__chip timeline-window__chip--hovered">
+                {activeHoveredItem.name}
               </span>
-            </div>
+            )}
           </div>
 
-          <div className="timeline-window__viewport custom-scrollbar">
-            <div className="timeline-window__axis">
-              {tickValues.map((tick) => (
-                <span
-                  key={`axis-${tick}`}
-                  className="timeline-window__axis-tick"
-                  style={{ left: `${getPercent(tick, visibleStart, visibleEnd)}%` }}
-                >
-                  {formatYearTick(tick)}
-                </span>
+          <div className="timeline-window__axis timeline-window__axis--compact">
+            {tickValues.map((tick) => (
+              <span
+                key={`axis-${tick}`}
+                className="timeline-window__axis-tick"
+                style={{ left: `${getPercent(tick, visibleStart, visibleEnd)}%` }}
+              >
+                {formatYearTick(tick)}
+              </span>
+            ))}
+          </div>
+
+          <div className="timeline-window__compact-cluster custom-scrollbar">
+            <div
+              className="timeline-window__mini-lanes timeline-window__mini-lanes--eras"
+              style={{ minHeight: `${packedCompactEras.laneCount * COMPACT_ERA_ROW_HEIGHT_REM}rem` }}
+            >
+              <span className="timeline-window__year-line" style={{ left: `${sliderPercent}%` }} />
+              {Array.from({ length: packedCompactEras.laneCount }).map((_, laneIndex) => (
+                <div
+                  key={`compact-era-lane-${laneIndex}`}
+                  className="timeline-window__mini-lane"
+                  style={{ top: `${laneIndex * COMPACT_ERA_ROW_HEIGHT_REM}rem` }}
+                />
+              ))}
+              {packedCompactEras.placed.map((era) => (
+                <button
+                  key={era.key}
+                  type="button"
+                  className={`timeline-window__mini-bar timeline-window__mini-bar--era ${currentEra?.id === era.id ? 'is-current' : ''}`}
+                  style={{
+                    ...getBarPosition(era.displayStart, era.displayEnd, visibleStart, visibleEnd),
+                    top: `${era.lane * COMPACT_ERA_ROW_HEIGHT_REM + 0.11}rem`,
+                    '--bar-color': era.color,
+                  }}
+                  onClick={() => onYearChange(clamp(Math.round((era.start + era.end) / 2), visibleStart, visibleEnd))}
+                  onMouseEnter={() => handleHoverItem({ type: 'era', id: era.id, name: era.name })}
+                  onMouseLeave={clearHoverItem}
+                  title={`${era.name} (${era.start} to ${era.end})`}
+                />
               ))}
             </div>
 
-            <div className="timeline-window__section">
-              <div className="timeline-window__section-heading">
-                <span>World Eras</span>
-                <small>{loadingEras ? 'Loading...' : `${eras.length} saved era${eras.length === 1 ? '' : 's'}`}</small>
-              </div>
-              <div
-                className="timeline-window__lanes timeline-window__lanes--eras"
-                style={{ minHeight: `${packedEras.laneCount * LANE_ROW_HEIGHT_REM}rem` }}
-              >
-                {Array.from({ length: packedEras.laneCount }).map((_, laneIndex) => (
-                  <div
-                    key={`era-lane-${laneIndex}`}
-                    className="timeline-window__lane"
-                    style={{ top: `${laneIndex * LANE_ROW_HEIGHT_REM}rem` }}
-                  />
-                ))}
-                <span
-                  className="timeline-window__year-line"
-                  style={{ left: `${sliderPercent}%` }}
+            <div
+              className="timeline-window__mini-lanes timeline-window__mini-lanes--tracks"
+              style={{ minHeight: `${packedCompactTracks.laneCount * COMPACT_TRACK_ROW_HEIGHT_REM}rem` }}
+            >
+              <span className="timeline-window__year-line" style={{ left: `${sliderPercent}%` }} />
+              {Array.from({ length: packedCompactTracks.laneCount }).map((_, laneIndex) => (
+                <div
+                  key={`compact-track-lane-${laneIndex}`}
+                  className="timeline-window__mini-lane"
+                  style={{ top: `${laneIndex * COMPACT_TRACK_ROW_HEIGHT_REM}rem` }}
                 />
-                {packedEras.placed.map((era) => (
-                  <button
-                    key={era.key}
-                    type="button"
-                    className={`timeline-window__bar timeline-window__bar--era ${currentEra?.id === era.id ? 'is-current' : ''}`}
-                    style={{
-                      ...getBarPosition(era.displayStart, era.displayEnd, visibleStart, visibleEnd),
-                      top: `${era.lane * LANE_ROW_HEIGHT_REM + 0.32}rem`,
-                      '--bar-color': era.color,
-                    }}
-                    onClick={() => onYearChange(clamp(Math.round((era.start + era.end) / 2), visibleStart, visibleEnd))}
-                    title={`${era.label} (${era.start} to ${era.end})`}
-                  >
-                    <span>{era.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="timeline-window__section">
-              <div className="timeline-window__section-heading">
-                <span>Places and Regions</span>
-                <small>{packedTracks.placed.length} visible dated bands</small>
-              </div>
-              <div
-                className="timeline-window__lanes timeline-window__lanes--tracks"
-                style={{ minHeight: `${packedTracks.laneCount * LANE_ROW_HEIGHT_REM}rem` }}
-              >
-                {Array.from({ length: packedTracks.laneCount }).map((_, laneIndex) => (
-                  <div
-                    key={`track-lane-${laneIndex}`}
-                    className="timeline-window__lane"
-                    style={{ top: `${laneIndex * LANE_ROW_HEIGHT_REM}rem` }}
-                  />
-                ))}
-                <span
-                  className="timeline-window__year-line"
-                  style={{ left: `${sliderPercent}%` }}
+              ))}
+              {packedCompactTracks.placed.map((track) => (
+                <div
+                  key={track.key}
+                  className={[
+                    'timeline-window__mini-bar',
+                    'timeline-window__mini-bar--track',
+                    track.key === hoveredKey ? 'is-hovered' : '',
+                    isVisibleInYear(track, currentYear, true, false) ? 'is-current' : '',
+                  ].join(' ')}
+                  style={{
+                    ...getBarPosition(track.displayStart, track.displayEnd, visibleStart, visibleEnd),
+                    top: `${track.lane * COMPACT_TRACK_ROW_HEIGHT_REM + 0.08}rem`,
+                    '--bar-color': track.color,
+                  }}
+                  onMouseEnter={() => handleHoverItem({ type: track.type, id: track.id, name: track.name })}
+                  onMouseLeave={clearHoverItem}
+                  title={`${track.name} (${track.start} to ${track.end})`}
                 />
-                {packedTracks.placed.length === 0 && (
-                  <div className="timeline-window__empty-state">
-                    No dated cities or regions fall inside this zoom window yet.
-                  </div>
-                )}
-                {packedTracks.placed.map((track) => (
-                  <div
-                    key={track.key}
-                    className={[
-                      'timeline-window__bar',
-                      'timeline-window__bar--track',
-                      track.key === hoveredKey ? 'is-hovered' : '',
-                      isVisibleInYear(track, currentYear, true, false) ? 'is-current' : '',
-                    ].join(' ')}
-                    style={{
-                      ...getBarPosition(track.displayStart, track.displayEnd, visibleStart, visibleEnd),
-                      top: `${track.lane * LANE_ROW_HEIGHT_REM + 0.32}rem`,
-                      '--bar-color': track.color,
-                    }}
-                    title={`${track.label} (${track.start} to ${track.end})`}
-                  >
-                    <span className={`timeline-window__bar-type timeline-window__bar-type--${track.entityType}`}>
-                      {track.entityType === 'region' ? 'Region' : 'Location'}
-                    </span>
-                    <span className="timeline-window__bar-label">{track.label}</span>
-                  </div>
-                ))}
-              </div>
+              ))}
+              {packedCompactTracks.placed.length === 0 && !loadingEras && (
+                <div className="timeline-window__empty-state">No dated map items in this view.</div>
+              )}
             </div>
           </div>
-
-          {isEditorMode && canManageEras && (
-            <details className="timeline-editor">
-              <summary>Manage eras</summary>
-              <div className="timeline-editor__toolbar">
-                <button
-                  type="button"
-                  className="timeline-editor__add"
-                  onClick={handleAddEra}
-                >
-                  Add Era
-                </button>
-              </div>
-              <div className="timeline-editor__grid">
-                {eras.map((era) => (
-                  <article key={`editor-${era.id}`} className="timeline-editor__card">
-                    <div className="timeline-editor__row timeline-editor__row--title">
-                      <label>
-                        <span>Name</span>
-                        <input
-                          type="text"
-                          value={era.label || ''}
-                          onChange={(event) => handleEraFieldChange(era.id, 'label', event.target.value)}
-                          onBlur={() => handleEraFieldCommit(era.id)}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter') {
-                              event.preventDefault();
-                              handleEraFieldCommit(era.id);
-                            }
-                          }}
-                        />
-                      </label>
-                      <label className="timeline-editor__color">
-                        <span>Color</span>
-                        <input
-                          type="color"
-                          value={era.color || '#c084fc'}
-                          onChange={(event) => handleEraFieldChange(era.id, 'color', event.target.value)}
-                          onBlur={() => handleEraFieldCommit(era.id)}
-                        />
-                      </label>
-                    </div>
-                    <div className="timeline-editor__row">
-                      <label>
-                        <span>Start</span>
-                        <input
-                          type="number"
-                          min={minYear}
-                          max={maxYear}
-                          value={era.startYear ?? ''}
-                          onChange={(event) => handleEraFieldChange(era.id, 'startYear', event.target.value)}
-                          onBlur={() => handleEraFieldCommit(era.id)}
-                        />
-                      </label>
-                      <label>
-                        <span>End</span>
-                        <input
-                          type="number"
-                          min={minYear}
-                          max={maxYear}
-                          value={era.endYear ?? ''}
-                          onChange={(event) => handleEraFieldChange(era.id, 'endYear', event.target.value)}
-                          onBlur={() => handleEraFieldCommit(era.id)}
-                        />
-                      </label>
-                      <button
-                        type="button"
-                        className="timeline-editor__delete"
-                        onClick={() => deleteEra(era.id).catch(() => null)}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </details>
-          )}
         </div>
       )}
 
@@ -579,7 +594,7 @@ export default function Timeline({
           <div className="timeline-bar__summary-meta">
             <div className="timeline-bar__year-display" aria-live="polite" aria-atomic="true">
               <span className="timeline-bar__year-num">{formatYear(currentYear)}</span>
-              <span className="timeline-bar__year-era">{currentEra?.label || 'Uncharted Age'}</span>
+              <span className="timeline-bar__year-era">{currentEra?.name || currentEra?.label || 'Uncharted Age'}</span>
             </div>
             <div className="timeline-bar__counts">
               <span>{visibleLocationCount} places</span>
@@ -645,6 +660,163 @@ export default function Timeline({
           </div>
         </div>
       </div>
+
+      {isExpanded && isEditorMode && canManageEras && (
+        <div className="timeline-editor-panel">
+          <div className="timeline-editor-panel__header">
+            <div>
+              <p className="timeline-editor-panel__eyebrow">Editor</p>
+              <h3>Era Workspace</h3>
+            </div>
+            <button
+              type="button"
+              className="timeline-editor__add"
+              onClick={handleAddEra}
+            >
+              Add Era
+            </button>
+          </div>
+
+          <div className="timeline-editor-panel__axis">
+            {editorTickValues.map((tick) => (
+              <span
+                key={`editor-axis-${tick}`}
+                className="timeline-editor-panel__axis-tick"
+                style={{ left: `${getPercent(tick, minYear, maxYear)}%` }}
+              >
+                {formatYearTick(tick)}
+              </span>
+            ))}
+          </div>
+
+          <div
+            ref={editorAxisRef}
+            className="timeline-editor-panel__lanes"
+            style={{ minHeight: `${packedEditorEras.laneCount * EDITOR_ROW_HEIGHT_REM}rem` }}
+          >
+            <span
+              className="timeline-window__year-line timeline-window__year-line--editor"
+              style={{ left: `${getPercent(currentYear, minYear, maxYear)}%` }}
+            />
+            {Array.from({ length: packedEditorEras.laneCount }).map((_, laneIndex) => (
+              <div
+                key={`editor-lane-${laneIndex}`}
+                className="timeline-editor-panel__lane"
+                style={{ top: `${laneIndex * EDITOR_ROW_HEIGHT_REM}rem` }}
+              />
+            ))}
+            {packedEditorEras.placed.map((era) => (
+              <div
+                key={`editor-${era.id}`}
+                className="timeline-editor-panel__era"
+                style={{
+                  ...getBarPosition(era.displayStart, era.displayEnd, minYear, maxYear),
+                  top: `${era.lane * EDITOR_ROW_HEIGHT_REM + 0.35}rem`,
+                  '--bar-color': era.color,
+                }}
+              >
+                <button
+                  type="button"
+                  className="timeline-editor-panel__handle"
+                  aria-label={`Adjust start of ${era.name}`}
+                  onPointerDown={(event) => handleBeginEraDrag(event, era, 'start')}
+                />
+                <button
+                  type="button"
+                  className="timeline-editor-panel__era-body"
+                  onPointerDown={(event) => handleBeginEraDrag(event, era, 'move')}
+                  title="Drag to move this era"
+                >
+                  <span className="timeline-editor-panel__era-name">{era.name}</span>
+                  <span className="timeline-editor-panel__era-range">{era.start} to {era.end}</span>
+                </button>
+                <button
+                  type="button"
+                  className="timeline-editor-panel__handle"
+                  aria-label={`Adjust end of ${era.name}`}
+                  onPointerDown={(event) => handleBeginEraDrag(event, era, 'end')}
+                />
+              </div>
+            ))}
+          </div>
+
+          <div className="timeline-editor__grid">
+            {eras.map((era) => (
+              <article key={`editor-card-${era.id}`} className="timeline-editor__card">
+                <div className="timeline-editor__row timeline-editor__row--title">
+                  <label>
+                    <span>Name</span>
+                    <input
+                      type="text"
+                      value={era.label || ''}
+                      onChange={(event) => handleEraFieldChange(era.id, 'label', event.target.value)}
+                      onBlur={() => handleEraFieldCommit(era.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          handleEraFieldCommit(era.id);
+                        }
+                      }}
+                    />
+                  </label>
+                  <label className="timeline-editor__color">
+                    <span>Color</span>
+                    <input
+                      type="color"
+                      value={era.color || '#c084fc'}
+                      onChange={(event) => handleEraFieldChange(era.id, 'color', event.target.value)}
+                      onBlur={() => handleEraFieldCommit(era.id)}
+                    />
+                  </label>
+                </div>
+                <div className="timeline-editor__row">
+                  <label>
+                    <span>Start</span>
+                    <input
+                      type="number"
+                      min={minYear}
+                      max={maxYear}
+                      value={era.startYear ?? ''}
+                      onChange={(event) => handleEraFieldChange(era.id, 'startYear', event.target.value)}
+                      onBlur={() => handleEraFieldCommit(era.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          handleEraFieldCommit(era.id);
+                        }
+                      }}
+                    />
+                  </label>
+                  <label>
+                    <span>End</span>
+                    <input
+                      type="number"
+                      min={minYear}
+                      max={maxYear}
+                      value={era.endYear ?? ''}
+                      onChange={(event) => handleEraFieldChange(era.id, 'endYear', event.target.value)}
+                      onBlur={() => handleEraFieldCommit(era.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          handleEraFieldCommit(era.id);
+                        }
+                      }}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="timeline-editor__delete"
+                    onClick={() => deleteEra(era.id).catch(() => null)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      )}
     </section>
   );
 }

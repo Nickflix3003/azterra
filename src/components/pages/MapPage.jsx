@@ -65,6 +65,7 @@ export default function MapPage() {
             onToggleFilters={toggleFilters}
             currentYear={currentYear}
             timelineActive={timelineActive}
+            hoveredEntity={hoveredTimelineEntity}
             onLocationHoverChange={setHoveredTimelineEntity}
             onRegionHoverChange={setHoveredTimelineEntity}
           />
@@ -77,6 +78,7 @@ export default function MapPage() {
           isEditorMode={isEditorMode}
           canManageEras={canEdit}
           hoveredEntity={hoveredTimelineEntity}
+          onHoverEntityChange={setHoveredTimelineEntity}
           minYear={TIMELINE_MIN}
           maxYear={TIMELINE_MAX}
         />

@@ -214,6 +214,7 @@ function InteractiveMap({
   onToggleFilters,
   currentYear = 500,
   timelineActive = false,
+  hoveredEntity = null,
   onLocationHoverChange,
   onRegionHoverChange,
 }) {
@@ -321,6 +322,8 @@ function InteractiveMap({
   const serializedLocations = lastSavedSnapshotRef.current;
   const serializedRegions   = useMemo(() => JSON.stringify(regions), [regions]);
   const canAutoSave         = ['player', 'editor', 'admin'].includes(role);
+  const hoveredLocationId = hoveredEntity?.type === 'location' ? hoveredEntity.id : null;
+  const hoveredRegionId = hoveredEntity?.type === 'region' ? hoveredEntity.id : null;
 
   const filteredLocations = useMemo(
     () =>
@@ -330,9 +333,12 @@ function InteractiveMap({
             const key  = getMarkerFilterKey(location.type);
             const flag = markerFilters[key];
             if (flag === false) return false;
+            if (hoveredLocationId != null && String(location.id) === String(hoveredLocationId)) {
+              return true;
+            }
             return isVisibleInYear(location, currentYear, timelineActive, isEditorMode);
           }),
-    [locations, markerFilters, showMarkers, timelineActive, currentYear, isEditorMode]
+    [locations, markerFilters, showMarkers, hoveredLocationId, timelineActive, currentYear, isEditorMode]
   );
 
   const filteredRegions = useMemo(
@@ -344,9 +350,12 @@ function InteractiveMap({
             const categoryId = normalizeCategoryId(region.category);
             const flag       = regionFilters[categoryId];
             if (flag === false) return false;
+            if (hoveredRegionId != null && String(region.id) === String(hoveredRegionId)) {
+              return true;
+            }
             return isVisibleInYear(region, currentYear, timelineActive, isEditorMode);
           }),
-    [regions, regionFilters, isRegionMode, activeRegionId, showRegionsLayer, currentYear, timelineActive, isEditorMode]
+    [regions, regionFilters, isRegionMode, activeRegionId, showRegionsLayer, hoveredRegionId, currentYear, timelineActive, isEditorMode]
   );
 
   const filteredMapLabels = useMemo(() => {
@@ -1641,6 +1650,7 @@ function InteractiveMap({
                   location={location}
                   onLocationClick={handleLocationClick}
                   onHoverChange={onLocationHoverChange}
+                  isTimelineHovered={hoveredLocationId != null && String(location.id) === String(hoveredLocationId)}
                   isSelected={selectedLocation && selectedLocation.id === location.id}
                   isEditorMode={isEditorMode}
                   onDragStart={handleMarkerDragStart}
@@ -1661,6 +1671,7 @@ function InteractiveMap({
                 regions={filteredRegions}
                 draftPoints={regionDraftPoints}
                 selectedRegionId={activeRegionId}
+                highlightedRegionId={hoveredRegionId}
                 onRegionClick={handleRegionClick}
                 onRegionHoverChange={onRegionHoverChange}
                 interactionEnabled={!isRegionMode}
