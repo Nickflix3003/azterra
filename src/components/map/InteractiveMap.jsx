@@ -233,7 +233,12 @@ function InteractiveMap({
     flushPendingLocationSaves,
     getLocationSaveState,
   } = useLocationData();
-  const { regions, setRegions, selectedRegionId: activeRegionId, selectRegion } = useRegions();
+  const {
+    regions,
+    setRegions,
+    selectedRegionId: activeRegionId,
+    selectRegion,
+  } = useRegions();
   const {
     labels,
     createLabel,
@@ -392,32 +397,6 @@ function InteractiveMap({
   );
 
   // ── Data fetching ────────────────────────────────────────────────────────────
-
-  useEffect(() => {
-    let isMounted = true;
-    const fetchRegions = async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/regions`);
-        const data     = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Failed to load regions.');
-        if (isMounted) {
-          const normalized = Array.isArray(data.regions)
-            ? data.regions.map(normalizeRegionEntry)
-            : [];
-          setRegions(normalized);
-          lastRegionSnapshotRef.current = JSON.stringify(normalized);
-        }
-      } catch (error) {
-        console.error('Unable to load regions', error);
-        if (isMounted) {
-          setRegions([]);
-          lastRegionSnapshotRef.current = '[]';
-        }
-      }
-    };
-    fetchRegions();
-    return () => { isMounted = false; };
-  }, [setRegions]);
 
   // Keep regionFilters in sync when regions gain a new category
   useEffect(() => {
@@ -1222,6 +1201,14 @@ function InteractiveMap({
 
   useEffect(() => {
     if (!canAutoSave || !user) return;
+    if (!isEditorMode) {
+      if (regionSaveTimeoutRef.current) {
+        clearTimeout(regionSaveTimeoutRef.current);
+        regionSaveTimeoutRef.current = null;
+      }
+      lastRegionSnapshotRef.current = serializedRegions;
+      return;
+    }
     if (serializedRegions === lastRegionSnapshotRef.current) return;
 
     if (regionSaveTimeoutRef.current) clearTimeout(regionSaveTimeoutRef.current);
@@ -1236,7 +1223,7 @@ function InteractiveMap({
         regionSaveTimeoutRef.current = null;
       }
     };
-  }, [serializedRegions, canAutoSave, handleRegionSave, regions, user]);
+  }, [serializedRegions, canAutoSave, handleRegionSave, isEditorMode, regions, user]);
 
   // Cleanup timeouts on unmount
   useEffect(() => () => {
