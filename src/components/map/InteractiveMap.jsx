@@ -520,6 +520,7 @@ function InteractiveMap({
     if (editorSelection?.id && editorSelection.id !== location.id) {
       flushPendingLocationSaves([editorSelection.id], { successMode: 'none' }).catch(() => null);
     }
+    selectRegion(null);
     selectLocation(location.id);
     if (isEditorMode) {
       setEditorSelection({
@@ -544,6 +545,7 @@ function InteractiveMap({
       flushPendingLocationSaves([editorSelection.id], { successMode: 'none' }).catch(() => null);
     }
     selectLocation(null);
+    selectRegion(null);
     setEditorSelection(null);
   };
 
@@ -767,8 +769,9 @@ function InteractiveMap({
       setRegionDraftPoints([]);
       setIsPlacingLabel(false);
     } else {
-      const base = import.meta.env.BASE_URL || '/';
-      window.location.href = `${base}region/${regionId}`;
+      selectLocation(null);
+      selectRegion(regionId);
+      focusRegionOnMap(regionId);
     }
   };
 
@@ -1362,6 +1365,13 @@ function InteractiveMap({
 
   const selectedLocation = locations.find((location) => location.id === selectedLocationId) || null;
   const selectedRegion   = regions.find((region) => region.id === activeRegionId)           || null;
+  const selectedRegionLocations = useMemo(
+    () =>
+      selectedRegion
+        ? locations.filter((location) => String(location.regionId) === String(selectedRegion.id))
+        : [],
+    [locations, selectedRegion]
+  );
 
   const handleEditorFieldChange = useCallback((field, value) => {
     if (!editorSelection) return;
@@ -1756,6 +1766,14 @@ function InteractiveMap({
         <SidePanel
           location={selectedLocation}
           onClose={handleClosePanel}
+        />
+      )}
+      {!isEditorMode && !selectedLocation && selectedRegion && (
+        <SidePanel
+          region={selectedRegion}
+          regionLocations={selectedRegionLocations}
+          onClose={handleClosePanel}
+          onSelectLocation={handleLocationClick}
         />
       )}
       {/* In editor mode, render the edit form as a fixed overlay on the right */}
