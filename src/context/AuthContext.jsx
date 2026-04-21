@@ -34,6 +34,7 @@ const GUEST_USER = {
   username: 'Guest',
   role: 'guest',
   unlockedSecrets: [],
+  ownedSecretIds: [],
   favorites: [],
   friends: [],
   friendRequests: { incoming: [], outgoing: [] },
@@ -57,6 +58,7 @@ function readPendingUsername() {
 const normalizeUser = (incoming) => {
   if (!incoming) return null;
   const unlocked = Array.isArray(incoming.unlockedSecrets) ? incoming.unlockedSecrets : [];
+  const ownedSecretIds = Array.isArray(incoming.ownedSecretIds) ? incoming.ownedSecretIds : [];
   const favorites = Array.isArray(incoming.favorites) ? incoming.favorites : [];
   const featuredCharacter = incoming.featuredCharacter ?? null;
   const friends = Array.isArray(incoming.friends) ? incoming.friends : [];
@@ -71,7 +73,16 @@ const normalizeUser = (incoming) => {
     documents: Array.isArray(incoming.profile?.documents) ? incoming.profile.documents : [],
     viewFavorites: Array.isArray(incoming.profile?.viewFavorites) ? incoming.profile.viewFavorites : [],
   };
-  return { ...incoming, unlockedSecrets: unlocked, favorites, featuredCharacter, profile, friends, friendRequests };
+  return {
+    ...incoming,
+    unlockedSecrets: unlocked,
+    ownedSecretIds,
+    favorites,
+    featuredCharacter,
+    profile,
+    friends,
+    friendRequests,
+  };
 };
 
 async function request({ path, method = 'GET', body, headers = {} }) {

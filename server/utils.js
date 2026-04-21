@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { db } from './db.js';
+import { getOwnedSecretIdsForUser, readSecretSettingsMap } from './secretStore.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -73,6 +74,7 @@ export function profileToUser(profile) {
       documents: [],
       viewFavorites: [],
     },
+    ownedSecretIds: [],
   };
 }
 
@@ -210,13 +212,17 @@ export async function resolveRequestUser(req) {
   try {
     const payload = verifyToken(token);
     const userId = String(payload.id);
+    const secretSettings = await readSecretSettingsMap();
 
     const looksLikeUUID = /^[0-9a-f-]{36}$/.test(userId);
     if (looksLikeUUID) {
       try {
         const result = await db().from('profiles').select('*').eq('id', userId).single();
         if (!result.error && result.data) {
-          return profileToUser(result.data);
+          return {
+            ...profileToUser(result.data),
+            ownedSecretIds: getOwnedSecretIdsForUser(userId, secretSettings),
+          };
         }
       } catch (e) {
         // fall through to JSON lookup
@@ -242,6 +248,7 @@ export async function resolveRequestUser(req) {
         viewFavorites: Array.isArray(currentUser.profile && currentUser.profile.viewFavorites) ? currentUser.profile.viewFavorites : [],
       },
       unlockedSecrets: Array.isArray(currentUser.unlockedSecrets) ? currentUser.unlockedSecrets : [],
+      ownedSecretIds: getOwnedSecretIdsForUser(userId, secretSettings),
       friends: friendState.friends,
       friendRequests: friendState.friendRequests,
     });

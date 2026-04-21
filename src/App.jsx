@@ -7,7 +7,7 @@ import AdminDashboard from './components/pages/AdminDashboard';
 import LocationsAtlasPage from './components/pages/LocationsAtlasPage';
 import LocationsEditorPage from './components/pages/LocationsEditorPage';
 import AccountSettingsPage from './components/pages/AccountSettingsPage';
-import ProgressionPage from './components/pages/ProgressionPage';
+import SecretsPage from './components/pages/SecretsPage';
 import LorePlaceholderPage from './components/pages/lore/LorePlaceholderPage';
 import PlayersPage from './components/pages/PlayersPage';
 import PlayerPublicPage from './components/pages/PlayerPublicPage';
@@ -97,8 +97,9 @@ function HashApp() {
             <Route path="/magic" element={<MagicHubPage />} />
             <Route path="/magic/:id" element={<MagicSystemPage />} />
 
-            {/* Progression */}
-            <Route path="/progress" element={<ProgressionPage />} />
+            {/* Secrets */}
+            <Route path="/secrets" element={<SecretsPage />} />
+            <Route path="/progress" element={<Navigate to="/secrets" replace />} />
 
             {/* Hidden Lore (PLACEHOLDER) */}
             <Route path="/lore/aurora-ember" element={<LorePlaceholderPage secretId="aurora-ember" />} />

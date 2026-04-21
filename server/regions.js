@@ -7,6 +7,7 @@ import fs from 'node:fs/promises';
 import { authRequired, editorRequired, resolveRequestUser } from './utils.js';
 import { db, throwIfError } from './db.js';
 import { canAccessSecretItem, sanitizeSecretItems } from './secretAccess.js';
+import { canManageSecret, readSecretSettingsMap } from './secretStore.js';
 
 const router = Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -90,6 +91,15 @@ function setRegionSecret(secrets, id, secretId) {
   if (normalized) next[String(id)] = { secretId: normalized };
   else delete next[String(id)];
   return next;
+}
+
+function canEditRegionSecret(user, existingSecretId, nextSecretId, settings) {
+  if (user?.role === 'admin') return true;
+  const current = normalizeSecretId(existingSecretId);
+  const next = normalizeSecretId(nextSecretId);
+  if (current && !canManageSecret(user, current, settings)) return false;
+  if (next && !canManageSecret(user, next, settings)) return false;
+  return true;
 }
 
 function mergeRegionMetadata(row, eras, secrets = {}) {
@@ -205,26 +215,40 @@ router.post('/save', authRequired, editorRequired, async (req, res) => {
   }
 
   try {
-    if (
-      req.user?.role !== 'admin' &&
-      payload.some((region) => region && Object.prototype.hasOwnProperty.call(region, 'secretId'))
-    ) {
-      return res.status(403).json({ error: 'Only admins can assign secrets.' });
-    }
-
     const currentEraMap = await readRegionEraMap();
     const currentSecretMap = await readRegionSecretMap();
+    const secretSettings = await readSecretSettingsMap();
     const { data: existingRows, error: existingError } = await db().from('regions').select('*').order('name');
     throwIfError(existingError, 'regions save existing fetch');
 
     const existingRegions = (existingRows || []).map((row) =>
       mergeRegionMetadata(row, currentEraMap, currentSecretMap)
     );
-    const hiddenExisting =
+    const preservedExisting =
       req.user?.role === 'admin'
         ? []
-        : existingRegions.filter((region) => !canAccessSecretItem(req.user, region));
-    const combinedPayload = req.user?.role === 'admin' ? payload : [...payload, ...hiddenExisting];
+        : existingRegions.filter(
+            (region) =>
+              !canAccessSecretItem(req.user, region) ||
+              !canEditRegionSecret(req.user, region.secretId, region.secretId, secretSettings)
+          );
+    const preservedIds = new Set(preservedExisting.map((region) => String(region.id)));
+    const combinedPayload =
+      req.user?.role === 'admin'
+        ? payload
+        : [...payload.filter((region) => !preservedIds.has(String(region?.id))), ...preservedExisting];
+    if (
+      !combinedPayload.every((region) =>
+        canEditRegionSecret(
+          req.user,
+          existingRegions.find((entry) => String(entry.id) === String(region.id))?.secretId,
+          region?.secretId,
+          secretSettings
+        )
+      )
+    ) {
+      return res.status(403).json({ error: 'Only the secret owner or admin can save secret-scoped regions.' });
+    }
 
     const nextEraMap = combinedPayload.reduce((acc, region) => {
       const timeStart = toOptionalYear(region.timeStart);
@@ -249,14 +273,11 @@ router.post('/save', authRequired, editorRequired, async (req, res) => {
     const { data, error } = await db().from('regions').select('*').order('name');
     throwIfError(error, 'regions save fetch');
     await writeRegionEraMap(nextEraMap);
-    const nextSecretMap =
-      req.user?.role === 'admin'
-        ? combinedPayload.reduce((acc, region) => {
-            const secretId = normalizeSecretId(region.secretId);
-            if (secretId) acc[String(region.id)] = { secretId };
-            return acc;
-          }, {})
-        : currentSecretMap;
+    const nextSecretMap = combinedPayload.reduce((acc, region) => {
+      const secretId = normalizeSecretId(region.secretId);
+      if (secretId) acc[String(region.id)] = { secretId };
+      return acc;
+    }, {});
     await writeRegionSecretMap(nextSecretMap);
     return res.json({
       regions: (data || []).map((row) => mergeRegionMetadata(row, nextEraMap, nextSecretMap)),
@@ -277,11 +298,13 @@ router.patch('/:id', authRequired, editorRequired, async (req, res) => {
   });
 
   try {
-    if (req.body?.secretId !== undefined && req.user?.role !== 'admin') {
-      return res.status(403).json({ error: 'Only admins can assign secrets.' });
-    }
     const eras = await readRegionEraMap();
     let secretMap = await readRegionSecretMap();
+    const secretSettings = await readSecretSettingsMap();
+    const currentSecretId = secretMap[String(id)]?.secretId || null;
+    if (!canEditRegionSecret(req.user, currentSecretId, req.body?.secretId ?? currentSecretId, secretSettings)) {
+      return res.status(403).json({ error: 'Only the secret owner or admin can edit this region secret scope.' });
+    }
     const patchRow = {
       ...(updates.name !== undefined && { name: updates.name }),
       ...(updates.description !== undefined && { description: updates.description }),
@@ -314,7 +337,7 @@ router.patch('/:id', authRequired, editorRequired, async (req, res) => {
     if (error?.code === 'PGRST116') return res.status(404).json({ error: 'Region not found.' });
     throwIfError(error, 'regions PATCH');
     await writeRegionEraMap(eras);
-    if (req.user?.role === 'admin' && req.body?.secretId !== undefined) {
+    if (req.body?.secretId !== undefined) {
       secretMap = setRegionSecret(secretMap, id, req.body.secretId);
       await writeRegionSecretMap(secretMap);
     }

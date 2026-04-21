@@ -6,8 +6,9 @@ import { useAuth } from '../../context/AuthContext';
  * Falls back to the provided `fallback` (or null) when locked.
  */
 function SecretGate({ secretId, fallback = null, children }) {
-  const { isSecretUnlocked, role } = useAuth();
-  const unlocked = role === 'admin' || isSecretUnlocked(secretId);
+  const { isSecretUnlocked, role, user } = useAuth();
+  const owned = Array.isArray(user?.ownedSecretIds) && user.ownedSecretIds.includes(secretId);
+  const unlocked = role === 'admin' || owned || isSecretUnlocked(secretId);
 
   if (!unlocked) {
     return fallback ?? null;

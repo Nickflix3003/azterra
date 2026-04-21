@@ -18,6 +18,26 @@ function normalizeSecret(secret = {}) {
     title: typeof secret.title === 'string' ? secret.title.trim() : '',
     description: typeof secret.description === 'string' ? secret.description.trim() : '',
     keyword: typeof secret.keyword === 'string' ? secret.keyword.trim() : '',
+    hasKeyword: Boolean(secret.hasKeyword || (typeof secret.keyword === 'string' && secret.keyword.trim())),
+    allowPhraseUnlock: secret.allowPhraseUnlock !== false,
+    ownerId: secret.ownerId || null,
+    ownerName: typeof secret.ownerName === 'string' ? secret.ownerName : '',
+    canManage: secret.canManage === true,
+    isOwned: secret.isOwned === true,
+    isUnlocked: secret.isUnlocked === true,
+    viewerCount: Number.isFinite(secret.viewerCount) ? secret.viewerCount : 0,
+    linkedCounts: {
+      locations: Number(secret.linkedCounts?.locations || 0),
+      regions: Number(secret.linkedCounts?.regions || 0),
+      npcs: Number(secret.linkedCounts?.npcs || 0),
+      content: Number(secret.linkedCounts?.content || 0),
+    },
+    linkedItems: {
+      locations: Array.isArray(secret.linkedItems?.locations) ? secret.linkedItems.locations : [],
+      regions: Array.isArray(secret.linkedItems?.regions) ? secret.linkedItems.regions : [],
+      npcs: Array.isArray(secret.linkedItems?.npcs) ? secret.linkedItems.npcs : [],
+      content: Array.isArray(secret.linkedItems?.content) ? secret.linkedItems.content : [],
+    },
   };
 }
 
@@ -36,7 +56,7 @@ function normalizeSecretUser(user = {}) {
 
 export function SecretDataProvider({ children }) {
   const { role, user } = useAuth();
-  const isAdmin = role === 'admin';
+  const canUseSecretWindow = Boolean(user) && role !== 'guest' && role !== 'pending';
   const [secrets, setSecrets] = useState([]);
   const [users, setUsers] = useState([]);
   const [loadingSecrets, setLoadingSecrets] = useState(false);
@@ -44,7 +64,7 @@ export function SecretDataProvider({ children }) {
   const [error, setError] = useState('');
 
   const refreshSecrets = useCallback(async () => {
-    if (!isAdmin || !user) {
+    if (!canUseSecretWindow || !user) {
       setSecrets([]);
       return [];
     }
@@ -65,10 +85,10 @@ export function SecretDataProvider({ children }) {
     } finally {
       setLoadingSecrets(false);
     }
-  }, [isAdmin, user]);
+  }, [canUseSecretWindow, user]);
 
   const refreshSecretUsers = useCallback(async () => {
-    if (!isAdmin || !user) {
+    if (!canUseSecretWindow || !user) {
       setUsers([]);
       return [];
     }
@@ -77,6 +97,10 @@ export function SecretDataProvider({ children }) {
     try {
       const response = await fetch(`${API_BASE_URL}/secrets/users`, { credentials: 'include' });
       const data = await response.json().catch(() => ({}));
+      if (response.status === 403) {
+        setUsers([]);
+        return [];
+      }
       if (!response.ok) {
         throw new Error(data.error || 'Unable to load secret assignments.');
       }
@@ -89,10 +113,10 @@ export function SecretDataProvider({ children }) {
     } finally {
       setLoadingUsers(false);
     }
-  }, [isAdmin, user]);
+  }, [canUseSecretWindow, user]);
 
   useEffect(() => {
-    if (!isAdmin || !user) {
+    if (!canUseSecretWindow || !user) {
       setSecrets([]);
       setUsers([]);
       setLoadingSecrets(false);
@@ -102,7 +126,7 @@ export function SecretDataProvider({ children }) {
     }
     refreshSecrets().catch(() => null);
     refreshSecretUsers().catch(() => null);
-  }, [isAdmin, refreshSecretUsers, refreshSecrets, user]);
+  }, [canUseSecretWindow, refreshSecretUsers, refreshSecrets, user]);
 
   const createSecret = useCallback(async (payload) => {
     const response = await fetch(`${API_BASE_URL}/secrets`, {
@@ -214,9 +238,21 @@ export function SecretDataProvider({ children }) {
     [secrets]
   );
 
+  const manageableSecrets = useMemo(
+    () => secrets.filter((secret) => secret.canManage),
+    [secrets]
+  );
+
+  const visibleUnlockedSecrets = useMemo(
+    () => secrets.filter((secret) => secret.isUnlocked || secret.isOwned || role === 'admin'),
+    [role, secrets]
+  );
+
   const value = useMemo(
     () => ({
       secrets,
+      manageableSecrets,
+      visibleUnlockedSecrets,
       users,
       loadingSecrets,
       loadingUsers,
@@ -232,6 +268,8 @@ export function SecretDataProvider({ children }) {
     }),
     [
       secrets,
+      manageableSecrets,
+      visibleUnlockedSecrets,
       users,
       loadingSecrets,
       loadingUsers,

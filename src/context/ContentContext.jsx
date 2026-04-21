@@ -7,7 +7,7 @@ import React, {
   useMemo,
   useState,
 } from 'react';
-import { normalizeContentList } from '../constants/contentConstants';
+import { normalizeContentEntry, normalizeContentList } from '../constants/contentConstants';
 import fallbackContent from '../data/content.json';
 import { fetchWithRetry } from '../utils/fetchWithRetry';
 

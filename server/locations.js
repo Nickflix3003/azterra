@@ -7,6 +7,7 @@ import fs from 'node:fs/promises';
 import { authRequired, editorRequired, resolveRequestUser } from './utils.js';
 import { db, throwIfError } from './db.js';
 import { canAccessSecretItem, sanitizeSecretItems } from './secretAccess.js';
+import { canManageSecret, readSecretSettingsMap } from './secretStore.js';
 
 const router = Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -58,6 +59,15 @@ function setLocationSecret(secrets, id, secretId) {
   if (normalized) next[String(id)] = { secretId: normalized };
   else delete next[String(id)];
   return next;
+}
+
+function canEditLocationSecret(user, existingSecretId, nextSecretId, settings) {
+  if (user?.role === 'admin') return true;
+  const current = normalizeSecretId(existingSecretId);
+  const next = normalizeSecretId(nextSecretId);
+  if (current && !canManageSecret(user, current, settings)) return false;
+  if (next && !canManageSecret(user, next, settings)) return false;
+  return true;
 }
 
 const imageStorage = multer.diskStorage({
@@ -179,8 +189,9 @@ router.get('/', async function(req, res) {
 // POST /api/locations
 router.post('/', authRequired, editorRequired, async function(req, res) {
   try {
-    if (req.body?.secretId !== undefined && req.user?.role !== 'admin') {
-      return res.status(403).json({ error: 'Only admins can assign secrets.' });
+    const secretSettings = await readSecretSettingsMap();
+    if (!canEditLocationSecret(req.user, null, req.body?.secretId, secretSettings)) {
+      return res.status(403).json({ error: 'Only the secret owner or admin can assign this location to that secret.' });
     }
     const actor = (req.user && (req.user.username || req.user.name)) || 'unknown';
     const nextId = await getNextLocationId();
@@ -193,7 +204,7 @@ router.post('/', authRequired, editorRequired, async function(req, res) {
     const { data, error } = await db().from('locations').insert(row).select().single();
     throwIfError(error, 'locations POST insert');
     let secretMap = await readLocationSecretMap();
-    if (req.user?.role === 'admin') {
+    if (req.body?.secretId !== undefined) {
       secretMap = setLocationSecret(secretMap, data.id, req.body?.secretId);
       await writeLocationSecretMap(secretMap);
     }
@@ -212,15 +223,33 @@ router.post('/save', authRequired, editorRequired, async function(req, res) {
   }
   try {
     const currentSecretMap = await readLocationSecretMap();
+    const secretSettings = await readSecretSettingsMap();
     const { data: existingRows, error: existingErr } = await db().from('locations').select('*').order('id');
     throwIfError(existingErr, 'locations save existing fetch');
     const existingLocations = (existingRows || []).map((row) => rowToLocation(row, currentSecretMap));
-    const hiddenExisting = req.user?.role === 'admin'
+    const preservedExisting = req.user?.role === 'admin'
       ? []
-      : existingLocations.filter((location) => !canAccessSecretItem(req.user, location));
+      : existingLocations.filter(
+          (location) =>
+            !canAccessSecretItem(req.user, location) ||
+            !canEditLocationSecret(req.user, location.secretId, location.secretId, secretSettings)
+        );
+    const preservedIds = new Set(preservedExisting.map((location) => String(location.id)));
     const combinedPayload = req.user?.role === 'admin'
       ? payload
-      : [...payload, ...hiddenExisting];
+      : [...payload.filter((location) => !preservedIds.has(String(location?.id))), ...preservedExisting];
+    if (
+      !combinedPayload.every((location) =>
+        canEditLocationSecret(
+          req.user,
+          existingLocations.find((entry) => String(entry.id) === String(location.id))?.secretId,
+          location?.secretId,
+          secretSettings
+        )
+      )
+    ) {
+      return res.status(403).json({ error: 'Only the secret owner or admin can save secret-scoped locations.' });
+    }
 
     const { error: delErr } = await db().from('locations').delete().neq('id', '__none__');
     throwIfError(delErr, 'locations save delete');
@@ -231,13 +260,11 @@ router.post('/save', authRequired, editorRequired, async function(req, res) {
     }
     const { data, error } = await db().from('locations').select('*').order('id');
     throwIfError(error, 'locations save fetch');
-    const nextSecretMap = req.user?.role === 'admin'
-      ? combinedPayload.reduce((acc, location) => {
-          const secretId = normalizeSecretId(location.secretId);
-          if (secretId) acc[String(location.id)] = { secretId };
-          return acc;
-        }, {})
-      : currentSecretMap;
+    const nextSecretMap = combinedPayload.reduce((acc, location) => {
+      const secretId = normalizeSecretId(location.secretId);
+      if (secretId) acc[String(location.id)] = { secretId };
+      return acc;
+    }, {});
     await writeLocationSecretMap(nextSecretMap);
     return res.json({ locations: (data || []).map((row) => rowToLocation(row, nextSecretMap)) });
   } catch (err) {
@@ -254,12 +281,18 @@ router.patch('/:id', authRequired, editorRequired, async function(req, res) {
   allowed.forEach(function(key) { if (key in req.body) updates[key] = req.body[key]; });
 
   try {
-    if (req.body?.secretId !== undefined && req.user?.role !== 'admin') {
-      return res.status(403).json({ error: 'Only admins can assign secrets.' });
-    }
     const fetchResult = await db().from('locations').select('*').eq('id', String(id)).single();
     throwIfError(fetchResult.error, 'locations PATCH fetch');
     if (!fetchResult.data) return res.status(404).json({ error: 'Location not found.' });
+    const currentSecretMap = await readLocationSecretMap();
+    const secretSettings = await readSecretSettingsMap();
+    const currentSecretId =
+      currentSecretMap[String(id)]?.secretId ||
+      currentSecretMap[String(fetchResult.data.id)]?.secretId ||
+      null;
+    if (!canEditLocationSecret(req.user, currentSecretId, req.body?.secretId ?? currentSecretId, secretSettings)) {
+      return res.status(403).json({ error: 'Only the secret owner or admin can edit this location secret scope.' });
+    }
 
     const actor = (req.user && (req.user.username || req.user.name)) || 'unknown';
     const patchRow = {};
@@ -282,8 +315,8 @@ router.patch('/:id', authRequired, editorRequired, async function(req, res) {
 
     const { data, error } = await db().from('locations').update(patchRow).eq('id', String(id)).select().single();
     throwIfError(error, 'locations PATCH update');
-    let secretMap = await readLocationSecretMap();
-    if (req.user?.role === 'admin' && req.body?.secretId !== undefined) {
+    let secretMap = currentSecretMap;
+    if (req.body?.secretId !== undefined) {
       secretMap = setLocationSecret(secretMap, id, req.body.secretId);
       await writeLocationSecretMap(secretMap);
     }

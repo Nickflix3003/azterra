@@ -85,6 +85,14 @@ const NAV_ICONS = {
       <path d="m12.5 7.5-1 5-5 1 10-3.5z" />
     </svg>
   ),
+  secrets: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M7 10a5 5 0 1 1 8.7 3.4L14 15H9" />
+      <path d="M9 19h6" />
+      <path d="M10 22h4" />
+      <path d="M12 15v4" />
+    </svg>
+  ),
   about: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="9" />
@@ -135,9 +143,9 @@ const baseNavLinks = [
     children: [
       { to: "/people", label: "People" },
       { to: "/players", label: "Player Characters" },
-      { to: "/progress", label: "Progress" },
     ]
   },
+  { to: "/secrets", label: "Secrets", icon: NAV_ICONS.secrets },
   { to: "/about", label: "About", icon: NAV_ICONS.about },
 ];
 

@@ -11,13 +11,15 @@ function SecretScopeField({
   className = '',
 }) {
   const { role } = useAuth();
-  const { secrets, loadingSecrets } = useSecrets();
-
-  if (role !== 'admin') return null;
+  const { secrets, manageableSecrets, loadingSecrets } = useSecrets();
 
   const currentSecretId = typeof secretId === 'string' && secretId.trim() ? secretId.trim() : '';
   const isSecretScoped = Boolean(currentSecretId);
   const currentSecret = secrets.find((secret) => secret.id === currentSecretId) || null;
+  const currentIsManageable = manageableSecrets.some((secret) => secret.id === currentSecretId);
+  const canAssignSecrets = role === 'admin' || manageableSecrets.length > 0;
+
+  if (!canAssignSecrets && !currentSecretId) return null;
 
   const handleVisibilityChange = (event) => {
     const nextMode = event.target.value;
@@ -29,7 +31,7 @@ function SecretScopeField({
       onChange?.(currentSecretId);
       return;
     }
-    onChange?.(secrets[0]?.id || null);
+    onChange?.(manageableSecrets[0]?.id || null);
   };
 
   return (
@@ -39,7 +41,7 @@ function SecretScopeField({
         <select
           value={isSecretScoped ? 'secret' : 'public'}
           onChange={handleVisibilityChange}
-          disabled={disabled}
+          disabled={disabled || !canAssignSecrets}
         >
           <option value="public">Public</option>
           <option value="secret">Secret</option>
@@ -52,16 +54,21 @@ function SecretScopeField({
           <select
             value={currentSecretId}
             onChange={(event) => onChange?.(event.target.value || null)}
-            disabled={disabled || loadingSecrets || secrets.length === 0}
+            disabled={disabled || loadingSecrets || manageableSecrets.length === 0}
           >
             <option value="">
               {loadingSecrets
                 ? 'Loading secrets...'
-                : secrets.length === 0
+                : manageableSecrets.length === 0
                   ? 'Create a secret first'
                   : 'Choose a secret'}
             </option>
-            {secrets.map((secret) => (
+            {currentSecret && !currentIsManageable && (
+              <option value={currentSecret.id}>
+                {currentSecret.title} (not managed by you)
+              </option>
+            )}
+            {manageableSecrets.map((secret) => (
               <option key={secret.id} value={secret.id}>
                 {secret.title}
               </option>
@@ -75,9 +82,14 @@ function SecretScopeField({
           Locked behind <strong>{currentSecret.title}</strong>
         </p>
       )}
-      {isSecretScoped && !currentSecret && !loadingSecrets && secrets.length === 0 && (
+      {isSecretScoped && currentSecret && !currentIsManageable && (
         <p className="secret-scope-field__hint secret-scope-field__hint--warning">
-          No secrets exist yet. Create one in the Progression page first.
+          This item is attached to a secret you do not manage.
+        </p>
+      )}
+      {isSecretScoped && !currentSecret && !loadingSecrets && manageableSecrets.length === 0 && (
+        <p className="secret-scope-field__hint secret-scope-field__hint--warning">
+          No manageable secrets exist yet. Create one in the Secrets page first.
         </p>
       )}
     </div>

@@ -12,7 +12,9 @@ export function hasUnlockedSecret(user, secretId) {
   if (!secretId) return true;
   if (isAdminUser(user)) return true;
   const unlocked = Array.isArray(user?.unlockedSecrets) ? user.unlockedSecrets : [];
-  return unlocked.includes(secretId);
+  if (unlocked.includes(secretId)) return true;
+  const owned = Array.isArray(user?.ownedSecretIds) ? user.ownedSecretIds : [];
+  return owned.includes(secretId);
 }
 
 export function canAccessSecretItem(user, item = {}) {

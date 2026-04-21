@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { adminRequired, authRequired, editorRequired, resolveRequestUser } from './utils.js';
 import { db, throwIfError } from './db.js';
 import { sanitizeSecretItems } from './secretAccess.js';
+import { canManageSecret, readSecretSettingsMap } from './secretStore.js';
 
 const router = Router();
 
@@ -59,6 +60,19 @@ function npcToRow(payload, actor) {
   };
 }
 
+function normalizeSecretId(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function canEditNpcSecret(user, existingSecretId, nextSecretId, settings) {
+  if (user?.role === 'admin') return true;
+  const current = normalizeSecretId(existingSecretId);
+  const next = normalizeSecretId(nextSecretId);
+  if (current && !canManageSecret(user, current, settings)) return false;
+  if (next && !canManageSecret(user, next, settings)) return false;
+  return true;
+}
+
 // ── Routes ────────────────────────────────────────────────────────────────────
 
 // GET /api/entities/:type
@@ -95,9 +109,7 @@ router.post('/:type/save', authRequired, editorRequired, async (req, res) => {
   const payload = req.body || {};
 
   try {
-    if (payload.secretId !== undefined && req.user?.role !== 'admin') {
-      return res.status(403).json({ error: 'Only admins can assign secrets.' });
-    }
+    const secretSettings = await readSecretSettingsMap();
     if (payload.visible !== undefined && req.user?.role !== 'admin') {
       return res.status(403).json({ error: 'Only admins can change NPC visibility.' });
     }
@@ -115,6 +127,9 @@ router.post('/:type/save', authRequired, editorRequired, async (req, res) => {
       throwIfError(fetchErr, 'entities save fetch');
 
       if (existing) {
+        if (!canEditNpcSecret(req.user, existing.secret_id, payload.secretId ?? existing.secret_id, secretSettings)) {
+          return res.status(403).json({ error: 'Only the secret owner or admin can edit this character secret scope.' });
+        }
         row.created_by = existing.created_by || actor;
         const { data, error } = await db()
           .from('npcs')
@@ -139,6 +154,9 @@ router.post('/:type/save', authRequired, editorRequired, async (req, res) => {
     }
 
     // Insert new
+    if (!canEditNpcSecret(req.user, null, payload.secretId, secretSettings)) {
+      return res.status(403).json({ error: 'Only the secret owner or admin can assign this character to that secret.' });
+    }
     const row = {
       ...npcToRow(payload, actor),
       id: payload.id || randomUUID(),
@@ -197,9 +215,6 @@ router.patch('/:type/:id', authRequired, editorRequired, async (req, res) => {
 
   const actor = req.user?.username || req.user?.name || 'unknown';
   try {
-    if (req.body?.secretId !== undefined && req.user?.role !== 'admin') {
-      return res.status(403).json({ error: 'Only admins can assign secrets.' });
-    }
     if (req.body?.visible !== undefined && req.user?.role !== 'admin') {
       return res.status(403).json({ error: 'Only admins can change NPC visibility.' });
     }
@@ -210,6 +225,10 @@ router.patch('/:type/:id', authRequired, editorRequired, async (req, res) => {
       .maybeSingle();
     throwIfError(fetchErr, 'entities PATCH fetch');
     if (!existing) return res.status(404).json({ error: 'Not found.' });
+    const secretSettings = await readSecretSettingsMap();
+    if (!canEditNpcSecret(req.user, existing.secret_id, req.body?.secretId ?? existing.secret_id, secretSettings)) {
+      return res.status(403).json({ error: 'Only the secret owner or admin can edit this character secret scope.' });
+    }
 
     const row = {
       ...npcToRow({ ...req.body }, actor),
