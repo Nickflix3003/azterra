@@ -15,7 +15,7 @@ const TimelineDataContext = createContext(null);
 const AUTOSAVE_DELAY_MS = 500;
 
 const DEFAULT_TIMELINE_ERAS = [
-  { id: 'before-records', label: 'Before Records', startYear: 0, endYear: 99, color: '#4f46e5' },
+  { id: 'before-records', label: 'Before Records', startYear: -50, endYear: 99, color: '#4f46e5' },
   { id: 'founding-age', label: 'Founding Age', startYear: 100, endYear: 299, color: '#0f766e' },
   { id: 'age-of-strife', label: 'Age of Strife', startYear: 300, endYear: 499, color: '#b45309' },
   { id: 'great-conquest', label: 'Great Conquest', startYear: 500, endYear: 699, color: '#be123c' },

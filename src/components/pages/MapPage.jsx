@@ -5,7 +5,7 @@ import InteractiveMap from '../map/InteractiveMap';
 import Timeline from '../map/Timeline';
 import './MapPage.css';
 
-const TIMELINE_MIN = 0;
+const TIMELINE_MIN = -50;
 const TIMELINE_MAX = 1000;
 
 export default function MapPage() {

@@ -16,7 +16,7 @@ const DEFAULT_TIMELINE_ERAS = [
   {
     id: 'before-records',
     label: 'Before Records',
-    startYear: 0,
+    startYear: -50,
     endYear: 99,
     color: '#4f46e5',
   },
