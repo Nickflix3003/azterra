@@ -11,6 +11,12 @@ export const REGION_CATEGORIES = [
 
 export const DEFAULT_REGION_CATEGORY = REGION_CATEGORIES[0];
 
+const toOptionalYear = (value) => {
+  if (value === '' || value === null || value === undefined) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
 const clamp = (value, min = 0, max = 1) => {
   if (typeof value !== 'number' || Number.isNaN(value)) return min;
   return Math.min(max, Math.max(min, value));
@@ -42,6 +48,8 @@ export const normalizeRegionEntry = (region = {}) => {
     opacity: region.opacity !== undefined ? clamp(region.opacity, 0, 1) : 0.3,
     category: region.category || DEFAULT_REGION_CATEGORY,
     labelEnabled: region.labelEnabled !== false,
+    ...(toOptionalYear(region.timeStart) != null && { timeStart: toOptionalYear(region.timeStart) }),
+    ...(toOptionalYear(region.timeEnd) != null && { timeEnd: toOptionalYear(region.timeEnd) }),
     points,
     parts,
   };

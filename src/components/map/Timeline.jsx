@@ -19,6 +19,7 @@
 
 import React, { useRef, useState } from 'react';
 import './Timeline.css';
+import { isVisibleInYear } from '../../utils/eraUtils';
 
 // ── Preset eras ──────────────────────────────────────────────────────────────
 const PRESETS = [
@@ -61,11 +62,7 @@ export default function Timeline({
   const presetRef   = useRef(null);
 
   const visibleCount = timelineActive
-    ? locations.filter((loc) => {
-        const start = loc.timeStart ?? -Infinity;
-        const end   = loc.timeEnd   ??  Infinity;
-        return currentYear >= start && currentYear <= end;
-      }).length
+    ? locations.filter((loc) => isVisibleInYear(loc, currentYear, true, isEditorMode)).length
     : locations.length;
 
   const pct = ((currentYear - minYear) / (maxYear - minYear)) * 100;

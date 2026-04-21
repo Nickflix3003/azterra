@@ -532,6 +532,54 @@ function EditorSidePanel({
                     Scale with map zoom
                   </label>
                 </div>
+
+                <div className="editor-info-panel__field editor-info-panel__field--era">
+                  <div className="era-header">
+                    <span>Era (Timeline)</span>
+                    {(label.timeStart != null || label.timeEnd != null) && (
+                      <button
+                        type="button"
+                        className="era-clear-btn"
+                        onClick={() => {
+                          onLabelFieldChange?.(label.id, 'timeStart', null);
+                          onLabelFieldChange?.(label.id, 'timeEnd', null);
+                        }}
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                  <div className="era-year-row">
+                    <label className="era-year-field">
+                      <span>Start Year</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="1000"
+                        value={label.timeStart ?? ''}
+                        onChange={(e) => onLabelFieldChange?.(label.id, 'timeStart', e.target.value)}
+                        placeholder="0"
+                      />
+                    </label>
+                    <span className="era-arrow">→</span>
+                    <label className="era-year-field">
+                      <span>End Year</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="1000"
+                        value={label.timeEnd ?? ''}
+                        onChange={(e) => onLabelFieldChange?.(label.id, 'timeEnd', e.target.value)}
+                        placeholder="1000"
+                      />
+                    </label>
+                  </div>
+                  <p className="era-hint">
+                    {label.timeStart != null || label.timeEnd != null
+                      ? `Visible from Year ${label.timeStart ?? 0} to Year ${label.timeEnd ?? 1000}`
+                      : 'No era set — this label is visible at all points in time'}
+                  </p>
+                </div>
               </div>
             );
           })}

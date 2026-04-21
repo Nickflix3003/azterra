@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
 import { AuthProvider } from './context/AuthContext';
+import { LabelDataProvider } from './context/LabelDataContext';
 import { MapEffectsProvider } from './context/MapEffectsContext';
 import { LocationDataProvider } from './context/LocationDataContext';
 import { RegionDataProvider } from './context/RegionDataContext';
@@ -16,12 +17,14 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <MapEffectsProvider>
         <LocationDataProvider>
           <RegionDataProvider>
-            <ContentProvider>
-              <App />
-              {/* Global toast notifications — rendered outside the router so they
-                  always appear regardless of which page is active. */}
-              <ToastContainer />
-            </ContentProvider>
+            <LabelDataProvider>
+              <ContentProvider>
+                <App />
+                {/* Global toast notifications render outside the router so they
+                    always appear regardless of which page is active. */}
+                <ToastContainer />
+              </ContentProvider>
+            </LabelDataProvider>
           </RegionDataProvider>
         </LocationDataProvider>
       </MapEffectsProvider>

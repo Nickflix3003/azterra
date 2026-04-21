@@ -11,6 +11,8 @@ const router = Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REGION_IMAGES_DIR = path.join(__dirname, 'uploads', 'regions');
+const DATA_DIR = path.join(__dirname, 'data');
+const REGION_ERA_FILE = path.join(DATA_DIR, 'region-era.json');
 
 // ── Image upload setup ────────────────────────────────────────────────────────
 
@@ -18,6 +20,66 @@ async function ensureImagesDir() {
   if (!existsSync(REGION_IMAGES_DIR)) {
     await fs.mkdir(REGION_IMAGES_DIR, { recursive: true });
   }
+}
+
+function toOptionalYear(value) {
+  if (value === '' || value === null || value === undefined) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+async function ensureRegionEraFile() {
+  if (!existsSync(DATA_DIR)) {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+  }
+  if (!existsSync(REGION_ERA_FILE)) {
+    await fs.writeFile(REGION_ERA_FILE, JSON.stringify({ eras: {} }, null, 2));
+  }
+}
+
+async function readRegionEraMap() {
+  await ensureRegionEraFile();
+  try {
+    const raw = await fs.readFile(REGION_ERA_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    return parsed?.eras && typeof parsed.eras === 'object' ? parsed.eras : {};
+  } catch {
+    return {};
+  }
+}
+
+async function writeRegionEraMap(eras) {
+  await ensureRegionEraFile();
+  await fs.writeFile(REGION_ERA_FILE, JSON.stringify({ eras }, null, 2));
+}
+
+function mergeRegionEra(row, eras) {
+  const region = {
+    id: row.id,
+    name: row.name,
+    color: row.color || '#304ddf',
+    borderColor: row.border_color || '#ea580c',
+    opacity: row.opacity ?? 0.35,
+    points: Array.isArray(row.points) ? row.points : [],
+    category: row.category || '',
+    labelEnabled: row.label_enabled ?? true,
+    labelSize: row.label_size ?? 0.75,
+    labelOffsetX: row.label_offset_x ?? '0',
+    labelOffsetY: row.label_offset_y ?? '0',
+    labelWidth: row.label_width ?? 0.9,
+    description: row.description || '',
+    lore: row.lore || '',
+    emblem: row.emblem || '',
+    bannerImage: row.banner_image || '',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+  const era = eras?.[String(row.id)] || {};
+  return {
+    ...region,
+    ...(toOptionalYear(era.timeStart) != null && { timeStart: toOptionalYear(era.timeStart) }),
+    ...(toOptionalYear(era.timeEnd) != null && { timeEnd: toOptionalYear(era.timeEnd) }),
+  };
 }
 
 const imageStorage = multer.diskStorage({
@@ -52,26 +114,7 @@ router.use('/images', async (_req, _res, next) => {
 // ── DB helpers ────────────────────────────────────────────────────────────────
 
 function rowToRegion(row) {
-  return {
-    id: row.id,
-    name: row.name,
-    color: row.color || '#304ddf',
-    borderColor: row.border_color || '#ea580c',
-    opacity: row.opacity ?? 0.35,
-    points: Array.isArray(row.points) ? row.points : [],
-    category: row.category || '',
-    labelEnabled: row.label_enabled ?? true,
-    labelSize: row.label_size ?? 0.75,
-    labelOffsetX: row.label_offset_x ?? '0',
-    labelOffsetY: row.label_offset_y ?? '0',
-    labelWidth: row.label_width ?? 0.9,
-    description: row.description || '',
-    lore: row.lore || '',
-    emblem: row.emblem || '',
-    bannerImage: row.banner_image || '',
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
+  return mergeRegionEra(row, {});
 }
 
 function regionToRow(r) {
@@ -100,9 +143,10 @@ function regionToRow(r) {
 // GET /api/regions — all regions (public)
 router.get('/', async (_req, res) => {
   try {
+    const eras = await readRegionEraMap();
     const { data, error } = await db().from('regions').select('*').order('name');
     throwIfError(error, 'regions GET /');
-    return res.json({ regions: (data || []).map(rowToRegion) });
+    return res.json({ regions: (data || []).map((row) => mergeRegionEra(row, eras)) });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Unable to load regions.' });
@@ -117,6 +161,17 @@ router.post('/save', authRequired, editorRequired, async (req, res) => {
   }
 
   try {
+    const nextEraMap = payload.reduce((acc, region) => {
+      const timeStart = toOptionalYear(region.timeStart);
+      const timeEnd = toOptionalYear(region.timeEnd);
+      if (timeStart != null || timeEnd != null) {
+        acc[String(region.id)] = {
+          ...(timeStart != null && { timeStart }),
+          ...(timeEnd != null && { timeEnd }),
+        };
+      }
+      return acc;
+    }, {});
     const { error: delErr } = await db().from('regions').delete().neq('id', '__none__');
     throwIfError(delErr, 'regions save delete');
 
@@ -128,7 +183,8 @@ router.post('/save', authRequired, editorRequired, async (req, res) => {
 
     const { data, error } = await db().from('regions').select('*').order('name');
     throwIfError(error, 'regions save fetch');
-    return res.json({ regions: (data || []).map(rowToRegion) });
+    await writeRegionEraMap(nextEraMap);
+    return res.json({ regions: (data || []).map((row) => mergeRegionEra(row, nextEraMap)) });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Unable to save regions.' });
@@ -138,13 +194,14 @@ router.post('/save', authRequired, editorRequired, async (req, res) => {
 // PATCH /api/regions/:id — update a single region's fields (editor+)
 router.patch('/:id', authRequired, editorRequired, async (req, res) => {
   const { id } = req.params;
-  const allowed = ['name', 'description', 'lore', 'emblem', 'bannerImage', 'color', 'borderColor'];
+  const allowed = ['name', 'description', 'lore', 'emblem', 'bannerImage', 'color', 'borderColor', 'timeStart', 'timeEnd'];
   const updates = {};
   allowed.forEach((key) => {
     if (key in req.body) updates[key] = req.body[key];
   });
 
   try {
+    const eras = await readRegionEraMap();
     const patchRow = {
       ...(updates.name !== undefined && { name: updates.name }),
       ...(updates.description !== undefined && { description: updates.description }),
@@ -155,6 +212,18 @@ router.patch('/:id', authRequired, editorRequired, async (req, res) => {
       ...(updates.borderColor !== undefined && { border_color: updates.borderColor }),
     };
 
+    const currentEra = eras[String(id)] || {};
+    const nextTimeStart = updates.timeStart !== undefined ? toOptionalYear(updates.timeStart) : toOptionalYear(currentEra.timeStart);
+    const nextTimeEnd = updates.timeEnd !== undefined ? toOptionalYear(updates.timeEnd) : toOptionalYear(currentEra.timeEnd);
+    if (nextTimeStart == null && nextTimeEnd == null) {
+      delete eras[String(id)];
+    } else {
+      eras[String(id)] = {
+        ...(nextTimeStart != null && { timeStart: nextTimeStart }),
+        ...(nextTimeEnd != null && { timeEnd: nextTimeEnd }),
+      };
+    }
+
     const { data, error } = await db()
       .from('regions')
       .update(patchRow)
@@ -164,7 +233,8 @@ router.patch('/:id', authRequired, editorRequired, async (req, res) => {
 
     if (error?.code === 'PGRST116') return res.status(404).json({ error: 'Region not found.' });
     throwIfError(error, 'regions PATCH');
-    return res.json({ region: rowToRegion(data) });
+    await writeRegionEraMap(eras);
+    return res.json({ region: mergeRegionEra(data, eras) });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Unable to update region.' });

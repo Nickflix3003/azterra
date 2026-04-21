@@ -24,7 +24,12 @@ function RegionInfoPanel({
   const handleChange = (field) => (event) => {
     const raw = event.target.value;
     const numericFields = ['opacity', 'labelSize', 'labelWidth', 'labelOffsetX', 'labelOffsetY'];
-    const value = numericFields.includes(field) ? parseFloat(raw) : raw;
+    const yearFields = ['timeStart', 'timeEnd'];
+    const value = yearFields.includes(field)
+      ? (raw === '' ? null : parseFloat(raw))
+      : numericFields.includes(field)
+        ? parseFloat(raw)
+        : raw;
     onFieldChange?.(region.id, field, value);
   };
 
@@ -74,10 +79,57 @@ function RegionInfoPanel({
           <input
             type="checkbox"
             checked={region.labelEnabled !== false}
-            onChange={(event) => onFieldChange('labelEnabled', event.target.checked)}
+            onChange={() => onFieldChange?.(region.id, 'labelEnabled', region.labelEnabled === false)}
           />
           <small>Show region title on map</small>
         </label>
+        <div className="editor-info-panel__field editor-info-panel__field--era">
+          <div className="era-header">
+            <span>Era (Timeline)</span>
+            {(region.timeStart != null || region.timeEnd != null) && (
+              <button
+                type="button"
+                className="era-clear-btn"
+                onClick={() => {
+                  onFieldChange?.(region.id, 'timeStart', null);
+                  onFieldChange?.(region.id, 'timeEnd', null);
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <div className="era-year-row">
+            <label className="era-year-field">
+              <span>Start Year</span>
+              <input
+                type="number"
+                min="0"
+                max="1000"
+                value={region.timeStart ?? ''}
+                onChange={handleChange('timeStart')}
+                placeholder="0"
+              />
+            </label>
+            <span className="era-arrow">→</span>
+            <label className="era-year-field">
+              <span>End Year</span>
+              <input
+                type="number"
+                min="0"
+                max="1000"
+                value={region.timeEnd ?? ''}
+                onChange={handleChange('timeEnd')}
+                placeholder="1000"
+              />
+            </label>
+          </div>
+          <p className="era-hint">
+            {region.timeStart != null || region.timeEnd != null
+              ? `Visible from Year ${region.timeStart ?? 0} to Year ${region.timeEnd ?? 1000}`
+              : 'No era set — this region is visible at all points in time'}
+          </p>
+        </div>
         <label className="editor-info-panel__field">
           <span>Opacity</span>
           <input

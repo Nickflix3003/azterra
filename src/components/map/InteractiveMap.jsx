@@ -22,6 +22,7 @@ import { useToast } from '../../context/ToastContext';
 import { useMapEffects } from '../../context/MapEffectsContext';
 import { useLocationData } from '../../context/LocationDataContext';
 import { useContent } from '../../context/ContentContext';
+import { useLabels } from '../../context/LabelDataContext';
 import { useRegions } from '../../context/RegionDataContext';
 
 // ─── Layers & UI components ───────────────────────────────────────────────────
@@ -88,6 +89,7 @@ import {
   getPlaceholderMarkerSrc,
   getPlacementConfig,
 } from '../../utils/markerUtils';
+import { isVisibleInYear, toOptionalYear } from '../../utils/eraUtils';
 
 // ─── Region constants ─────────────────────────────────────────────────────────
 import {
@@ -231,6 +233,13 @@ function InteractiveMap({
   } = useLocationData();
   const { regions, setRegions, selectedRegionId: activeRegionId, selectRegion } = useRegions();
   const {
+    labels,
+    createLabel,
+    updateLabel,
+    deleteLabel,
+    flushPendingLabelSaves,
+  } = useLabels();
+  const {
     entries: contentEntries,
     loading: contentLoading,
     error: contentError,
@@ -269,7 +278,6 @@ function InteractiveMap({
     weather: true,
   });
   const [showMapLabels, setShowMapLabels] = useState(true);
-  const [mapLabels, setMapLabels] = useState([]);
   const [isPlacingLabel, setIsPlacingLabel] = useState(false);
   const [isEditorPanelOpen, setIsEditorPanelOpen] = useState(true);
 
@@ -315,14 +323,7 @@ function InteractiveMap({
             const key  = getMarkerFilterKey(location.type);
             const flag = markerFilters[key];
             if (flag === false) return false;
-            // Timeline filter — only apply when active and NOT in editor mode
-            // (editors always see all markers so they can set era values)
-            if (timelineActive && !isEditorMode) {
-              const start = location.timeStart ?? -Infinity;
-              const end   = location.timeEnd   ??  Infinity;
-              if (currentYear < start || currentYear > end) return false;
-            }
-            return true;
+            return isVisibleInYear(location, currentYear, timelineActive, isEditorMode);
           }),
     [locations, markerFilters, showMarkers, timelineActive, currentYear, isEditorMode]
   );
@@ -335,10 +336,17 @@ function InteractiveMap({
             if (isRegionMode && region.id === activeRegionId) return true;
             const categoryId = normalizeCategoryId(region.category);
             const flag       = regionFilters[categoryId];
-            return flag !== false;
+            if (flag === false) return false;
+            return isVisibleInYear(region, currentYear, timelineActive, isEditorMode);
           }),
-    [regions, regionFilters, isRegionMode, activeRegionId, showRegionsLayer]
+    [regions, regionFilters, isRegionMode, activeRegionId, showRegionsLayer, currentYear, timelineActive, isEditorMode]
   );
+
+  const filteredMapLabels = useMemo(() => {
+    if (isEditorMode) return labels;
+    if (!showMapLabels) return [];
+    return labels.filter((label) => isVisibleInYear(label, currentYear, timelineActive, false));
+  }, [labels, showMapLabels, currentYear, timelineActive, isEditorMode]);
 
   const regionLabelsEnabled = filteredRegions.some((region) => region.labelEnabled !== false);
 
@@ -804,72 +812,72 @@ function InteractiveMap({
     setActivePlacementTypeId(null);
   };
 
-  const handlePlaceLabel = (latlng) => {
-    const id = typeof crypto !== 'undefined' && crypto.randomUUID
-      ? crypto.randomUUID()
-      : `label-${Date.now()}`;
-    setMapLabels((prev) => [
-      ...prev,
-      {
-        id,
-        text:          'New Label',
-        color:         '#fef3c7',
-        font:          "'Cinzel','Cormorant Garamond',serif",
-        size:          1,
-        zoomScale:     1,
+  const handlePlaceLabel = async (latlng) => {
+    try {
+      await createLabel({
+        text: 'New Label',
+        color: '#fef3c7',
+        font: "'Cinzel','Cormorant Garamond',serif",
+        size: 1,
+        zoomScale: 1,
         scaleWithZoom: true,
-        fadeInStart:   3,
-        fadeInEnd:     5,
-        lat:           latlng.lat,
-        lng:           latlng.lng,
-      },
-    ]);
+        fadeInStart: 3,
+        fadeInEnd: 5,
+        lat: latlng.lat,
+        lng: latlng.lng,
+      });
+    } catch {
+      // toast handled by shared label context
+    }
     setIsPlacingLabel(false);
   };
 
   const handleLabelDrag = (id, coords) => {
-    setMapLabels((prev) =>
-      prev.map((label) => (label.id === id ? { ...label, ...coords } : label))
-    );
+    updateLabel(id, coords, { mode: 'immediate' }).catch(() => null);
   };
 
   const handleLabelFieldChange = (id, field, value) => {
+    const currentLabel = labels.find((label) => String(label.id) === String(id));
+    if (!currentLabel) return;
     const numericFields = ['size', 'zoomScale', 'fadeInStart', 'fadeInEnd'];
     const booleanFields = ['scaleWithZoom'];
-    setMapLabels((prev) =>
-      prev.map((label) => {
-        if (label.id !== id) return label;
-        let nextValue = value;
-        if (numericFields.includes(field)) {
-          const parsed = Number(value);
-          nextValue = Number.isFinite(parsed) ? parsed : 0;
-        } else if (booleanFields.includes(field)) {
-          nextValue = value === false || value === 'false' ? false : Boolean(value);
-        }
-        if (field === 'fadeInStart' || field === 'fadeInEnd') {
-          const epsilon      = 0.05;
-          const currentStart = field === 'fadeInStart' ? nextValue : label.fadeInStart ?? 2.8;
-          let   currentEnd   = field === 'fadeInEnd'   ? nextValue : label.fadeInEnd   ?? currentStart + 1.2;
-          if (currentEnd <= currentStart + epsilon) {
-            currentEnd = currentStart + epsilon;
-            if (field === 'fadeInEnd') nextValue = currentEnd;
-          }
-          if (field === 'fadeInStart' && nextValue >= currentEnd - epsilon) {
-            nextValue = currentEnd - epsilon;
-          }
-          return {
-            ...label,
-            fadeInStart: field === 'fadeInStart' ? nextValue : currentStart,
-            fadeInEnd:   field === 'fadeInEnd'   ? nextValue : currentEnd,
-          };
-        }
-        return { ...label, [field]: nextValue };
-      })
-    );
+    const yearFields = ['timeStart', 'timeEnd'];
+    let nextValue = value;
+
+    if (numericFields.includes(field)) {
+      const parsed = Number(value);
+      nextValue = Number.isFinite(parsed) ? parsed : 0;
+    } else if (booleanFields.includes(field)) {
+      nextValue = value === false || value === 'false' ? false : Boolean(value);
+    } else if (yearFields.includes(field)) {
+      nextValue = toOptionalYear(value);
+    }
+
+    let updates = { [field]: nextValue };
+    if (field === 'fadeInStart' || field === 'fadeInEnd') {
+      const epsilon = 0.05;
+      const currentStart = field === 'fadeInStart'
+        ? nextValue
+        : currentLabel.fadeInStart ?? 2.8;
+      let currentEnd = field === 'fadeInEnd'
+        ? nextValue
+        : currentLabel.fadeInEnd ?? currentStart + 1.2;
+
+      if (currentEnd <= currentStart + epsilon) {
+        currentEnd = currentStart + epsilon;
+      }
+
+      updates = {
+        fadeInStart: field === 'fadeInStart' ? Math.min(currentStart, currentEnd - epsilon) : currentStart,
+        fadeInEnd: currentEnd,
+      };
+    }
+
+    updateLabel(id, updates, { mode: 'debounced' }).catch(() => null);
   };
 
   const handleDeleteLabel = (id) => {
-    setMapLabels((prev) => prev.filter((label) => label.id !== id));
+    deleteLabel(id).catch(() => null);
   };
 
   // ── Marker placement handlers ────────────────────────────────────────────────
@@ -1102,6 +1110,17 @@ function InteractiveMap({
     [user, setRegions, toast]
   );
 
+  const flushRegionSave = useCallback(() => {
+    if (regionSaveTimeoutRef.current) {
+      clearTimeout(regionSaveTimeoutRef.current);
+      regionSaveTimeoutRef.current = null;
+    }
+    if (!canAutoSave || !user || serializedRegions === lastRegionSnapshotRef.current) {
+      return Promise.resolve();
+    }
+    return handleRegionSave(regions);
+  }, [canAutoSave, handleRegionSave, regions, serializedRegions, user]);
+
   // ── Editor mode side-effects ─────────────────────────────────────────────────
 
   useEffect(() => {
@@ -1118,8 +1137,10 @@ function InteractiveMap({
       setIsPlacingLabel(false);
       selectRegion(null);
       setSaveWarning('');
+      flushPendingLabelSaves().catch(() => null);
+      flushRegionSave().catch(() => null);
     }
-  }, [editorSelection?.id, flushPendingLocationSaves, isEditorMode, selectLocation, selectRegion]);
+  }, [editorSelection?.id, flushPendingLabelSaves, flushPendingLocationSaves, flushRegionSave, isEditorMode, selectLocation, selectRegion]);
 
   useEffect(() => {
     if (!isEditorMode) return;
@@ -1213,9 +1234,10 @@ function InteractiveMap({
   // Cleanup timeouts on unmount
   useEffect(() => () => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    if (regionSaveTimeoutRef.current) clearTimeout(regionSaveTimeoutRef.current);
     flushPendingLocationSaves(undefined, { successMode: 'none' }).catch(() => null);
-  }, [flushPendingLocationSaves]);
+    flushPendingLabelSaves().catch(() => null);
+    flushRegionSave().catch(() => null);
+  }, [flushPendingLabelSaves, flushPendingLocationSaves, flushRegionSave]);
 
   // ── Map interaction side-effects ─────────────────────────────────────────────
 
@@ -1624,7 +1646,7 @@ function InteractiveMap({
               ))}
 
               <LabelLayer
-                labels={isEditorMode ? mapLabels : showMapLabels ? mapLabels : []}
+                labels={filteredMapLabels}
                 zoomLevel={mapZoom}
                 isEditable={isEditorMode}
                 isEditorMode={isEditorMode}
@@ -1707,7 +1729,7 @@ function InteractiveMap({
                 onStartSubregion={handleStartSubregion}
                 onCancelSubregion={handleCancelSubregion}
                 regionDraftTargetId={regionDraftTargetId}
-                labels={mapLabels}
+                labels={labels}
                 showMapLabels={showMapLabels}
                 onToggleLabels={setShowMapLabels}
                 onStartPlaceLabel={handleStartLabelPlacement}

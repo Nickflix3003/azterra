@@ -16,6 +16,7 @@ import {
   resolveIconKey,
   buildIconSrc,
 } from '../constants/mapConstants';
+import { toOptionalYear } from './eraUtils';
 
 // ─── SVG placeholder markers ─────────────────────────────────────────────────
 
@@ -70,8 +71,8 @@ export const normalizeLocationEntry = (location) => {
     glowColor:   location.glowColor || typeConfig.glowColor,
     // Preserve optional fields so they are not stripped during normalization
     ...(location.pinned    != null && { pinned:    location.pinned }),
-    ...(location.timeStart != null && { timeStart: location.timeStart }),
-    ...(location.timeEnd   != null && { timeEnd:   location.timeEnd }),
+    ...(toOptionalYear(location.timeStart) != null && { timeStart: toOptionalYear(location.timeStart) }),
+    ...(toOptionalYear(location.timeEnd)   != null && { timeEnd:   toOptionalYear(location.timeEnd) }),
     ...(location.gallery   != null && { gallery:   location.gallery }),
     ...(location.createdBy != null && { createdBy: location.createdBy }),
     ...(location.createdAt != null && { createdAt: location.createdAt }),
