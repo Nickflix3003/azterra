@@ -9,6 +9,7 @@ import filesRoutes from '../files.js';
 import locationsRoutes from '../locations.js';
 import mapLabelsRoutes from '../mapLabels.js';
 import portraitsRoutes from '../portraits.js';
+import playerCharactersRoutes from '../playerCharacters.js';
 import regionsRoutes from '../regions.js';
 import secretsRoutes from '../secrets.js';
 import timelineRoutes from '../timeline.js';
@@ -29,6 +30,7 @@ const routes = [
   { path: '/api/entities', router: entitiesRoutes },
   { path: '/api/content', router: contentRoutes },
   { path: '/api/portraits', router: portraitsRoutes },
+  { path: '/api/player-characters', router: playerCharactersRoutes },
   { path: '/api/users', router: usersRoutes },
   { path: '/api/campaigns', router: campaignsRoutes },
   { path: '/api/heroes',    router: heroesRoutes    },

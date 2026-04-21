@@ -1,355 +1,1069 @@
 import { Router } from 'express';
-import { authRequired, editorRequired } from './utils.js';
+import fs from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { authRequired, profileToUser, readUsers, sanitizeUser } from './utils.js';
 import { db, throwIfError } from './db.js';
+import {
+  ensureCampaignWorkspace,
+  readCampaignWorkspaceIndex,
+  readPlayerCharacters,
+  writeCampaignWorkspaceIndex,
+} from './campaignWorkspaceStore.js';
 
 const router = Router();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const CONTENT_FILE = path.join(__dirname, 'data', 'content.json');
 
-// ── DB helpers ────────────────────────────────────────────────────────────────
+function nowIso() {
+  return new Date().toISOString();
+}
 
-function rowToCharacter(row) {
+function isApprovedMember(entry) {
+  return entry?.status === 'approved';
+}
+
+function getMembership(workspace, userId) {
+  return (workspace.members || []).find((entry) => String(entry.userId) === String(userId)) || null;
+}
+
+function isCampaignOwner(user, campaignRow) {
+  return Boolean(user && campaignRow && String(campaignRow.owner_id) === String(user.id));
+}
+
+function isCampaignManager(user, campaignRow, workspace) {
+  if (!user || !campaignRow) return false;
+  if (user.role === 'admin') return true;
+  if (isCampaignOwner(user, campaignRow)) return true;
+  const membership = getMembership(workspace, user.id);
+  return Boolean(membership && isApprovedMember(membership) && membership.role === 'co_dm');
+}
+
+function canViewCampaignWorkspace(user, campaignRow, workspace) {
+  if (!user || !campaignRow) return false;
+  if (isCampaignManager(user, campaignRow, workspace)) return true;
+  const membership = getMembership(workspace, user.id);
+  return Boolean(membership && isApprovedMember(membership));
+}
+
+function canSeePendingCampaign(user, campaignRow, workspace) {
+  if (!user || !campaignRow) return false;
+  if (isCampaignManager(user, campaignRow, workspace)) return true;
+  const membership = getMembership(workspace, user.id);
+  return membership?.status === 'pending';
+}
+
+function normalizeCampaignSummary(campaignRow, workspace, viewer) {
+  const approvedMembers = (workspace.members || []).filter((entry) => entry.status === 'approved');
+  const pendingMembers = (workspace.members || []).filter((entry) => entry.status === 'pending');
+  const viewerMembership = getMembership(workspace, viewer?.id);
   return {
-    id: row.id,
-    campaignId: row.campaign_id,
-    name: row.name || 'Unnamed Character',
-    race: row.race || '',
-    class: row.class || '',
-    subclass: row.subclass || '',
-    level: row.level ?? 1,
-    background: row.background || '',
-    alignment: row.alignment || '',
-    stats: row.stats || { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
-    hp: row.hp ?? 0,
-    maxHp: row.max_hp ?? 0,
-    ac: row.ac ?? 10,
-    speed: row.speed ?? 30,
-    initiative: row.initiative ?? null,
-    hitDice: row.hit_dice || '',
-    proficiencyBonus: row.proficiency_bonus ?? 2,
-    savingThrows: row.saving_throws || {},
-    skills: row.skills || {},
-    equipment: row.equipment || [],
-    spells: row.spells || [],
-    abilities: row.abilities || [],
-    features: row.features || [],
-    languages: row.languages || [],
-    personalityTraits: row.personality_traits || '',
-    ideals: row.ideals || '',
-    bonds: row.bonds || '',
-    flaws: row.flaws || '',
-    backstory: row.backstory || '',
-    notes: row.notes || '',
-    imageUrl: row.image_url || null,
-    color: row.color || '#cfaa68',
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    id: campaignRow.id,
+    name: campaignRow.name,
+    description: campaignRow.description || '',
+    ownerId: campaignRow.owner_id,
+    ownerName: campaignRow.owner_name || 'Unknown',
+    visibility: workspace.visibility || 'request',
+    coDmIds: workspace.coDmIds || [],
+    viewerStatus: isCampaignOwner(viewer, campaignRow)
+      ? 'owner'
+      : viewerMembership?.status || 'none',
+    viewerRole: isCampaignOwner(viewer, campaignRow)
+      ? 'owner'
+      : viewerMembership?.role || 'viewer',
+    pendingCount: pendingMembers.length,
+    approvedCount: approvedMembers.length,
+    attachedCharacterCount: (workspace.attachedCharacterIds || []).length,
+    updatedAt: workspace.updatedAt || campaignRow.updated_at,
+    createdAt: campaignRow.created_at,
+    lastUsed: campaignRow.last_used,
   };
 }
 
-function characterToRow(ch, campaignId) {
+async function readContentEntries() {
+  if (!existsSync(CONTENT_FILE)) return [];
+  try {
+    const raw = await fs.readFile(CONTENT_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed?.entries) ? parsed.entries : [];
+  } catch {
+    return [];
+  }
+}
+
+async function readAllUsers() {
+  const { data: profiles, error } = await db().from('profiles').select('*').order('created_at');
+  throwIfError(error, 'campaign users fetch');
+  const supabaseUsers = (profiles || []).map(profileToUser);
+  const localUsers = (await readUsers()).map(sanitizeUser);
+  const supabaseIds = new Set(supabaseUsers.map((user) => String(user.id)));
+  const merged = [
+    ...supabaseUsers,
+    ...localUsers.filter((user) => !supabaseIds.has(String(user.id))),
+  ];
+  return merged.map((user) => ({
+    id: String(user.id),
+    name: user.name || user.username || user.email || 'Unnamed',
+    email: user.email || '',
+    username: user.username || '',
+    role: user.role || 'guest',
+  }));
+}
+
+function buildUserMap(users) {
+  return new Map(users.map((user) => [String(user.id), user]));
+}
+
+function getOwnerDisplay(character, usersById) {
+  const owner = usersById.get(String(character.ownerId));
+  return owner?.name || owner?.username || owner?.email || 'Unknown';
+}
+
+function buildAttachedCharacters(workspace, playerCharacters, usersById) {
+  const byId = new Map(playerCharacters.map((character) => [String(character.id), character]));
+  return (workspace.attachedCharacterIds || [])
+    .map((characterId) => {
+      const character = byId.get(String(characterId));
+      if (!character) return null;
+      const attachment = workspace.attachments?.[String(characterId)] || null;
+      const inventoryItems = (workspace.inventory?.items || []).filter(
+        (item) => item.ownerType === 'character' && String(item.ownerId) === String(characterId)
+      );
+      return {
+        ...character,
+        ownerName: getOwnerDisplay(character, usersById),
+        attachment: attachment || {
+          characterId: String(characterId),
+          nickname: '',
+          currentHp: null,
+          maxHp: null,
+          status: 'active',
+          notes: '',
+          tags: [],
+          updatedAt: null,
+        },
+        inventoryItems,
+      };
+    })
+    .filter(Boolean);
+}
+
+function canEditCharacterAttachment(user, campaignRow, workspace, character) {
+  if (!user || !character) return false;
+  if (isCampaignManager(user, campaignRow, workspace)) return true;
+  return String(character.ownerId) === String(user.id) && canViewCampaignWorkspace(user, campaignRow, workspace);
+}
+
+function canManageInventoryItem(user, campaignRow, workspace, item, attachedCharacters) {
+  if (isCampaignManager(user, campaignRow, workspace)) return true;
+  if (!item || !canViewCampaignWorkspace(user, campaignRow, workspace)) return false;
+  if (item.ownerType !== 'character') return false;
+  const character = attachedCharacters.find((entry) => String(entry.id) === String(item.ownerId));
+  return Boolean(character && String(character.ownerId) === String(user.id));
+}
+
+function sortInventoryItems(items = []) {
+  return [...items].sort((left, right) => {
+    if ((left.ownerType || '') !== (right.ownerType || '')) {
+      return String(left.ownerType || '').localeCompare(String(right.ownerType || ''));
+    }
+    if (String(left.ownerId || '') !== String(right.ownerId || '')) {
+      return String(left.ownerId || '').localeCompare(String(right.ownerId || ''));
+    }
+    return Number(left.sortOrder || 0) - Number(right.sortOrder || 0);
+  });
+}
+
+async function buildBoardCatalog() {
+  const [locationsResult, regionsResult, npcsResult, secretsResult, contentEntries] = await Promise.all([
+    db().from('locations').select('id, name, type, region_id').order('name'),
+    db().from('regions').select('id, name, category').order('name'),
+    db().from('npcs').select('id, name, type, location_id, region_id, secret_id').order('name'),
+    db().from('secrets').select('id, title, description').order('title'),
+    readContentEntries(),
+  ]);
+
+  throwIfError(locationsResult.error, 'campaign board locations');
+  throwIfError(regionsResult.error, 'campaign board regions');
+  throwIfError(npcsResult.error, 'campaign board npcs');
+  throwIfError(secretsResult.error, 'campaign board secrets');
+
   return {
-    campaign_id: campaignId,
-    name: ch.name || 'Unnamed Character',
-    race: ch.race || '',
-    class: ch.class || '',
-    subclass: ch.subclass || '',
-    level: Number(ch.level) || 1,
-    background: ch.background || '',
-    alignment: ch.alignment || '',
-    stats: ch.stats || { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
-    hp: Number(ch.hp) || 0,
-    max_hp: Number(ch.maxHp) || 0,
-    ac: Number(ch.ac) || 10,
-    speed: Number(ch.speed) || 30,
-    initiative: ch.initiative ?? null,
-    hit_dice: ch.hitDice || '',
-    proficiency_bonus: Number(ch.proficiencyBonus) || 2,
-    saving_throws: ch.savingThrows || {},
-    skills: ch.skills || {},
-    equipment: Array.isArray(ch.equipment) ? ch.equipment : [],
-    spells: Array.isArray(ch.spells) ? ch.spells : [],
-    abilities: Array.isArray(ch.abilities) ? ch.abilities : [],
-    features: Array.isArray(ch.features) ? ch.features : [],
-    languages: Array.isArray(ch.languages) ? ch.languages : [],
-    personality_traits: ch.personalityTraits || '',
-    ideals: ch.ideals || '',
-    bonds: ch.bonds || '',
-    flaws: ch.flaws || '',
-    backstory: ch.backstory || '',
-    notes: ch.notes || '',
-    image_url: ch.imageUrl || null,
-    color: ch.color || '#cfaa68',
+    locations: (locationsResult.data || []).map((entry) => ({
+      id: entry.id,
+      refType: 'location',
+      title: entry.name || 'Unnamed location',
+      subtitle: entry.type || '',
+      regionId: entry.region_id || null,
+    })),
+    regions: (regionsResult.data || []).map((entry) => ({
+      id: entry.id,
+      refType: 'region',
+      title: entry.name || 'Unnamed region',
+      subtitle: entry.category || '',
+    })),
+    npcs: (npcsResult.data || []).map((entry) => ({
+      id: entry.id,
+      refType: 'npc',
+      title: entry.name || 'Unnamed NPC',
+      subtitle: entry.type || '',
+      locationId: entry.location_id || null,
+      regionId: entry.region_id || null,
+      secretId: entry.secret_id || null,
+    })),
+    content: contentEntries.map((entry) => ({
+      id: entry.id,
+      refType: 'content',
+      title: entry.title || 'Untitled entry',
+      subtitle: entry.type || '',
+      secretId: entry.secretId || null,
+    })),
+    secrets: (secretsResult.data || []).map((entry) => ({
+      id: entry.id,
+      refType: 'secret',
+      title: entry.title || 'Untitled secret',
+      subtitle: entry.description || '',
+    })),
   };
 }
 
-function rowToCampaign(row, characters = []) {
+function buildLocationOptions(catalog) {
+  return (catalog.locations || []).map((entry) => ({
+    id: entry.id,
+    name: entry.title,
+    type: entry.subtitle,
+  }));
+}
+
+function buildCampaignPayload(campaignRow, workspace, viewer, usersById, playerCharacters, boardCatalog) {
+  const attachedCharacters = buildAttachedCharacters(workspace, playerCharacters, usersById);
+  const inventoryItems = sortInventoryItems(workspace.inventory?.items || []);
+  const membership = getMembership(workspace, viewer?.id);
+  const canManage = isCampaignManager(viewer, campaignRow, workspace);
+  const approvedMembers = (workspace.members || [])
+    .filter((entry) => entry.status === 'approved')
+    .map((entry) => ({
+      ...entry,
+      user: usersById.get(String(entry.userId)) || null,
+    }));
+  const pendingMembers = (workspace.members || [])
+    .filter((entry) => entry.status === 'pending')
+    .map((entry) => ({
+      ...entry,
+      user: usersById.get(String(entry.userId)) || null,
+    }));
+
   return {
-    id: row.id,
-    name: row.name,
-    description: row.description || '',
-    ownerId: row.owner_id,
-    ownerName: row.owner_name || 'Unknown',
-    sessionNotes: Array.isArray(row.session_notes) ? row.session_notes : [],
-    lastUsed: row.last_used,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    characters,
+    id: campaignRow.id,
+    name: campaignRow.name,
+    description: campaignRow.description || '',
+    ownerId: campaignRow.owner_id,
+    ownerName: campaignRow.owner_name || 'Unknown',
+    visibility: workspace.visibility || 'request',
+    coDmIds: workspace.coDmIds || [],
+    viewerStatus: isCampaignOwner(viewer, campaignRow)
+      ? 'owner'
+      : membership?.status || 'none',
+    viewerRole: isCampaignOwner(viewer, campaignRow)
+      ? 'owner'
+      : membership?.role || 'viewer',
+    canManage,
+    canEditSession: canViewCampaignWorkspace(viewer, campaignRow, workspace),
+    members: approvedMembers.map((entry) => ({
+      userId: entry.userId,
+      role: entry.role,
+      status: entry.status,
+      name: entry.user?.name || 'Unknown',
+      email: entry.user?.email || '',
+      username: entry.user?.username || '',
+      isCoDm: entry.role === 'co_dm',
+    })),
+    pendingMembers: pendingMembers.map((entry) => ({
+      userId: entry.userId,
+      role: entry.role,
+      status: entry.status,
+      name: entry.user?.name || 'Unknown',
+      email: entry.user?.email || '',
+      username: entry.user?.username || '',
+    })),
+    attachedCharacters: attachedCharacters.map((character) => ({
+      ...character,
+      canEditSheet: canEditCharacterAttachment(viewer, campaignRow, workspace, character),
+      canEditAttachment: canEditCharacterAttachment(viewer, campaignRow, workspace, character),
+    })),
+    inventory: {
+      items: inventoryItems.map((item) => ({
+        ...item,
+        canManage: canManageInventoryItem(viewer, campaignRow, workspace, item, attachedCharacters),
+      })),
+    },
+    boardState: canManage ? workspace.boardState : null,
+    sessionState: workspace.sessionState,
+    locationOptions: buildLocationOptions(boardCatalog),
+    createdAt: campaignRow.created_at,
+    updatedAt: campaignRow.updated_at,
+    lastUsed: campaignRow.last_used,
   };
 }
 
-async function fetchCampaignWithChars(campaignId, ownerId) {
-  const { data: campaign, error: cErr } = await db()
-    .from('campaigns')
-    .select('*')
-    .eq('id', campaignId)
-    .eq('owner_id', ownerId)
-    .single();
-  throwIfError(cErr, 'campaign fetch');
-  if (!campaign) return null;
-
-  const { data: chars, error: chErr } = await db()
-    .from('campaign_characters')
-    .select('*')
-    .eq('campaign_id', campaignId)
-    .order('created_at');
-  throwIfError(chErr, 'characters fetch');
-
-  return rowToCampaign(campaign, (chars || []).map(rowToCharacter));
+async function readCampaignRow(campaignId) {
+  const { data, error } = await db().from('campaigns').select('*').eq('id', campaignId).single();
+  if (error?.code === 'PGRST116') return null;
+  throwIfError(error, 'campaign fetch');
+  return data;
 }
 
-// ── Routes ────────────────────────────────────────────────────────────────────
+async function touchCampaign(campaignId) {
+  await db().from('campaigns').update({ last_used: nowIso() }).eq('id', campaignId);
+}
 
-// GET /campaigns/me — get current user's campaigns with characters
 router.get('/me', authRequired, async (req, res) => {
   try {
-    const { data: campaigns, error } = await db()
-      .from('campaigns')
-      .select('*')
-      .eq('owner_id', req.user.id)
-      .order('last_used', { ascending: false });
-    throwIfError(error, 'campaigns/me fetch');
+    const [{ data: campaignRows, error }, workspaceIndex] = await Promise.all([
+      db().from('campaigns').select('*').order('last_used', { ascending: false }),
+      readCampaignWorkspaceIndex(),
+    ]);
+    throwIfError(error, 'campaign list fetch');
 
-    const results = await Promise.all(
-      (campaigns || []).map(async (c) => {
-        const { data: chars, error: chErr } = await db()
-          .from('campaign_characters')
-          .select('*')
-          .eq('campaign_id', c.id)
-          .order('created_at');
-        throwIfError(chErr, 'campaigns/me chars');
-        return rowToCampaign(c, (chars || []).map(rowToCharacter));
-      })
-    );
+    const accessible = [];
+    const discoverable = [];
 
-    return res.json({ campaigns: results });
-  } catch (err) {
-    console.error(err);
+    (campaignRows || []).forEach((campaignRow) => {
+      const workspace = ensureCampaignWorkspace(workspaceIndex, campaignRow.id);
+      const summary = normalizeCampaignSummary(campaignRow, workspace, req.user);
+      const membership = getMembership(workspace, req.user.id);
+      if (isCampaignOwner(req.user, campaignRow) || membership) {
+        accessible.push(summary);
+        return;
+      }
+      discoverable.push(summary);
+    });
+
+    await writeCampaignWorkspaceIndex(workspaceIndex);
+    return res.json({ campaigns: accessible, discoverableCampaigns: discoverable });
+  } catch (error) {
+    console.error(error);
     return res.status(500).json({ error: 'Unable to load campaigns.' });
   }
 });
 
-// GET /campaigns/:id — single campaign
 router.get('/:id', authRequired, async (req, res) => {
   try {
-    const campaign = await fetchCampaignWithChars(req.params.id, req.user.id);
-    if (!campaign) return res.status(404).json({ error: 'Campaign not found.' });
-    return res.json({ campaign });
-  } catch (err) {
-    console.error(err);
+    const campaignRow = await readCampaignRow(req.params.id);
+    if (!campaignRow) {
+      return res.status(404).json({ error: 'Campaign not found.' });
+    }
+
+    const [workspaceIndex, users, playerCharacters, boardCatalog] = await Promise.all([
+      readCampaignWorkspaceIndex(),
+      readAllUsers(),
+      readPlayerCharacters(),
+      buildBoardCatalog(),
+    ]);
+    const workspace = ensureCampaignWorkspace(workspaceIndex, campaignRow.id);
+
+    if (!canViewCampaignWorkspace(req.user, campaignRow, workspace)) {
+      if (canSeePendingCampaign(req.user, campaignRow, workspace)) {
+        return res.json({
+          campaign: {
+            ...normalizeCampaignSummary(campaignRow, workspace, req.user),
+            pendingOnly: true,
+          },
+        });
+      }
+      return res.status(403).json({ error: 'You do not have access to this campaign.' });
+    }
+
+    const usersById = buildUserMap(users);
+    const payload = buildCampaignPayload(campaignRow, workspace, req.user, usersById, playerCharacters, boardCatalog);
+    await writeCampaignWorkspaceIndex(workspaceIndex);
+    return res.json({ campaign: payload });
+  } catch (error) {
+    console.error(error);
     return res.status(500).json({ error: 'Unable to load campaign.' });
   }
 });
 
-// POST /campaigns — create a new campaign
-router.post('/', authRequired, editorRequired, async (req, res) => {
-  const { name, description } = req.body;
-  if (!name?.trim()) return res.status(400).json({ error: 'Campaign name is required.' });
+router.post('/', authRequired, async (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  const description = String(req.body?.description || '').trim();
+  if (!name) {
+    return res.status(400).json({ error: 'Campaign name is required.' });
+  }
 
   try {
     const { data, error } = await db()
       .from('campaigns')
       .insert({
-        name: name.trim(),
-        description: (description || '').trim(),
+        name,
+        description,
         owner_id: req.user.id,
         owner_name: req.user.name || req.user.email || 'Unknown',
       })
       .select()
       .single();
     throwIfError(error, 'campaign create');
-    return res.status(201).json({ campaign: rowToCampaign(data, []) });
-  } catch (err) {
-    console.error(err);
+
+    const workspaceIndex = await readCampaignWorkspaceIndex();
+    const workspace = ensureCampaignWorkspace(workspaceIndex, data.id);
+    workspace.visibility = 'request';
+    workspace.updatedAt = nowIso();
+    await writeCampaignWorkspaceIndex(workspaceIndex);
+    return res.status(201).json({ campaign: normalizeCampaignSummary(data, workspace, req.user) });
+  } catch (error) {
+    console.error(error);
     return res.status(500).json({ error: 'Unable to create campaign.' });
   }
 });
 
-// PATCH /campaigns/:id — update campaign name/description/sessionNotes
-router.patch('/:id', authRequired, editorRequired, async (req, res) => {
-  const { id } = req.params;
-  const { name, description, sessionNotes } = req.body;
-
+router.patch('/:id', authRequired, async (req, res) => {
   try {
-    // Verify ownership
-    const { data: existing, error: fetchErr } = await db()
-      .from('campaigns')
-      .select('owner_id')
-      .eq('id', id)
-      .single();
-    if (fetchErr?.code === 'PGRST116') return res.status(404).json({ error: 'Campaign not found.' });
-    throwIfError(fetchErr, 'campaign PATCH fetch');
-    if (existing.owner_id !== req.user.id) return res.status(403).json({ error: 'Not your campaign.' });
+    const campaignRow = await readCampaignRow(req.params.id);
+    if (!campaignRow) {
+      return res.status(404).json({ error: 'Campaign not found.' });
+    }
+    const workspaceIndex = await readCampaignWorkspaceIndex();
+    const workspace = ensureCampaignWorkspace(workspaceIndex, campaignRow.id);
+    if (!isCampaignManager(req.user, campaignRow, workspace)) {
+      return res.status(403).json({ error: 'Only campaign managers can update this campaign.' });
+    }
 
-    const patchRow = {
-      last_used: new Date().toISOString(),
-      ...(name !== undefined && { name: name.trim() }),
-      ...(description !== undefined && { description: description.trim() }),
-      ...(sessionNotes !== undefined && { session_notes: sessionNotes }),
-    };
-    const { data, error } = await db()
-      .from('campaigns')
-      .update(patchRow)
-      .eq('id', id)
-      .select()
-      .single();
-    throwIfError(error, 'campaign PATCH update');
+    const patch = {};
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'name')) {
+      patch.name = String(req.body.name || '').trim() || campaignRow.name;
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'description')) {
+      patch.description = String(req.body.description || '').trim();
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'sessionNotes')) {
+      patch.session_notes = Array.isArray(req.body.sessionNotes) ? req.body.sessionNotes : [];
+    }
 
-    const campaign = await fetchCampaignWithChars(id, req.user.id);
-    return res.json({ campaign: campaign || rowToCampaign(data, []) });
-  } catch (err) {
-    console.error(err);
+    let nextRow = campaignRow;
+    if (Object.keys(patch).length) {
+      const { data, error } = await db()
+        .from('campaigns')
+        .update(patch)
+        .eq('id', campaignRow.id)
+        .select()
+        .single();
+      throwIfError(error, 'campaign update');
+      nextRow = data;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'visibility')) {
+      workspace.visibility = String(req.body.visibility || 'request');
+    }
+    workspace.updatedAt = nowIso();
+    await writeCampaignWorkspaceIndex(workspaceIndex);
+    return res.json({ campaign: normalizeCampaignSummary(nextRow, workspace, req.user) });
+  } catch (error) {
+    console.error(error);
     return res.status(500).json({ error: 'Unable to update campaign.' });
   }
 });
 
-// POST /campaigns/:id/characters — add a character
-router.post('/:id/characters', authRequired, editorRequired, async (req, res) => {
-  const { id } = req.params;
-
-  try {
-    // Verify ownership
-    const { data: campaign, error: fetchErr } = await db()
-      .from('campaigns')
-      .select('owner_id')
-      .eq('id', id)
-      .single();
-    if (fetchErr?.code === 'PGRST116') return res.status(404).json({ error: 'Campaign not found.' });
-    throwIfError(fetchErr, 'add char fetch campaign');
-    if (campaign.owner_id !== req.user.id) return res.status(403).json({ error: 'Not your campaign.' });
-
-    const row = characterToRow(req.body, id);
-    const { data, error } = await db()
-      .from('campaign_characters')
-      .insert(row)
-      .select()
-      .single();
-    throwIfError(error, 'add char insert');
-
-    // Update campaign last_used
-    await db().from('campaigns').update({ last_used: new Date().toISOString() }).eq('id', id);
-
-    return res.status(201).json({ character: rowToCharacter(data) });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: 'Unable to add character.' });
-  }
-});
-
-// PATCH /campaigns/:id/characters/:charId — update character sheet
-router.patch('/:id/characters/:charId', authRequired, editorRequired, async (req, res) => {
-  const { id, charId } = req.params;
-
-  try {
-    // Verify campaign ownership
-    const { data: campaign, error: fetchErr } = await db()
-      .from('campaigns')
-      .select('owner_id')
-      .eq('id', id)
-      .single();
-    if (fetchErr?.code === 'PGRST116') return res.status(404).json({ error: 'Campaign not found.' });
-    throwIfError(fetchErr, 'update char fetch campaign');
-    if (campaign.owner_id !== req.user.id) return res.status(403).json({ error: 'Not your campaign.' });
-
-    // Fetch existing character
-    const { data: existing, error: charFetchErr } = await db()
-      .from('campaign_characters')
-      .select('*')
-      .eq('id', charId)
-      .eq('campaign_id', id)
-      .single();
-    if (charFetchErr?.code === 'PGRST116') return res.status(404).json({ error: 'Character not found.' });
-    throwIfError(charFetchErr, 'update char fetch char');
-
-    // Merge incoming over existing, convert to row
-    const merged = { ...rowToCharacter(existing), ...req.body };
-    const updateRow = characterToRow(merged, id);
-    delete updateRow.campaign_id; // don't update campaign_id
-
-    const { data, error } = await db()
-      .from('campaign_characters')
-      .update(updateRow)
-      .eq('id', charId)
-      .select()
-      .single();
-    throwIfError(error, 'update char update');
-
-    await db().from('campaigns').update({ last_used: new Date().toISOString() }).eq('id', id);
-
-    return res.json({ character: rowToCharacter(data) });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: 'Unable to update character.' });
-  }
-});
-
-// DELETE /campaigns/:id — delete a campaign and all its characters (cascade)
 router.delete('/:id', authRequired, async (req, res) => {
-  const { id } = req.params;
-
   try {
-    const { data: campaign, error: fetchErr } = await db()
-      .from('campaigns')
-      .select('owner_id')
-      .eq('id', id)
-      .single();
-    if (fetchErr?.code === 'PGRST116') return res.status(404).json({ error: 'Campaign not found.' });
-    throwIfError(fetchErr, 'delete campaign fetch');
-    if (campaign.owner_id !== req.user.id) return res.status(403).json({ error: 'Not your campaign.' });
+    const campaignRow = await readCampaignRow(req.params.id);
+    if (!campaignRow) {
+      return res.status(404).json({ error: 'Campaign not found.' });
+    }
+    if (!isCampaignOwner(req.user, campaignRow) && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only the campaign owner can delete this campaign.' });
+    }
 
-    const { error } = await db().from('campaigns').delete().eq('id', id);
-    throwIfError(error, 'delete campaign');
+    const { error } = await db().from('campaigns').delete().eq('id', campaignRow.id);
+    throwIfError(error, 'campaign delete');
+
+    const workspaceIndex = await readCampaignWorkspaceIndex();
+    delete workspaceIndex.campaigns[String(campaignRow.id)];
+    await writeCampaignWorkspaceIndex(workspaceIndex);
     return res.json({ success: true });
-  } catch (err) {
-    console.error(err);
+  } catch (error) {
+    console.error(error);
     return res.status(500).json({ error: 'Unable to delete campaign.' });
   }
 });
 
-// DELETE /campaigns/:id/characters/:charId — remove a character
-router.delete('/:id/characters/:charId', authRequired, async (req, res) => {
-  const { id, charId } = req.params;
-
+router.post('/:id/join', authRequired, async (req, res) => {
   try {
-    const { data: campaign, error: fetchErr } = await db()
-      .from('campaigns')
-      .select('owner_id')
-      .eq('id', id)
-      .single();
-    if (fetchErr?.code === 'PGRST116') return res.status(404).json({ error: 'Campaign not found.' });
-    throwIfError(fetchErr, 'delete char fetch campaign');
-    if (campaign.owner_id !== req.user.id) return res.status(403).json({ error: 'Not your campaign.' });
+    const campaignRow = await readCampaignRow(req.params.id);
+    if (!campaignRow) {
+      return res.status(404).json({ error: 'Campaign not found.' });
+    }
+    const workspaceIndex = await readCampaignWorkspaceIndex();
+    const workspace = ensureCampaignWorkspace(workspaceIndex, campaignRow.id);
+    if (isCampaignOwner(req.user, campaignRow)) {
+      return res.status(400).json({ error: 'You already own this campaign.' });
+    }
+    const existing = getMembership(workspace, req.user.id);
+    if (existing?.status === 'approved') {
+      return res.status(400).json({ error: 'You are already in this campaign.' });
+    }
+    const now = nowIso();
+    if (existing) {
+      existing.status = 'pending';
+      existing.role = 'player';
+      existing.updatedAt = now;
+    } else {
+      workspace.members.push({
+        userId: String(req.user.id),
+        status: 'pending',
+        role: 'player',
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+    workspace.updatedAt = now;
+    await writeCampaignWorkspaceIndex(workspaceIndex);
+    return res.json({ success: true, membership: getMembership(workspace, req.user.id) });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to request access to this campaign.' });
+  }
+});
 
-    const { error } = await db()
-      .from('campaign_characters')
-      .delete()
-      .eq('id', charId)
-      .eq('campaign_id', id);
-    throwIfError(error, 'delete char');
+router.get('/:id/members', authRequired, async (req, res) => {
+  try {
+    const campaignRow = await readCampaignRow(req.params.id);
+    if (!campaignRow) {
+      return res.status(404).json({ error: 'Campaign not found.' });
+    }
+    const [workspaceIndex, users] = await Promise.all([
+      readCampaignWorkspaceIndex(),
+      readAllUsers(),
+    ]);
+    const workspace = ensureCampaignWorkspace(workspaceIndex, campaignRow.id);
+    if (!canViewCampaignWorkspace(req.user, campaignRow, workspace)) {
+      return res.status(403).json({ error: 'You do not have access to this campaign.' });
+    }
+    const usersById = buildUserMap(users);
+    const memberships = (workspace.members || []).map((entry) => ({
+      ...entry,
+      name: usersById.get(String(entry.userId))?.name || 'Unknown',
+      email: usersById.get(String(entry.userId))?.email || '',
+      username: usersById.get(String(entry.userId))?.username || '',
+    }));
+    return res.json({
+      members: memberships,
+      owner: usersById.get(String(campaignRow.owner_id)) || {
+        id: String(campaignRow.owner_id),
+        name: campaignRow.owner_name || 'Unknown',
+        email: '',
+        username: '',
+      },
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to load campaign members.' });
+  }
+});
 
-    await db().from('campaigns').update({ last_used: new Date().toISOString() }).eq('id', id);
+router.patch('/:id/members/:userId', authRequired, async (req, res) => {
+  try {
+    const campaignRow = await readCampaignRow(req.params.id);
+    if (!campaignRow) {
+      return res.status(404).json({ error: 'Campaign not found.' });
+    }
+    const workspaceIndex = await readCampaignWorkspaceIndex();
+    const workspace = ensureCampaignWorkspace(workspaceIndex, campaignRow.id);
+    if (!isCampaignManager(req.user, campaignRow, workspace)) {
+      return res.status(403).json({ error: 'Only campaign managers can manage members.' });
+    }
+
+    const membership = getMembership(workspace, req.params.userId);
+    if (!membership) {
+      return res.status(404).json({ error: 'Campaign member not found.' });
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'status')) {
+      membership.status = ['pending', 'approved', 'rejected', 'left'].includes(req.body.status)
+        ? req.body.status
+        : membership.status;
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'role')) {
+      membership.role = req.body.role === 'co_dm' ? 'co_dm' : 'player';
+    }
+    membership.updatedAt = nowIso();
+    workspace.coDmIds = workspace.members
+      .filter((entry) => entry.status === 'approved' && entry.role === 'co_dm')
+      .map((entry) => String(entry.userId));
+    workspace.updatedAt = membership.updatedAt;
+    await writeCampaignWorkspaceIndex(workspaceIndex);
+    return res.json({ success: true, membership });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to update campaign membership.' });
+  }
+});
+
+router.delete('/:id/members/:userId', authRequired, async (req, res) => {
+  try {
+    const campaignRow = await readCampaignRow(req.params.id);
+    if (!campaignRow) {
+      return res.status(404).json({ error: 'Campaign not found.' });
+    }
+    const [workspaceIndex, playerCharacters] = await Promise.all([
+      readCampaignWorkspaceIndex(),
+      readPlayerCharacters(),
+    ]);
+    const workspace = ensureCampaignWorkspace(workspaceIndex, campaignRow.id);
+    if (!isCampaignManager(req.user, campaignRow, workspace)) {
+      return res.status(403).json({ error: 'Only campaign managers can remove members.' });
+    }
+    workspace.members = (workspace.members || []).filter(
+      (entry) => String(entry.userId) !== String(req.params.userId)
+    );
+    const removedCharacterIds = playerCharacters
+      .filter((character) => String(character.ownerId) === String(req.params.userId))
+      .map((character) => String(character.id));
+    workspace.attachedCharacterIds = (workspace.attachedCharacterIds || []).filter(
+      (characterId) => !removedCharacterIds.includes(String(characterId))
+    );
+    removedCharacterIds.forEach((characterId) => {
+      if (workspace.attachments?.[characterId]) {
+        delete workspace.attachments[characterId];
+      }
+    });
+    workspace.inventory.items = (workspace.inventory?.items || []).map((item) =>
+      item.ownerType === 'character' && removedCharacterIds.includes(String(item.ownerId))
+        ? { ...item, ownerType: 'stash', ownerId: null, updatedAt: nowIso() }
+        : item
+    );
+    workspace.coDmIds = workspace.members
+      .filter((entry) => entry.status === 'approved' && entry.role === 'co_dm')
+      .map((entry) => String(entry.userId));
+    workspace.updatedAt = nowIso();
+    await writeCampaignWorkspaceIndex(workspaceIndex);
     return res.json({ success: true });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: 'Unable to delete character.' });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to remove campaign member.' });
+  }
+});
+
+router.post('/:id/characters/attach', authRequired, async (req, res) => {
+  const characterId = String(req.body?.characterId || '').trim();
+  if (!characterId) {
+    return res.status(400).json({ error: 'A characterId is required.' });
+  }
+  try {
+    const [campaignRow, workspaceIndex, playerCharacters] = await Promise.all([
+      readCampaignRow(req.params.id),
+      readCampaignWorkspaceIndex(),
+      readPlayerCharacters(),
+    ]);
+    if (!campaignRow) {
+      return res.status(404).json({ error: 'Campaign not found.' });
+    }
+    const workspace = ensureCampaignWorkspace(workspaceIndex, campaignRow.id);
+    if (!canViewCampaignWorkspace(req.user, campaignRow, workspace)) {
+      return res.status(403).json({ error: 'You are not approved for this campaign.' });
+    }
+    const character = playerCharacters.find((entry) => String(entry.id) === characterId);
+    if (!character) {
+      return res.status(404).json({ error: 'Character not found.' });
+    }
+    if (String(character.ownerId) !== String(req.user.id) && !isCampaignManager(req.user, campaignRow, workspace)) {
+      return res.status(403).json({ error: 'Only the owner or DM can attach this character.' });
+    }
+
+    if (!workspace.attachedCharacterIds.includes(characterId)) {
+      workspace.attachedCharacterIds.push(characterId);
+    }
+    workspace.attachments[characterId] = workspace.attachments[characterId] || {
+      characterId,
+      nickname: '',
+      currentHp: character.hp ?? null,
+      maxHp: character.maxHp ?? null,
+      status: 'active',
+      notes: '',
+      tags: [],
+      updatedAt: nowIso(),
+    };
+    workspace.updatedAt = nowIso();
+    await writeCampaignWorkspaceIndex(workspaceIndex);
+    await touchCampaign(campaignRow.id);
+    return res.json({ success: true, attachment: workspace.attachments[characterId] });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to attach character to campaign.' });
+  }
+});
+
+router.patch('/:id/characters/:charId', authRequired, async (req, res) => {
+  try {
+    const [campaignRow, workspaceIndex, playerCharacters] = await Promise.all([
+      readCampaignRow(req.params.id),
+      readCampaignWorkspaceIndex(),
+      readPlayerCharacters(),
+    ]);
+    if (!campaignRow) {
+      return res.status(404).json({ error: 'Campaign not found.' });
+    }
+    const workspace = ensureCampaignWorkspace(workspaceIndex, campaignRow.id);
+    const character = playerCharacters.find((entry) => String(entry.id) === String(req.params.charId));
+    if (!character || !workspace.attachedCharacterIds.includes(String(req.params.charId))) {
+      return res.status(404).json({ error: 'Attached character not found.' });
+    }
+    if (!canEditCharacterAttachment(req.user, campaignRow, workspace, character)) {
+      return res.status(403).json({ error: 'You cannot edit this campaign character.' });
+    }
+
+    const existing = workspace.attachments[String(req.params.charId)] || {
+      characterId: String(req.params.charId),
+      nickname: '',
+      currentHp: character.hp ?? null,
+      maxHp: character.maxHp ?? null,
+      status: 'active',
+      notes: '',
+      tags: [],
+      updatedAt: nowIso(),
+    };
+    workspace.attachments[String(req.params.charId)] = {
+      ...existing,
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'nickname') ? { nickname: String(req.body.nickname || '').trim() } : {}),
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'currentHp') ? { currentHp: req.body.currentHp === null ? null : Number(req.body.currentHp) } : {}),
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'maxHp') ? { maxHp: req.body.maxHp === null ? null : Number(req.body.maxHp) } : {}),
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'status') ? { status: String(req.body.status || 'active').trim() || 'active' } : {}),
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'notes') ? { notes: String(req.body.notes || '').trim() } : {}),
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'tags') ? { tags: Array.isArray(req.body.tags) ? req.body.tags.map((entry) => String(entry).trim()).filter(Boolean) : [] } : {}),
+      updatedAt: nowIso(),
+    };
+    workspace.updatedAt = workspace.attachments[String(req.params.charId)].updatedAt;
+    await writeCampaignWorkspaceIndex(workspaceIndex);
+    await touchCampaign(campaignRow.id);
+    return res.json({ success: true, attachment: workspace.attachments[String(req.params.charId)] });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to update campaign character.' });
+  }
+});
+
+router.delete('/:id/characters/:charId', authRequired, async (req, res) => {
+  try {
+    const [campaignRow, workspaceIndex, playerCharacters] = await Promise.all([
+      readCampaignRow(req.params.id),
+      readCampaignWorkspaceIndex(),
+      readPlayerCharacters(),
+    ]);
+    if (!campaignRow) {
+      return res.status(404).json({ error: 'Campaign not found.' });
+    }
+    const workspace = ensureCampaignWorkspace(workspaceIndex, campaignRow.id);
+    const character = playerCharacters.find((entry) => String(entry.id) === String(req.params.charId));
+    if (!character || !workspace.attachedCharacterIds.includes(String(req.params.charId))) {
+      return res.status(404).json({ error: 'Attached character not found.' });
+    }
+    if (String(character.ownerId) !== String(req.user.id) && !isCampaignManager(req.user, campaignRow, workspace)) {
+      return res.status(403).json({ error: 'Only the owner or DM can detach this character.' });
+    }
+    workspace.attachedCharacterIds = workspace.attachedCharacterIds.filter(
+      (entry) => String(entry) !== String(req.params.charId)
+    );
+    delete workspace.attachments[String(req.params.charId)];
+    workspace.inventory.items = (workspace.inventory?.items || []).map((item) =>
+      item.ownerType === 'character' && String(item.ownerId) === String(req.params.charId)
+        ? { ...item, ownerType: 'stash', ownerId: null, updatedAt: nowIso() }
+        : item
+    );
+    workspace.updatedAt = nowIso();
+    await writeCampaignWorkspaceIndex(workspaceIndex);
+    await touchCampaign(campaignRow.id);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to detach character.' });
+  }
+});
+
+router.get('/:id/inventory', authRequired, async (req, res) => {
+  try {
+    const [campaignRow, workspaceIndex, users, playerCharacters] = await Promise.all([
+      readCampaignRow(req.params.id),
+      readCampaignWorkspaceIndex(),
+      readAllUsers(),
+      readPlayerCharacters(),
+    ]);
+    if (!campaignRow) {
+      return res.status(404).json({ error: 'Campaign not found.' });
+    }
+    const workspace = ensureCampaignWorkspace(workspaceIndex, campaignRow.id);
+    if (!canViewCampaignWorkspace(req.user, campaignRow, workspace)) {
+      return res.status(403).json({ error: 'You do not have access to this campaign.' });
+    }
+    const attachedCharacters = buildAttachedCharacters(workspace, playerCharacters, buildUserMap(users));
+    const items = sortInventoryItems(workspace.inventory?.items || []).map((item) => ({
+      ...item,
+      canManage: canManageInventoryItem(req.user, campaignRow, workspace, item, attachedCharacters),
+    }));
+    return res.json({ items });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to load campaign inventory.' });
+  }
+});
+
+router.post('/:id/inventory/items', authRequired, async (req, res) => {
+  try {
+    const [campaignRow, workspaceIndex] = await Promise.all([
+      readCampaignRow(req.params.id),
+      readCampaignWorkspaceIndex(),
+    ]);
+    if (!campaignRow) {
+      return res.status(404).json({ error: 'Campaign not found.' });
+    }
+    const workspace = ensureCampaignWorkspace(workspaceIndex, campaignRow.id);
+    if (!isCampaignManager(req.user, campaignRow, workspace)) {
+      return res.status(403).json({ error: 'Only campaign managers can create items.' });
+    }
+
+    const item = {
+      id: req.body?.id,
+      name: req.body?.name,
+      type: req.body?.type,
+      quantity: req.body?.quantity,
+      notes: req.body?.notes,
+      tags: req.body?.tags,
+      ownerType: req.body?.ownerType || 'stash',
+      ownerId: req.body?.ownerId || null,
+      createdBy: req.user.id,
+      sortOrder: (workspace.inventory?.items || []).length,
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    };
+    workspace.inventory.items.push(item);
+    workspace.updatedAt = nowIso();
+    await writeCampaignWorkspaceIndex(workspaceIndex);
+    await touchCampaign(campaignRow.id);
+    return res.status(201).json({ item });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to create campaign item.' });
+  }
+});
+
+router.patch('/:id/inventory/items/:itemId', authRequired, async (req, res) => {
+  try {
+    const [campaignRow, workspaceIndex, users, playerCharacters] = await Promise.all([
+      readCampaignRow(req.params.id),
+      readCampaignWorkspaceIndex(),
+      readAllUsers(),
+      readPlayerCharacters(),
+    ]);
+    if (!campaignRow) {
+      return res.status(404).json({ error: 'Campaign not found.' });
+    }
+    const workspace = ensureCampaignWorkspace(workspaceIndex, campaignRow.id);
+    const attachedCharacters = buildAttachedCharacters(workspace, playerCharacters, buildUserMap(users));
+    const item = (workspace.inventory?.items || []).find((entry) => String(entry.id) === String(req.params.itemId));
+    if (!item) {
+      return res.status(404).json({ error: 'Item not found.' });
+    }
+    if (!isCampaignManager(req.user, campaignRow, workspace) && !canManageInventoryItem(req.user, campaignRow, workspace, item, attachedCharacters)) {
+      return res.status(403).json({ error: 'You cannot edit this item.' });
+    }
+
+    Object.assign(item, {
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'name') ? { name: String(req.body.name || '').trim() || item.name } : {}),
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'type') ? { type: String(req.body.type || '').trim() || item.type } : {}),
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'quantity') ? { quantity: Math.max(1, Number(req.body.quantity) || 1) } : {}),
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'notes') ? { notes: String(req.body.notes || '').trim() } : {}),
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'tags') ? { tags: Array.isArray(req.body.tags) ? req.body.tags.map((entry) => String(entry).trim()).filter(Boolean) : [] } : {}),
+      updatedAt: nowIso(),
+    });
+    workspace.updatedAt = item.updatedAt;
+    await writeCampaignWorkspaceIndex(workspaceIndex);
+    await touchCampaign(campaignRow.id);
+    return res.json({ item });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to update campaign item.' });
+  }
+});
+
+router.post('/:id/inventory/move', authRequired, async (req, res) => {
+  try {
+    const [campaignRow, workspaceIndex, users, playerCharacters] = await Promise.all([
+      readCampaignRow(req.params.id),
+      readCampaignWorkspaceIndex(),
+      readAllUsers(),
+      readPlayerCharacters(),
+    ]);
+    if (!campaignRow) {
+      return res.status(404).json({ error: 'Campaign not found.' });
+    }
+    const workspace = ensureCampaignWorkspace(workspaceIndex, campaignRow.id);
+    const attachedCharacters = buildAttachedCharacters(workspace, playerCharacters, buildUserMap(users));
+    const item = (workspace.inventory?.items || []).find((entry) => String(entry.id) === String(req.body?.itemId || ''));
+    if (!item) {
+      return res.status(404).json({ error: 'Item not found.' });
+    }
+
+    const isManager = isCampaignManager(req.user, campaignRow, workspace);
+    const canMove = isManager || canManageInventoryItem(req.user, campaignRow, workspace, item, attachedCharacters);
+    if (!canMove) {
+      return res.status(403).json({ error: 'You cannot move this item.' });
+    }
+
+    const targetOwnerType = req.body?.ownerType === 'character' ? 'character' : 'stash';
+    const targetOwnerId = targetOwnerType === 'character' ? String(req.body?.ownerId || '') : null;
+    if (targetOwnerType === 'character') {
+      const targetCharacter = attachedCharacters.find((entry) => String(entry.id) === targetOwnerId);
+      if (!targetCharacter) {
+        return res.status(400).json({ error: 'Target character not found in this campaign.' });
+      }
+      if (!isManager && String(targetCharacter.ownerId) !== String(req.user.id)) {
+        return res.status(403).json({ error: 'You can only move items to your own character.' });
+      }
+    }
+
+    item.ownerType = targetOwnerType;
+    item.ownerId = targetOwnerId || null;
+    item.sortOrder = Number(req.body?.sortOrder) || 0;
+    item.updatedAt = nowIso();
+    workspace.updatedAt = item.updatedAt;
+    await writeCampaignWorkspaceIndex(workspaceIndex);
+    await touchCampaign(campaignRow.id);
+    return res.json({ item });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to move campaign item.' });
+  }
+});
+
+router.delete('/:id/inventory/items/:itemId', authRequired, async (req, res) => {
+  try {
+    const [campaignRow, workspaceIndex] = await Promise.all([
+      readCampaignRow(req.params.id),
+      readCampaignWorkspaceIndex(),
+    ]);
+    if (!campaignRow) {
+      return res.status(404).json({ error: 'Campaign not found.' });
+    }
+    const workspace = ensureCampaignWorkspace(workspaceIndex, campaignRow.id);
+    if (!isCampaignManager(req.user, campaignRow, workspace)) {
+      return res.status(403).json({ error: 'Only campaign managers can delete items.' });
+    }
+    workspace.inventory.items = (workspace.inventory?.items || []).filter(
+      (entry) => String(entry.id) !== String(req.params.itemId)
+    );
+    workspace.updatedAt = nowIso();
+    await writeCampaignWorkspaceIndex(workspaceIndex);
+    await touchCampaign(campaignRow.id);
+    return res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to delete campaign item.' });
+  }
+});
+
+router.get('/:id/board', authRequired, async (req, res) => {
+  try {
+    const [campaignRow, workspaceIndex] = await Promise.all([
+      readCampaignRow(req.params.id),
+      readCampaignWorkspaceIndex(),
+    ]);
+    if (!campaignRow) {
+      return res.status(404).json({ error: 'Campaign not found.' });
+    }
+    const workspace = ensureCampaignWorkspace(workspaceIndex, campaignRow.id);
+    if (!isCampaignManager(req.user, campaignRow, workspace)) {
+      return res.status(403).json({ error: 'Only campaign managers can access the DM board.' });
+    }
+    const catalog = await buildBoardCatalog();
+    return res.json({ boardState: workspace.boardState, catalog });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to load campaign board.' });
+  }
+});
+
+router.patch('/:id/board', authRequired, async (req, res) => {
+  try {
+    const [campaignRow, workspaceIndex] = await Promise.all([
+      readCampaignRow(req.params.id),
+      readCampaignWorkspaceIndex(),
+    ]);
+    if (!campaignRow) {
+      return res.status(404).json({ error: 'Campaign not found.' });
+    }
+    const workspace = ensureCampaignWorkspace(workspaceIndex, campaignRow.id);
+    if (!isCampaignManager(req.user, campaignRow, workspace)) {
+      return res.status(403).json({ error: 'Only campaign managers can update the DM board.' });
+    }
+    workspace.boardState = {
+      cards: Array.isArray(req.body?.cards) ? req.body.cards : workspace.boardState.cards,
+      columns: {
+        hidden: Array.isArray(req.body?.columns?.hidden) ? req.body.columns.hidden : workspace.boardState.columns.hidden,
+        active: Array.isArray(req.body?.columns?.active) ? req.body.columns.active : workspace.boardState.columns.active,
+        revealed: Array.isArray(req.body?.columns?.revealed) ? req.body.columns.revealed : workspace.boardState.columns.revealed,
+      },
+    };
+    workspace.updatedAt = nowIso();
+    await writeCampaignWorkspaceIndex(workspaceIndex);
+    await touchCampaign(campaignRow.id);
+    return res.json({ boardState: workspace.boardState });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to update campaign board.' });
+  }
+});
+
+router.get('/:id/session', authRequired, async (req, res) => {
+  try {
+    const [campaignRow, workspaceIndex] = await Promise.all([
+      readCampaignRow(req.params.id),
+      readCampaignWorkspaceIndex(),
+    ]);
+    if (!campaignRow) {
+      return res.status(404).json({ error: 'Campaign not found.' });
+    }
+    const workspace = ensureCampaignWorkspace(workspaceIndex, campaignRow.id);
+    if (!canViewCampaignWorkspace(req.user, campaignRow, workspace)) {
+      return res.status(403).json({ error: 'You do not have access to this campaign session.' });
+    }
+    const catalog = await buildBoardCatalog();
+    return res.json({ sessionState: workspace.sessionState, locationOptions: buildLocationOptions(catalog) });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to load campaign session.' });
+  }
+});
+
+router.patch('/:id/session', authRequired, async (req, res) => {
+  try {
+    const [campaignRow, workspaceIndex] = await Promise.all([
+      readCampaignRow(req.params.id),
+      readCampaignWorkspaceIndex(),
+    ]);
+    if (!campaignRow) {
+      return res.status(404).json({ error: 'Campaign not found.' });
+    }
+    const workspace = ensureCampaignWorkspace(workspaceIndex, campaignRow.id);
+    if (!canViewCampaignWorkspace(req.user, campaignRow, workspace)) {
+      return res.status(403).json({ error: 'Only approved campaign members can edit the session.' });
+    }
+    workspace.sessionState = {
+      ...workspace.sessionState,
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'title') ? { title: String(req.body.title || '').trim() } : {}),
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'summary') ? { summary: String(req.body.summary || '').trim() } : {}),
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'notes') ? { notes: String(req.body.notes || '').trim() } : {}),
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'objectives') ? { objectives: Array.isArray(req.body.objectives) ? req.body.objectives.map((entry) => String(entry).trim()).filter(Boolean) : [] } : {}),
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'recentLoot') ? { recentLoot: Array.isArray(req.body.recentLoot) ? req.body.recentLoot.map((entry) => String(entry).trim()).filter(Boolean) : [] } : {}),
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'currentLocationId') ? { currentLocationId: req.body.currentLocationId ? String(req.body.currentLocationId) : null } : {}),
+      updatedAt: nowIso(),
+    };
+    workspace.updatedAt = workspace.sessionState.updatedAt;
+    await writeCampaignWorkspaceIndex(workspaceIndex);
+    await touchCampaign(campaignRow.id);
+    return res.json({ sessionState: workspace.sessionState });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to update campaign session.' });
   }
 });
 

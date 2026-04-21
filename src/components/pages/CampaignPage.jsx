@@ -1,53 +1,32 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import './CampaignPage.css';
 
 const API = '/api';
-
-// ── D&D 5e constants ─────────────────────────────────────────────────────────
-
+const CAMPAIGN_TABS = ['Overview', 'Party', 'Characters', 'Inventory', 'Session', 'DM Board'];
+const BOARD_COLUMNS = [
+  { id: 'hidden', label: 'Hidden Box' },
+  { id: 'active', label: 'Main Plot' },
+  { id: 'revealed', label: 'Revealed' },
+];
 const STATS = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
 const STAT_LABELS = { str: 'STR', dex: 'DEX', con: 'CON', int: 'INT', wis: 'WIS', cha: 'CHA' };
-const STAT_NAMES  = { str: 'Strength', dex: 'Dexterity', con: 'Constitution', int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma' };
-
-const SKILLS = [
-  { name: 'Acrobatics',      stat: 'dex' },
-  { name: 'Animal Handling', stat: 'wis' },
-  { name: 'Arcana',          stat: 'int' },
-  { name: 'Athletics',       stat: 'str' },
-  { name: 'Deception',       stat: 'cha' },
-  { name: 'History',         stat: 'int' },
-  { name: 'Insight',         stat: 'wis' },
-  { name: 'Intimidation',    stat: 'cha' },
-  { name: 'Investigation',   stat: 'int' },
-  { name: 'Medicine',        stat: 'wis' },
-  { name: 'Nature',          stat: 'int' },
-  { name: 'Perception',      stat: 'wis' },
-  { name: 'Performance',     stat: 'cha' },
-  { name: 'Persuasion',      stat: 'cha' },
-  { name: 'Religion',        stat: 'int' },
-  { name: 'Sleight of Hand', stat: 'dex' },
-  { name: 'Stealth',         stat: 'dex' },
-  { name: 'Survival',        stat: 'wis' },
-];
-
 const ALIGNMENTS = [
   'Lawful Good', 'Neutral Good', 'Chaotic Good',
   'Lawful Neutral', 'True Neutral', 'Chaotic Neutral',
   'Lawful Evil', 'Neutral Evil', 'Chaotic Evil',
 ];
-
 const SHEET_TABS = ['Overview', 'Combat', 'Skills', 'Gear & Spells', 'Background'];
 
 function mod(val) {
-  const m = Math.floor((Number(val || 10) - 10) / 2);
-  return m >= 0 ? `+${m}` : String(m);
+  const next = Math.floor((Number(val || 10) - 10) / 2);
+  return next >= 0 ? `+${next}` : String(next);
 }
 
-function blankCharacter(campaignId) {
+function blankCharacter() {
   return {
     id: null,
-    campaignId,
     name: '',
     race: '',
     class: '',
@@ -80,14 +59,27 @@ function blankCharacter(campaignId) {
   };
 }
 
-// ── StatBlock ────────────────────────────────────────────────────────────────
+async function apiJson(url, options = {}) {
+  const response = await fetch(url, {
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+    ...options,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error || 'Request failed.');
+  }
+  return data;
+}
 
 function StatBlock({ stat, value, editing, onChange }) {
-  const m = mod(value);
   return (
     <div className="cp-stat">
       <span className="cp-stat__label">{STAT_LABELS[stat]}</span>
-      <span className="cp-stat__mod">{m}</span>
+      <span className="cp-stat__mod">{mod(value)}</span>
       {editing ? (
         <input
           className="cp-stat__input"
@@ -95,471 +87,299 @@ function StatBlock({ stat, value, editing, onChange }) {
           min={1}
           max={30}
           value={value ?? 10}
-          onChange={e => onChange(Number(e.target.value))}
+          onChange={(event) => onChange(Number(event.target.value))}
         />
       ) : (
         <span className="cp-stat__val">{value ?? 10}</span>
       )}
-      <span className="cp-stat__name">{STAT_NAMES[stat]}</span>
     </div>
   );
 }
 
-// ── CharacterSheet ────────────────────────────────────────────────────────────
-
-function CharacterSheet({ character, campaignId, onSave, onClose, isDM, readOnly = false }) {
+function CharacterSheetModal({ character, campaignId, canEdit, onClose, onSaved }) {
+  const { toast } = useToast();
   const [tab, setTab] = useState('Overview');
-  const [draft, setDraft] = useState(character || blankCharacter(campaignId));
+  const [draft, setDraft] = useState(character || blankCharacter());
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState('');
   const isNew = !character?.id;
 
-  const set = (field, val) => setDraft(prev => ({ ...prev, [field]: val }));
-  const setStat = (stat, val) => setDraft(prev => ({
+  useEffect(() => {
+    setDraft(character || blankCharacter());
+  }, [character]);
+
+  const setField = (field, value) => setDraft((prev) => ({ ...prev, [field]: value }));
+  const setStat = (stat, value) => setDraft((prev) => ({
     ...prev,
-    stats: { ...prev.stats, [stat]: val },
+    stats: { ...prev.stats, [stat]: value },
   }));
+  const textArr = (arr) => (Array.isArray(arr) ? arr.join('\n') : arr || '');
+  const parseArr = (value) => value.split('\n').map((entry) => entry.trim()).filter(Boolean);
 
   const saveSheet = async () => {
-    if (!draft.name?.trim()) { setMsg('Character name is required.'); return; }
+    if (!draft.name?.trim()) {
+      toast.error('Character name is required.');
+      return;
+    }
     setSaving(true);
-    setMsg('');
     try {
-      let res;
-      if (isNew) {
-        res = await fetch(`${API}/campaigns/${campaignId}/characters`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify(draft),
-        });
-      } else {
-        res = await fetch(`${API}/campaigns/${campaignId}/characters/${draft.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify(draft),
-        });
-      }
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || 'Save failed');
-      setMsg('Saved!');
-      onSave(j.character);
-    } catch (e) { setMsg(e.message); }
-    finally { setSaving(false); }
-  };
-
-  const editing = !readOnly;
-  const color = draft.color || '#cfaa68';
-
-  const textArr = (arr) => (Array.isArray(arr) ? arr.join('\n') : arr || '');
-  const parseArr = (str) => str.split('\n').map(s => s.trim()).filter(Boolean);
-
-  return (
-    <div className="cp-sheet" style={{ '--char-color': color }}>
-      {/* Sheet header */}
-      <div className="cp-sheet__header">
-        <div className="cp-sheet__title-row">
-          <div className="cp-sheet__name-block">
-            {editing ? (
-              <input
-                className="cp-sheet__name-input"
-                value={draft.name}
-                onChange={e => set('name', e.target.value)}
-                placeholder="Character Name"
-              />
-            ) : (
-              <h2 className="cp-sheet__name">{draft.name || 'Unnamed'}</h2>
-            )}
-            <div className="cp-sheet__tagline">
-              {editing ? (
-                <div className="cp-sheet__basics-row">
-                  <input className="cp-sheet__sm-input" value={draft.race} onChange={e => set('race', e.target.value)} placeholder="Race" />
-                  <input className="cp-sheet__sm-input" value={draft.class} onChange={e => set('class', e.target.value)} placeholder="Class" />
-                  <input className="cp-sheet__sm-input" value={draft.subclass} onChange={e => set('subclass', e.target.value)} placeholder="Subclass" />
-                  <input className="cp-sheet__sm-input cp-sheet__sm-input--num" type="number" min={1} max={20}
-                    value={draft.level} onChange={e => set('level', Number(e.target.value))} placeholder="Lvl" />
-                </div>
-              ) : (
-                <span>{[draft.race, draft.class, draft.subclass].filter(Boolean).join(' · ')}{draft.level ? ` · Lvl ${draft.level}` : ''}</span>
-              )}
-            </div>
-          </div>
-          <button className="cp-sheet__close" onClick={onClose} aria-label="Close">×</button>
-        </div>
-
-        {/* Color picker for editors */}
-        {editing && (
-          <div className="cp-sheet__color-row">
-            <span className="cp-sheet__color-label">Accent color</span>
-            <input type="color" value={color} onChange={e => set('color', e.target.value)} className="cp-sheet__color-swatch" />
-          </div>
-        )}
-
-        {/* Tabs */}
-        <div className="cp-sheet__tabs">
-          {SHEET_TABS.map(t => (
-            <button
-              key={t}
-              className={`cp-sheet__tab ${tab === t ? 'cp-sheet__tab--active' : ''}`}
-              onClick={() => setTab(t)}
-            >{t}</button>
-          ))}
-        </div>
-      </div>
-
-      {/* Sheet body */}
-      <div className="cp-sheet__body">
-
-        {/* ── Overview tab ── */}
-        {tab === 'Overview' && (
-          <div className="cp-sheet__section">
-            <div className="cp-stats-grid">
-              {STATS.map(s => (
-                <StatBlock key={s} stat={s} value={draft.stats?.[s]} editing={editing}
-                  onChange={v => setStat(s, v)} />
-              ))}
-            </div>
-
-            <div className="cp-combat-row">
-              {[
-                { label: 'HP',   field: 'hp',   type: 'number' },
-                { label: 'Max HP', field: 'maxHp', type: 'number' },
-                { label: 'AC',   field: 'ac',   type: 'number' },
-                { label: 'Speed', field: 'speed', type: 'number' },
-                { label: 'Prof. Bonus', field: 'proficiencyBonus', type: 'number' },
-              ].map(({ label, field, type }) => (
-                <div key={field} className="cp-combat-stat">
-                  <span className="cp-combat-stat__label">{label}</span>
-                  {editing ? (
-                    <input className="cp-combat-stat__input" type={type}
-                      value={draft[field] ?? ''} onChange={e => set(field, Number(e.target.value))} />
-                  ) : (
-                    <span className="cp-combat-stat__val">{draft[field] ?? '—'}</span>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            <div className="cp-field-row">
-              <label className="cp-field">
-                <span>Background</span>
-                {editing
-                  ? <input value={draft.background} onChange={e => set('background', e.target.value)} placeholder="Outlander, Sage…" />
-                  : <span className="cp-field__val">{draft.background || '—'}</span>}
-              </label>
-              <label className="cp-field">
-                <span>Alignment</span>
-                {editing
-                  ? <select value={draft.alignment} onChange={e => set('alignment', e.target.value)}>
-                      <option value="">— Select —</option>
-                      {ALIGNMENTS.map(a => <option key={a}>{a}</option>)}
-                    </select>
-                  : <span className="cp-field__val">{draft.alignment || '—'}</span>}
-              </label>
-              <label className="cp-field">
-                <span>Hit Dice</span>
-                {editing
-                  ? <input value={draft.hitDice} onChange={e => set('hitDice', e.target.value)} placeholder="e.g. 7d8" />
-                  : <span className="cp-field__val">{draft.hitDice || '—'}</span>}
-              </label>
-            </div>
-          </div>
-        )}
-
-        {/* ── Combat tab ── */}
-        {tab === 'Combat' && (
-          <div className="cp-sheet__section">
-            <h3 className="cp-section-title">Saving Throws</h3>
-            <div className="cp-saves-grid">
-              {STATS.map(s => {
-                const proficient = draft.savingThrows?.[s];
-                const base = Math.floor((Number(draft.stats?.[s] || 10) - 10) / 2);
-                const bonus = base + (proficient ? (draft.proficiencyBonus || 2) : 0);
-                const sign = bonus >= 0 ? '+' : '';
-                return (
-                  <div key={s} className="cp-save">
-                    {editing && (
-                      <input type="checkbox" checked={!!proficient}
-                        onChange={e => set('savingThrows', { ...draft.savingThrows, [s]: e.target.checked })} />
-                    )}
-                    <span className="cp-save__mod">{sign}{bonus}</span>
-                    <span className="cp-save__name">{STAT_NAMES[s]}</span>
-                  </div>
-                );
-              })}
-            </div>
-
-            <h3 className="cp-section-title">Abilities & Features</h3>
-            {editing ? (
-              <textarea className="cp-textarea" rows={6}
-                value={textArr(draft.abilities)}
-                onChange={e => set('abilities', parseArr(e.target.value))}
-                placeholder="One ability per line…" />
-            ) : (
-              <ul className="cp-list">
-                {(draft.abilities || []).map((a, i) => <li key={i}>{a}</li>)}
-              </ul>
-            )}
-
-            <h3 className="cp-section-title">Languages</h3>
-            {editing ? (
-              <input className="cp-input" value={(draft.languages || []).join(', ')}
-                onChange={e => set('languages', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
-                placeholder="Common, Elvish, Dwarvish…" />
-            ) : (
-              <p className="cp-text">{(draft.languages || []).join(', ') || '—'}</p>
-            )}
-          </div>
-        )}
-
-        {/* ── Skills tab ── */}
-        {tab === 'Skills' && (
-          <div className="cp-sheet__section">
-            <div className="cp-skills-list">
-              {SKILLS.map(sk => {
-                const proficient = draft.skills?.[sk.name];
-                const base = Math.floor((Number(draft.stats?.[sk.stat] || 10) - 10) / 2);
-                const bonus = base + (proficient ? (draft.proficiencyBonus || 2) : 0);
-                const sign = bonus >= 0 ? '+' : '';
-                return (
-                  <div key={sk.name} className={`cp-skill ${proficient ? 'cp-skill--prof' : ''}`}>
-                    {editing && (
-                      <input type="checkbox" checked={!!proficient}
-                        onChange={e => set('skills', { ...draft.skills, [sk.name]: e.target.checked })} />
-                    )}
-                    <span className="cp-skill__bonus">{sign}{bonus}</span>
-                    <span className="cp-skill__name">{sk.name}</span>
-                    <span className="cp-skill__stat">{STAT_LABELS[sk.stat]}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* ── Gear & Spells tab ── */}
-        {tab === 'Gear & Spells' && (
-          <div className="cp-sheet__section">
-            <h3 className="cp-section-title">Equipment</h3>
-            {editing ? (
-              <textarea className="cp-textarea" rows={6}
-                value={textArr(draft.equipment)}
-                onChange={e => set('equipment', parseArr(e.target.value))}
-                placeholder="One item per line…" />
-            ) : (
-              draft.equipment?.length > 0
-                ? <ul className="cp-list cp-list--compact">
-                    {draft.equipment.map((eq, i) => <li key={i}>{eq}</li>)}
-                  </ul>
-                : <p className="cp-empty">No equipment listed.</p>
-            )}
-
-            <h3 className="cp-section-title">Spells</h3>
-            {editing ? (
-              <textarea className="cp-textarea" rows={6}
-                value={textArr(draft.spells)}
-                onChange={e => set('spells', parseArr(e.target.value))}
-                placeholder="One spell per line…" />
-            ) : (
-              draft.spells?.length > 0
-                ? <div className="cp-tag-list">
-                    {draft.spells.map((sp, i) => <span key={i} className="cp-tag">{sp}</span>)}
-                  </div>
-                : <p className="cp-empty">No spells listed.</p>
-            )}
-
-            <h3 className="cp-section-title">Notes</h3>
-            {editing ? (
-              <textarea className="cp-textarea" rows={4}
-                value={draft.notes || ''}
-                onChange={e => set('notes', e.target.value)}
-                placeholder="Miscellaneous notes…" />
-            ) : (
-              <p className="cp-text">{draft.notes || '—'}</p>
-            )}
-          </div>
-        )}
-
-        {/* ── Background tab ── */}
-        {tab === 'Background' && (
-          <div className="cp-sheet__section">
-            {[
-              { label: 'Personality Traits', field: 'personalityTraits', rows: 3 },
-              { label: 'Ideals',             field: 'ideals',            rows: 2 },
-              { label: 'Bonds',              field: 'bonds',             rows: 2 },
-              { label: 'Flaws',              field: 'flaws',             rows: 2 },
-              { label: 'Backstory',          field: 'backstory',         rows: 6 },
-            ].map(({ label, field, rows }) => (
-              <div key={field} className="cp-bg-field">
-                <h3 className="cp-section-title">{label}</h3>
-                {editing ? (
-                  <textarea className="cp-textarea" rows={rows}
-                    value={draft[field] || ''}
-                    onChange={e => set(field, e.target.value)}
-                    placeholder={`${label}…`} />
-                ) : (
-                  <p className="cp-text">{draft[field] || '—'}</p>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Save bar */}
-      {editing && (
-        <div className="cp-sheet__footer">
-          {msg && <span className={`cp-msg ${msg === 'Saved!' ? 'cp-msg--ok' : 'cp-msg--err'}`}>{msg}</span>}
-          <button className="cp-btn cp-btn--ghost" onClick={onClose}>Cancel</button>
-          <button className="cp-btn cp-btn--primary" onClick={saveSheet} disabled={saving}>
-            {saving ? 'Saving…' : isNew ? 'Create Character' : 'Save Changes'}
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── CharacterCard ─────────────────────────────────────────────────────────────
-
-function CharacterCard({ character, onClick, onDelete, canDelete }) {
-  const color = character.color || '#cfaa68';
-  const topStats = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
-
-  return (
-    <div className="cp-char-card" style={{ '--char-color': color }} onClick={onClick}
-      role="button" tabIndex={0} onKeyDown={e => e.key === 'Enter' && onClick()}>
-      <div className="cp-char-card__stripe" />
-      <div className="cp-char-card__body">
-        <div className="cp-char-card__top">
-          <div>
-            <p className="cp-char-card__class">
-              {[character.class, character.subclass].filter(Boolean).join(' · ') || 'Adventurer'}
-              {character.level ? ` · Lv ${character.level}` : ''}
-            </p>
-            <h3 className="cp-char-card__name">{character.name || 'Unnamed'}</h3>
-            <p className="cp-char-card__race">{character.race || ''}</p>
-          </div>
-          <div className="cp-char-card__vitals">
-            {character.hp != null && (
-              <div className="cp-vital">
-                <span className="cp-vital__label">HP</span>
-                <span className="cp-vital__val">{character.hp}{character.maxHp ? `/${character.maxHp}` : ''}</span>
-              </div>
-            )}
-            {character.ac != null && (
-              <div className="cp-vital">
-                <span className="cp-vital__label">AC</span>
-                <span className="cp-vital__val">{character.ac}</span>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {character.stats && (
-          <div className="cp-char-card__stats">
-            {topStats.map(s => (
-              <div key={s} className="cp-char-card__stat">
-                <span className="cp-char-card__stat-mod">{mod(character.stats[s])}</span>
-                <span className="cp-char-card__stat-key">{STAT_LABELS[s]}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      {canDelete && (
-        <button className="cp-char-card__del" onClick={e => { e.stopPropagation(); onDelete(); }}
-          title="Remove character">✕</button>
-      )}
-    </div>
-  );
-}
-
-// ── SessionNotes ──────────────────────────────────────────────────────────────
-
-function SessionNotes({ notes = [], onSave }) {
-  const [draft, setDraft] = useState(notes.join('\n\n'));
-  const [saving, setSaving] = useState(false);
-  const [dirty, setDirty] = useState(false);
-
-  const handleChange = (val) => { setDraft(val); setDirty(true); };
-
-  const save = async () => {
-    setSaving(true);
-    await onSave(draft.split('\n\n').map(s => s.trim()).filter(Boolean));
-    setSaving(false);
-    setDirty(false);
-  };
-
-  return (
-    <div className="cp-notes">
-      <div className="cp-notes__header">
-        <h3 className="cp-notes__title">⚔️ Session Notes</h3>
-        {dirty && (
-          <button className="cp-btn cp-btn--sm cp-btn--primary" onClick={save} disabled={saving}>
-            {saving ? 'Saving…' : 'Save Notes'}
-          </button>
-        )}
-      </div>
-      <textarea
-        className="cp-notes__area"
-        rows={8}
-        value={draft}
-        onChange={e => handleChange(e.target.value)}
-        placeholder="Track events, plot threads, loot, and important moments from your sessions…"
-      />
-    </div>
-  );
-}
-
-// ── CreateCampaignModal ───────────────────────────────────────────────────────
-
-function CreateCampaignModal({ onClose, onCreate }) {
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState('');
-  const inputRef = useRef(null);
-
-  useEffect(() => { inputRef.current?.focus(); }, []);
-
-  const submit = async () => {
-    if (!name.trim()) { setErr('Campaign name is required.'); return; }
-    setSaving(true);
-    setErr('');
-    try {
-      const res = await fetch(`${API}/campaigns`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ name: name.trim(), description: description.trim() }),
-      });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || 'Failed to create campaign');
-      onCreate(j.campaign);
-    } catch (e) { setErr(e.message); setSaving(false); }
+      const payload = {
+        ...draft,
+        campaignId,
+      };
+      const data = isNew
+        ? await apiJson(`${API}/player-characters`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          })
+        : await apiJson(`${API}/player-characters/${draft.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+          });
+      toast.success(isNew ? 'Character created.' : 'Character saved.');
+      onSaved(data.character);
+    } catch (error) {
+      toast.error(error.message || 'Unable to save character.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <div className="cp-modal-overlay" onClick={onClose}>
-      <div className="cp-modal" onClick={e => e.stopPropagation()}>
+      <div className="cp-sheet" onClick={(event) => event.stopPropagation()} style={{ '--char-color': draft.color || '#cfaa68' }}>
+        <div className="cp-sheet__header">
+          <div className="cp-sheet__title-row">
+            <div className="cp-sheet__name-block">
+              {canEdit ? (
+                <input
+                  className="cp-sheet__name-input"
+                  value={draft.name}
+                  onChange={(event) => setField('name', event.target.value)}
+                  placeholder="Character Name"
+                />
+              ) : (
+                <h2 className="cp-sheet__name">{draft.name || 'Unnamed Character'}</h2>
+              )}
+              <div className="cp-sheet__tagline">
+                {canEdit ? (
+                  <div className="cp-sheet__basics-row">
+                    <input className="cp-sheet__sm-input" value={draft.race} onChange={(event) => setField('race', event.target.value)} placeholder="Race" />
+                    <input className="cp-sheet__sm-input" value={draft.class} onChange={(event) => setField('class', event.target.value)} placeholder="Class" />
+                    <input className="cp-sheet__sm-input" value={draft.subclass} onChange={(event) => setField('subclass', event.target.value)} placeholder="Subclass" />
+                    <input className="cp-sheet__sm-input cp-sheet__sm-input--num" type="number" min={1} max={20} value={draft.level} onChange={(event) => setField('level', Number(event.target.value))} />
+                  </div>
+                ) : (
+                  <span>{[draft.race, draft.class, draft.subclass].filter(Boolean).join(' · ')}{draft.level ? ` · Lvl ${draft.level}` : ''}</span>
+                )}
+              </div>
+            </div>
+            <button type="button" className="cp-sheet__close" onClick={onClose}>×</button>
+          </div>
+
+          {canEdit && (
+            <div className="cp-sheet__color-row">
+              <span className="cp-sheet__color-label">Accent color</span>
+              <input type="color" value={draft.color || '#cfaa68'} onChange={(event) => setField('color', event.target.value)} className="cp-sheet__color-swatch" />
+            </div>
+          )}
+
+          <div className="cp-sheet__tabs">
+            {SHEET_TABS.map((entry) => (
+              <button
+                key={entry}
+                type="button"
+                className={`cp-sheet__tab ${tab === entry ? 'cp-sheet__tab--active' : ''}`}
+                onClick={() => setTab(entry)}
+              >
+                {entry}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="cp-sheet__body">
+          {tab === 'Overview' && (
+            <div className="cp-sheet__section">
+              <div className="cp-stats-grid">
+                {STATS.map((stat) => (
+                  <StatBlock key={stat} stat={stat} value={draft.stats?.[stat]} editing={canEdit} onChange={(value) => setStat(stat, value)} />
+                ))}
+              </div>
+              <div className="cp-combat-row">
+                {[
+                  ['hp', 'HP'],
+                  ['maxHp', 'Max HP'],
+                  ['ac', 'AC'],
+                  ['speed', 'Speed'],
+                  ['proficiencyBonus', 'Prof. Bonus'],
+                ].map(([field, label]) => (
+                  <div key={field} className="cp-combat-stat">
+                    <span className="cp-combat-stat__label">{label}</span>
+                    {canEdit ? (
+                      <input className="cp-combat-stat__input" type="number" value={draft[field] ?? 0} onChange={(event) => setField(field, Number(event.target.value))} />
+                    ) : (
+                      <span className="cp-combat-stat__val">{draft[field] ?? '—'}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="cp-field-row">
+                <label className="cp-field">
+                  <span>Background</span>
+                  {canEdit ? <input value={draft.background} onChange={(event) => setField('background', event.target.value)} /> : <span className="cp-field__val">{draft.background || '—'}</span>}
+                </label>
+                <label className="cp-field">
+                  <span>Alignment</span>
+                  {canEdit ? (
+                    <select value={draft.alignment} onChange={(event) => setField('alignment', event.target.value)}>
+                      <option value="">— Select —</option>
+                      {ALIGNMENTS.map((entry) => <option key={entry}>{entry}</option>)}
+                    </select>
+                  ) : (
+                    <span className="cp-field__val">{draft.alignment || '—'}</span>
+                  )}
+                </label>
+                <label className="cp-field">
+                  <span>Hit Dice</span>
+                  {canEdit ? <input value={draft.hitDice} onChange={(event) => setField('hitDice', event.target.value)} /> : <span className="cp-field__val">{draft.hitDice || '—'}</span>}
+                </label>
+              </div>
+            </div>
+          )}
+
+          {tab === 'Combat' && (
+            <div className="cp-sheet__section">
+              <h3 className="cp-section-title">Abilities & Features</h3>
+              {canEdit ? (
+                <textarea className="cp-textarea" rows={6} value={textArr(draft.abilities)} onChange={(event) => setField('abilities', parseArr(event.target.value))} />
+              ) : (
+                <ul className="cp-list">{(draft.abilities || []).map((entry, index) => <li key={`${entry}-${index}`}>{entry}</li>)}</ul>
+              )}
+              <h3 className="cp-section-title">Languages</h3>
+              {canEdit ? (
+                <input className="cp-input" value={(draft.languages || []).join(', ')} onChange={(event) => setField('languages', event.target.value.split(',').map((entry) => entry.trim()).filter(Boolean))} />
+              ) : (
+                <p className="cp-text">{(draft.languages || []).join(', ') || '—'}</p>
+              )}
+            </div>
+          )}
+
+          {tab === 'Skills' && (
+            <div className="cp-sheet__section">
+              <h3 className="cp-section-title">Skill Proficiencies</h3>
+              {canEdit ? (
+                <textarea className="cp-textarea" rows={6} value={JSON.stringify(draft.skills || {}, null, 2)} onChange={(event) => {
+                  try {
+                    setField('skills', JSON.parse(event.target.value || '{}'));
+                  } catch {
+                    // ignore malformed JSON while editing
+                  }
+                }} />
+              ) : (
+                <pre className="cp-json-view">{JSON.stringify(draft.skills || {}, null, 2)}</pre>
+              )}
+            </div>
+          )}
+
+          {tab === 'Gear & Spells' && (
+            <div className="cp-sheet__section">
+              <h3 className="cp-section-title">Equipment</h3>
+              {canEdit ? (
+                <textarea className="cp-textarea" rows={5} value={textArr(draft.equipment)} onChange={(event) => setField('equipment', parseArr(event.target.value))} />
+              ) : (
+                <ul className="cp-list cp-list--compact">{(draft.equipment || []).map((entry, index) => <li key={`${entry}-${index}`}>{entry}</li>)}</ul>
+              )}
+              <h3 className="cp-section-title">Spells</h3>
+              {canEdit ? (
+                <textarea className="cp-textarea" rows={5} value={textArr(draft.spells)} onChange={(event) => setField('spells', parseArr(event.target.value))} />
+              ) : (
+                <div className="cp-tag-list">{(draft.spells || []).map((entry, index) => <span key={`${entry}-${index}`} className="cp-tag">{entry}</span>)}</div>
+              )}
+              <h3 className="cp-section-title">Notes</h3>
+              {canEdit ? (
+                <textarea className="cp-textarea" rows={4} value={draft.notes || ''} onChange={(event) => setField('notes', event.target.value)} />
+              ) : (
+                <p className="cp-text">{draft.notes || '—'}</p>
+              )}
+            </div>
+          )}
+
+          {tab === 'Background' && (
+            <div className="cp-sheet__section">
+              {[
+                ['personalityTraits', 'Personality Traits'],
+                ['ideals', 'Ideals'],
+                ['bonds', 'Bonds'],
+                ['flaws', 'Flaws'],
+                ['backstory', 'Backstory'],
+              ].map(([field, label]) => (
+                <div key={field} className="cp-bg-field">
+                  <h3 className="cp-section-title">{label}</h3>
+                  {canEdit ? (
+                    <textarea className="cp-textarea" rows={field === 'backstory' ? 6 : 3} value={draft[field] || ''} onChange={(event) => setField(field, event.target.value)} />
+                  ) : (
+                    <p className="cp-text">{draft[field] || '—'}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="cp-sheet__footer">
+          <button type="button" className="cp-btn cp-btn--ghost" onClick={onClose}>Close</button>
+          {canEdit && (
+            <button type="button" className="cp-btn cp-btn--primary" onClick={saveSheet} disabled={saving}>
+              {saving ? 'Saving…' : isNew ? 'Create Character' : 'Save Changes'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CreateCampaignModal({ onClose, onCreate }) {
+  const { toast } = useToast();
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    if (!name.trim()) {
+      toast.error('Campaign name is required.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const data = await apiJson(`${API}/campaigns`, {
+        method: 'POST',
+        body: JSON.stringify({ name, description }),
+      });
+      toast.success('Campaign created.');
+      onCreate(data.campaign);
+    } catch (error) {
+      toast.error(error.message || 'Unable to create campaign.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="cp-modal-overlay" onClick={onClose}>
+      <div className="cp-modal" onClick={(event) => event.stopPropagation()}>
         <h2 className="cp-modal__title">New Campaign</h2>
         <label className="cp-modal__field">
           <span>Name</span>
-          <input ref={inputRef} value={name} onChange={e => setName(e.target.value)}
-            placeholder="The Dormfall Arc…"
-            onKeyDown={e => e.key === 'Enter' && submit()} />
+          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="The Dormfall Arc…" />
         </label>
         <label className="cp-modal__field">
-          <span>Description <em>(optional)</em></span>
-          <textarea rows={3} value={description} onChange={e => setDescription(e.target.value)}
-            placeholder="A short summary of the campaign…" />
+          <span>Description</span>
+          <textarea rows={3} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="What is this campaign about?" />
         </label>
-        {err && <p className="cp-modal__err">{err}</p>}
         <div className="cp-modal__actions">
-          <button className="cp-btn cp-btn--ghost" onClick={onClose}>Cancel</button>
-          <button className="cp-btn cp-btn--primary" onClick={submit} disabled={saving}>
+          <button type="button" className="cp-btn cp-btn--ghost" onClick={onClose}>Cancel</button>
+          <button type="button" className="cp-btn cp-btn--primary" onClick={submit} disabled={saving}>
             {saving ? 'Creating…' : 'Create Campaign'}
           </button>
         </div>
@@ -568,124 +388,809 @@ function CreateCampaignModal({ onClose, onCreate }) {
   );
 }
 
-// ── Main Page ─────────────────────────────────────────────────────────────────
+function MemberList({ campaign, onMembershipChange, onMembershipRemove }) {
+  const { toast } = useToast();
+  const members = campaign?.members || [];
+  const pendingMembers = campaign?.pendingMembers || [];
+
+  const updateMember = async (userId, patch) => {
+    try {
+      await onMembershipChange(userId, patch);
+      toast.success('Membership updated.');
+    } catch (error) {
+      toast.error(error.message || 'Unable to update member.');
+    }
+  };
+
+  return (
+    <div className="cp-overview-grid">
+      <section className="cp-card">
+        <div className="cp-card__header">
+          <h3>Party Members</h3>
+          <span>{members.length}</span>
+        </div>
+        <div className="cp-member-list">
+          <div className="cp-member cp-member--owner">
+            <div>
+              <strong>{campaign.ownerName}</strong>
+              <span>Campaign Owner DM</span>
+            </div>
+          </div>
+          {members.map((member) => (
+            <div key={member.userId} className="cp-member">
+              <div>
+                <strong>{member.name}</strong>
+                <span>{member.isCoDm ? 'Co-DM' : 'Player'}</span>
+              </div>
+              {campaign.canManage && (
+                <div className="cp-member__actions">
+                  <button type="button" className="cp-chip-btn" onClick={() => updateMember(member.userId, { role: member.isCoDm ? 'player' : 'co_dm', status: 'approved' })}>
+                    {member.isCoDm ? 'Demote' : 'Promote'}
+                  </button>
+                  <button type="button" className="cp-chip-btn cp-chip-btn--danger" onClick={() => onMembershipRemove(member.userId)}>
+                    Remove
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="cp-card">
+        <div className="cp-card__header">
+          <h3>Pending Requests</h3>
+          <span>{pendingMembers.length}</span>
+        </div>
+        {pendingMembers.length === 0 ? (
+          <p className="cp-empty">No pending join requests.</p>
+        ) : (
+          <div className="cp-member-list">
+            {pendingMembers.map((member) => (
+              <div key={member.userId} className="cp-member">
+                <div>
+                  <strong>{member.name}</strong>
+                  <span>{member.email || member.username || 'Pending player'}</span>
+                </div>
+                <div className="cp-member__actions">
+                  <button type="button" className="cp-chip-btn" onClick={() => updateMember(member.userId, { status: 'approved', role: member.role || 'player' })}>
+                    Approve
+                  </button>
+                  <button type="button" className="cp-chip-btn cp-chip-btn--danger" onClick={() => updateMember(member.userId, { status: 'rejected', role: 'player' })}>
+                    Reject
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function AttachmentEditor({ character, onSave }) {
+  const { toast } = useToast();
+  const [draft, setDraft] = useState(character.attachment || {});
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setDraft(character.attachment || {});
+  }, [character]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await onSave(character.id, draft);
+      toast.success('Character campaign state saved.');
+    } catch (error) {
+      toast.error(error.message || 'Unable to update character state.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="cp-attachment-editor">
+      <label>
+        <span>Nickname</span>
+        <input value={draft.nickname || ''} onChange={(event) => setDraft((prev) => ({ ...prev, nickname: event.target.value }))} />
+      </label>
+      <label>
+        <span>Status</span>
+        <input value={draft.status || 'active'} onChange={(event) => setDraft((prev) => ({ ...prev, status: event.target.value }))} />
+      </label>
+      <div className="cp-inline-fields">
+        <label>
+          <span>Current HP</span>
+          <input type="number" value={draft.currentHp ?? ''} onChange={(event) => setDraft((prev) => ({ ...prev, currentHp: event.target.value === '' ? null : Number(event.target.value) }))} />
+        </label>
+        <label>
+          <span>Max HP</span>
+          <input type="number" value={draft.maxHp ?? ''} onChange={(event) => setDraft((prev) => ({ ...prev, maxHp: event.target.value === '' ? null : Number(event.target.value) }))} />
+        </label>
+      </div>
+      <label>
+        <span>Notes</span>
+        <textarea rows={3} value={draft.notes || ''} onChange={(event) => setDraft((prev) => ({ ...prev, notes: event.target.value }))} />
+      </label>
+      <button type="button" className="cp-btn cp-btn--primary cp-btn--sm" onClick={save} disabled={saving}>
+        {saving ? 'Saving…' : 'Save Party State'}
+      </button>
+    </div>
+  );
+}
+
+function PartyPanel({ campaign, onOpenSheet, onSaveAttachment, onDetachCharacter }) {
+  return (
+    <div className="cp-party-grid">
+      {campaign.attachedCharacters.length === 0 ? (
+        <div className="cp-empty cp-empty--wide">No attached characters yet.</div>
+      ) : (
+        campaign.attachedCharacters.map((character) => (
+          <section key={character.id} className="cp-party-card">
+            <div className="cp-party-card__head" style={{ '--char-color': character.color || '#cfaa68' }}>
+              <div>
+                <p>{character.ownerName}</p>
+                <h3>{character.attachment?.nickname || character.name}</h3>
+                <span>{[character.race, character.class].filter(Boolean).join(' · ')} · Lv {character.level}</span>
+              </div>
+              <div className="cp-party-card__meta">
+                <span>HP {character.attachment?.currentHp ?? character.hp}/{character.attachment?.maxHp ?? character.maxHp}</span>
+                <span>{character.attachment?.status || 'active'}</span>
+              </div>
+            </div>
+            <div className="cp-party-card__actions">
+              <button type="button" className="cp-chip-btn" onClick={() => onOpenSheet(character, character.canEditSheet)}>
+                {character.canEditSheet ? 'Open Sheet' : 'View Sheet'}
+              </button>
+              {character.canEditAttachment && (
+                <button type="button" className="cp-chip-btn cp-chip-btn--danger" onClick={() => onDetachCharacter(character.id)}>
+                  Detach
+                </button>
+              )}
+            </div>
+            <div className="cp-party-card__inventory">
+              <h4>Inventory</h4>
+              {character.inventoryItems.length === 0 ? (
+                <p className="cp-empty">No items assigned.</p>
+              ) : (
+                <ul className="cp-mini-list">
+                  {character.inventoryItems.map((item) => (
+                    <li key={item.id}>{item.name} ×{item.quantity}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            {character.canEditAttachment && <AttachmentEditor character={character} onSave={onSaveAttachment} />}
+          </section>
+        ))
+      )}
+    </div>
+  );
+}
+
+function CharactersPanel({
+  campaign,
+  playerCharacters,
+  onOpenSheet,
+  onAttachCharacter,
+}) {
+  const attachedIds = new Set(campaign.attachedCharacters.map((entry) => String(entry.id)));
+  return (
+    <div className="cp-character-grid">
+      <section className="cp-card">
+        <div className="cp-card__header">
+          <h3>My Character Library</h3>
+          <span>{playerCharacters.length}</span>
+        </div>
+        {playerCharacters.length === 0 ? (
+          <p className="cp-empty">Create a reusable character to attach it here.</p>
+        ) : (
+          <div className="cp-library-list">
+            {playerCharacters.map((character) => (
+              <div key={character.id} className="cp-library-card" style={{ '--char-color': character.color || '#cfaa68' }}>
+                <div>
+                  <strong>{character.name || 'Unnamed Character'}</strong>
+                  <span>{[character.race, character.class].filter(Boolean).join(' · ')} · Lv {character.level}</span>
+                </div>
+                <div className="cp-library-card__actions">
+                  <button type="button" className="cp-chip-btn" onClick={() => onOpenSheet(character, true)}>
+                    Edit
+                  </button>
+                  <button type="button" className="cp-chip-btn" onClick={() => onAttachCharacter(character.id)} disabled={attachedIds.has(String(character.id))}>
+                    {attachedIds.has(String(character.id)) ? 'Attached' : 'Attach'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="cp-card">
+        <div className="cp-card__header">
+          <h3>Attached to Campaign</h3>
+          <span>{campaign.attachedCharacters.length}</span>
+        </div>
+        {campaign.attachedCharacters.length === 0 ? (
+          <p className="cp-empty">No characters attached yet.</p>
+        ) : (
+          <div className="cp-library-list">
+            {campaign.attachedCharacters.map((character) => (
+              <div key={character.id} className="cp-library-card" style={{ '--char-color': character.color || '#cfaa68' }}>
+                <div>
+                  <strong>{character.attachment?.nickname || character.name}</strong>
+                  <span>{character.ownerName} · {character.attachment?.status || 'active'}</span>
+                </div>
+                <button type="button" className="cp-chip-btn" onClick={() => onOpenSheet(character, character.canEditSheet)}>
+                  {character.canEditSheet ? 'Open Sheet' : 'View'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function ItemComposer({ onCreateItem, disabled }) {
+  const [draft, setDraft] = useState({ name: '', type: 'gear', quantity: 1, notes: '', tags: '' });
+  const submit = async () => {
+    if (!draft.name.trim()) return;
+    await onCreateItem({
+      name: draft.name,
+      type: draft.type,
+      quantity: Number(draft.quantity) || 1,
+      notes: draft.notes,
+      tags: draft.tags.split(',').map((entry) => entry.trim()).filter(Boolean),
+    });
+    setDraft({ name: '', type: 'gear', quantity: 1, notes: '', tags: '' });
+  };
+
+  return (
+    <div className="cp-item-composer">
+      <input value={draft.name} onChange={(event) => setDraft((prev) => ({ ...prev, name: event.target.value }))} placeholder="Item name" />
+      <div className="cp-inline-fields">
+        <input value={draft.type} onChange={(event) => setDraft((prev) => ({ ...prev, type: event.target.value }))} placeholder="Type" />
+        <input type="number" min={1} value={draft.quantity} onChange={(event) => setDraft((prev) => ({ ...prev, quantity: event.target.value }))} placeholder="Qty" />
+      </div>
+      <input value={draft.tags} onChange={(event) => setDraft((prev) => ({ ...prev, tags: event.target.value }))} placeholder="tags, comma, separated" />
+      <textarea rows={2} value={draft.notes} onChange={(event) => setDraft((prev) => ({ ...prev, notes: event.target.value }))} placeholder="Notes" />
+      <button type="button" className="cp-btn cp-btn--primary cp-btn--sm" onClick={submit} disabled={disabled}>
+        Add Item
+      </button>
+    </div>
+  );
+}
+
+function InventoryPanel({ campaign, onCreateItem, onMoveItem, onDeleteItem }) {
+  const items = campaign.inventory?.items || [];
+  const stashItems = items.filter((item) => item.ownerType === 'stash');
+  const onDragStart = (event, item) => {
+    event.dataTransfer.setData('text/plain', JSON.stringify({ itemId: item.id }));
+  };
+
+  const handleDrop = async (event, ownerType, ownerId = null) => {
+    event.preventDefault();
+    const payload = JSON.parse(event.dataTransfer.getData('text/plain') || '{}');
+    if (!payload.itemId) return;
+    await onMoveItem(payload.itemId, ownerType, ownerId);
+  };
+
+  return (
+    <div className="cp-inventory-grid">
+      <section className="cp-card cp-dropzone" onDragOver={(event) => event.preventDefault()} onDrop={(event) => handleDrop(event, 'stash')}>
+        <div className="cp-card__header">
+          <h3>Party Stash</h3>
+          <span>{stashItems.length}</span>
+        </div>
+        {campaign.canManage && <ItemComposer onCreateItem={onCreateItem} />}
+        <div className="cp-item-list">
+          {stashItems.length === 0 ? (
+            <p className="cp-empty">No stash items yet.</p>
+          ) : (
+            stashItems.map((item) => (
+              <div key={item.id} className="cp-item-card" draggable={item.canManage} onDragStart={(event) => onDragStart(event, item)}>
+                <div>
+                  <strong>{item.name}</strong>
+                  <span>{item.type} · qty {item.quantity}</span>
+                  {item.notes && <p>{item.notes}</p>}
+                </div>
+                {campaign.canManage && (
+                  <button type="button" className="cp-chip-btn cp-chip-btn--danger" onClick={() => onDeleteItem(item.id)}>
+                    Delete
+                  </button>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+
+      {campaign.attachedCharacters.map((character) => {
+        const ownedItems = items.filter((item) => item.ownerType === 'character' && String(item.ownerId) === String(character.id));
+        return (
+          <section
+            key={character.id}
+            className="cp-card cp-dropzone"
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => handleDrop(event, 'character', character.id)}
+          >
+            <div className="cp-card__header">
+              <h3>{character.attachment?.nickname || character.name}</h3>
+              <span>{ownedItems.length}</span>
+            </div>
+            <p className="cp-card__sub">{character.ownerName}</p>
+            <div className="cp-item-list">
+              {ownedItems.length === 0 ? (
+                <p className="cp-empty">Drop items here.</p>
+              ) : (
+                ownedItems.map((item) => (
+                  <div key={item.id} className="cp-item-card" draggable={item.canManage} onDragStart={(event) => onDragStart(event, item)}>
+                    <div>
+                      <strong>{item.name}</strong>
+                      <span>{item.type} · qty {item.quantity}</span>
+                      {item.notes && <p>{item.notes}</p>}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function SessionPanel({ campaign, draft, onChange, onSave }) {
+  return (
+    <section className="cp-card cp-card--session">
+      <div className="cp-card__header">
+        <h3>Current Session</h3>
+        <button type="button" className="cp-btn cp-btn--primary cp-btn--sm" onClick={onSave}>
+          Save Session
+        </button>
+      </div>
+      <div className="cp-session-grid">
+        <label>
+          <span>Session Title</span>
+          <input value={draft.title || ''} onChange={(event) => onChange({ ...draft, title: event.target.value })} />
+        </label>
+        <label>
+          <span>Current Location</span>
+          <select value={draft.currentLocationId || ''} onChange={(event) => onChange({ ...draft, currentLocationId: event.target.value || null })}>
+            <option value="">None</option>
+            {(campaign.locationOptions || []).map((location) => (
+              <option key={location.id} value={location.id}>{location.name}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <label>
+        <span>Summary</span>
+        <textarea rows={4} value={draft.summary || ''} onChange={(event) => onChange({ ...draft, summary: event.target.value })} />
+      </label>
+      <div className="cp-session-grid">
+        <label>
+          <span>Objectives</span>
+          <textarea rows={5} value={(draft.objectives || []).join('\n')} onChange={(event) => onChange({ ...draft, objectives: event.target.value.split('\n').map((entry) => entry.trim()).filter(Boolean) })} />
+        </label>
+        <label>
+          <span>Recent Loot</span>
+          <textarea rows={5} value={(draft.recentLoot || []).join('\n')} onChange={(event) => onChange({ ...draft, recentLoot: event.target.value.split('\n').map((entry) => entry.trim()).filter(Boolean) })} />
+        </label>
+      </div>
+      <label>
+        <span>Collaborative Notes</span>
+        <textarea rows={6} value={draft.notes || ''} onChange={(event) => onChange({ ...draft, notes: event.target.value })} />
+      </label>
+    </section>
+  );
+}
+
+function BoardPanel({ boardDraft, setBoardDraft, boardCatalog, onSave }) {
+  const [catalogTab, setCatalogTab] = useState('locations');
+
+  const addCard = (entry) => {
+    const cardId = `${entry.refType}-${entry.id}-${Date.now()}`;
+    setBoardDraft((prev) => ({
+      cards: [
+        ...prev.cards,
+        {
+          id: cardId,
+          refType: entry.refType,
+          refId: entry.id,
+          title: entry.title,
+          subtitle: entry.subtitle || '',
+          note: '',
+          status: 'open',
+          published: false,
+          assignedCharacterId: null,
+          lane: null,
+        },
+      ],
+      columns: {
+        ...prev.columns,
+        hidden: [...prev.columns.hidden, cardId],
+      },
+    }));
+  };
+
+  const onDragStart = (event, cardId) => {
+    event.dataTransfer.setData('text/plain', cardId);
+  };
+
+  const moveCard = (cardId, targetColumn) => {
+    setBoardDraft((prev) => ({
+      ...prev,
+      columns: {
+        hidden: prev.columns.hidden.filter((entry) => entry !== cardId),
+        active: prev.columns.active.filter((entry) => entry !== cardId),
+        revealed: prev.columns.revealed.filter((entry) => entry !== cardId),
+        [targetColumn]: [...prev.columns[targetColumn], cardId],
+      },
+    }));
+  };
+
+  const updateCard = (cardId, patch) => {
+    setBoardDraft((prev) => ({
+      ...prev,
+      cards: prev.cards.map((card) => (card.id === cardId ? { ...card, ...patch } : card)),
+    }));
+  };
+
+  const cardsById = useMemo(
+    () => Object.fromEntries((boardDraft.cards || []).map((card) => [card.id, card])),
+    [boardDraft.cards]
+  );
+
+  return (
+    <div className="cp-board-layout">
+      <section className="cp-card cp-board-catalog">
+        <div className="cp-card__header">
+          <h3>Reference Catalog</h3>
+          <button type="button" className="cp-btn cp-btn--primary cp-btn--sm" onClick={onSave}>
+            Save Board
+          </button>
+        </div>
+        <div className="cp-tab-strip cp-tab-strip--small">
+          {Object.keys(boardCatalog || {}).map((entry) => (
+            <button key={entry} type="button" className={`cp-tab ${catalogTab === entry ? 'cp-tab--active' : ''}`} onClick={() => setCatalogTab(entry)}>
+              {entry}
+            </button>
+          ))}
+        </div>
+        <div className="cp-board-catalog__list">
+          {(boardCatalog?.[catalogTab] || []).map((entry) => (
+            <div key={`${entry.refType}-${entry.id}`} className="cp-board-catalog__item">
+              <div>
+                <strong>{entry.title}</strong>
+                <span>{entry.subtitle || entry.refType}</span>
+              </div>
+              <button type="button" className="cp-chip-btn" onClick={() => addCard(entry)}>
+                Add
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <div className="cp-board-columns">
+        {BOARD_COLUMNS.map((column) => (
+          <section
+            key={column.id}
+            className="cp-card cp-board-column"
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              const cardId = event.dataTransfer.getData('text/plain');
+              if (cardId) moveCard(cardId, column.id);
+            }}
+          >
+            <div className="cp-card__header">
+              <h3>{column.label}</h3>
+              <span>{boardDraft.columns[column.id]?.length || 0}</span>
+            </div>
+            <div className="cp-board-column__cards">
+              {(boardDraft.columns[column.id] || []).map((cardId) => {
+                const card = cardsById[cardId];
+                if (!card) return null;
+                return (
+                  <div key={card.id} className="cp-board-card" draggable onDragStart={(event) => onDragStart(event, card.id)}>
+                    <div className="cp-board-card__head">
+                      <strong>{card.title}</strong>
+                      <span>{card.refType}</span>
+                    </div>
+                    <p>{card.subtitle}</p>
+                    <textarea rows={3} value={card.note || ''} onChange={(event) => updateCard(card.id, { note: event.target.value })} placeholder="DM note" />
+                    <label className="cp-checkbox">
+                      <input type="checkbox" checked={Boolean(card.published)} onChange={(event) => updateCard(card.id, { published: event.target.checked })} />
+                      <span>Published to players</span>
+                    </label>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function CampaignPage() {
   const { user, role } = useAuth();
-  const isDM     = role === 'admin';
-  const canEdit  = ['player', 'editor', 'admin'].includes(role);
-  const isGuest  = !canEdit && role !== 'pending';
-
+  const { toast } = useToast();
+  const canUseCampaigns = Boolean(user) && ['player', 'editor', 'admin'].includes(role);
   const [campaigns, setCampaigns] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [discoverableCampaigns, setDiscoverableCampaigns] = useState([]);
+  const [playerCharacters, setPlayerCharacters] = useState([]);
   const [activeCampaignId, setActiveCampaignId] = useState(null);
-  const [activeSheet, setActiveSheet] = useState(null); // { character, campaignId } or { new: true, campaignId }
+  const [activeCampaign, setActiveCampaign] = useState(null);
+  const [activeTab, setActiveTab] = useState('Overview');
+  const [loading, setLoading] = useState(true);
   const [showCreateCampaign, setShowCreateCampaign] = useState(false);
-  const [deletingCampaignId, setDeletingCampaignId] = useState(null);
+  const [sheetState, setSheetState] = useState(null);
+  const [sessionDraft, setSessionDraft] = useState({ title: '', summary: '', notes: '', objectives: [], recentLoot: [], currentLocationId: null });
+  const [boardDraft, setBoardDraft] = useState({ cards: [], columns: { hidden: [], active: [], revealed: [] } });
+  const [boardCatalog, setBoardCatalog] = useState({ locations: [], regions: [], npcs: [], content: [], secrets: [] });
 
-  const activeCampaign = campaigns.find(c => c.id === activeCampaignId) || null;
+  const refreshCampaignList = useCallback(async () => {
+    if (!canUseCampaigns) {
+      setCampaigns([]);
+      setDiscoverableCampaigns([]);
+      return;
+    }
+    const data = await apiJson(`${API}/campaigns/me`);
+    setCampaigns(data.campaigns || []);
+    setDiscoverableCampaigns(data.discoverableCampaigns || []);
+    setActiveCampaignId((prev) => prev || data.campaigns?.[0]?.id || null);
+  }, [canUseCampaigns]);
 
-  const load = useCallback(async () => {
-    if (!user) { setLoading(false); return; }
-    setLoading(true);
-    setError('');
-    try {
-      const res = await fetch(`${API}/campaigns/me`, { credentials: 'include' });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error || 'Failed to load campaigns');
-      setCampaigns(j.campaigns || []);
-      if (j.campaigns?.length > 0 && !activeCampaignId) {
-        setActiveCampaignId(j.campaigns[0].id);
+  const refreshCharacters = useCallback(async () => {
+    if (!canUseCampaigns) {
+      setPlayerCharacters([]);
+      return;
+    }
+    const data = await apiJson(`${API}/player-characters/me`);
+    setPlayerCharacters(data.characters || []);
+  }, [canUseCampaigns]);
+
+  const refreshActiveCampaign = useCallback(async (campaignId = activeCampaignId) => {
+    if (!campaignId || !canUseCampaigns) {
+      setActiveCampaign(null);
+      return;
+    }
+    const data = await apiJson(`${API}/campaigns/${campaignId}`);
+    setActiveCampaign(data.campaign);
+  }, [activeCampaignId, canUseCampaigns]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAll() {
+      if (!canUseCampaigns) {
+        setLoading(false);
+        return;
       }
-    } catch (e) { setError(e.message); }
-    finally { setLoading(false); }
-  }, [user]); // eslint-disable-line
+      setLoading(true);
+      try {
+        const [campaignData, characterData] = await Promise.all([
+          apiJson(`${API}/campaigns/me`),
+          apiJson(`${API}/player-characters/me`),
+        ]);
+        if (cancelled) return;
+        setCampaigns(campaignData.campaigns || []);
+        setDiscoverableCampaigns(campaignData.discoverableCampaigns || []);
+        setPlayerCharacters(characterData.characters || []);
+        setActiveCampaignId((prev) => prev || campaignData.campaigns?.[0]?.id || null);
+      } catch (error) {
+        toast.error(error.message || 'Unable to load campaigns.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    loadAll();
+    return () => {
+      cancelled = true;
+    };
+  }, [canUseCampaigns, toast]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (!activeCampaignId || !canUseCampaigns) {
+      setActiveCampaign(null);
+      return;
+    }
+    refreshActiveCampaign().catch((error) => {
+      toast.error(error.message || 'Unable to load campaign.');
+    });
+  }, [activeCampaignId, canUseCampaigns, refreshActiveCampaign, toast]);
 
-  // Create campaign
-  const handleCampaignCreated = (campaign) => {
-    setCampaigns(prev => [...prev, campaign]);
-    setActiveCampaignId(campaign.id);
+  useEffect(() => {
+    if (!activeCampaign?.sessionState) return;
+    setSessionDraft(activeCampaign.sessionState);
+  }, [activeCampaign]);
+
+  useEffect(() => {
+    if (!activeCampaign?.boardState) return;
+    setBoardDraft(activeCampaign.boardState);
+  }, [activeCampaign]);
+
+  useEffect(() => {
+    if (activeTab !== 'DM Board' || !activeCampaign?.canManage) return;
+    apiJson(`${API}/campaigns/${activeCampaign.id}/board`)
+      .then((data) => {
+        setBoardDraft(data.boardState);
+        setBoardCatalog(data.catalog || { locations: [], regions: [], npcs: [], content: [], secrets: [] });
+      })
+      .catch((error) => {
+        toast.error(error.message || 'Unable to load DM board.');
+      });
+  }, [activeCampaign?.canManage, activeCampaign?.id, activeTab, toast]);
+
+  const overviewStats = useMemo(() => {
+    if (!activeCampaign) return [];
+    return [
+      ['Approved Players', activeCampaign.members?.length || 0],
+      ['Pending Requests', activeCampaign.pendingMembers?.length || 0],
+      ['Attached Characters', activeCampaign.attachedCharacters?.length || 0],
+      ['Party Items', activeCampaign.inventory?.items?.length || 0],
+    ];
+  }, [activeCampaign]);
+
+  const handleCampaignCreated = async (campaign) => {
     setShowCreateCampaign(false);
+    await refreshCampaignList();
+    setActiveCampaignId(campaign.id);
   };
 
-  // Delete campaign
-  const handleDeleteCampaign = async (id) => {
-    setDeletingCampaignId(id);
+  const handleJoinRequest = async (campaignId) => {
     try {
-      const res = await fetch(`${API}/campaigns/${id}`, { method: 'DELETE', credentials: 'include' });
-      if (!res.ok) { const j = await res.json(); throw new Error(j.error || 'Delete failed'); }
-      setCampaigns(prev => prev.filter(c => c.id !== id));
-      if (activeCampaignId === id) setActiveCampaignId(campaigns.find(c => c.id !== id)?.id || null);
-    } catch (e) { setError(e.message); }
-    finally { setDeletingCampaignId(null); }
+      await apiJson(`${API}/campaigns/${campaignId}/join`, { method: 'POST' });
+      toast.success('Join request sent.');
+      await refreshCampaignList();
+      setActiveCampaignId(campaignId);
+      await refreshActiveCampaign(campaignId);
+    } catch (error) {
+      toast.error(error.message || 'Unable to request campaign access.');
+    }
   };
 
-  // Save character (add or update) — campaignId comes from activeSheet since server doesn't embed it
-  const handleCharacterSaved = (character) => {
-    const cid = activeSheet?.campaignId;
-    setCampaigns(prev => prev.map(c => {
-      if (c.id !== cid) return c;
-      const existing = c.characters.find(ch => ch.id === character.id);
-      return {
-        ...c,
-        characters: existing
-          ? c.characters.map(ch => ch.id === character.id ? character : ch)
-          : [...c.characters, character],
-      };
-    }));
-    setActiveSheet(null);
+  const handleMembershipChange = async (userId, patch) => {
+    await apiJson(`${API}/campaigns/${activeCampaign.id}/members/${userId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+    await Promise.all([refreshCampaignList(), refreshActiveCampaign()]);
   };
 
-  // Delete character
-  const handleDeleteCharacter = async (campaignId, charId) => {
+  const handleMembershipRemove = async (userId) => {
     try {
-      const res = await fetch(`${API}/campaigns/${campaignId}/characters/${charId}`, {
-        method: 'DELETE', credentials: 'include',
+      await apiJson(`${API}/campaigns/${activeCampaign.id}/members/${userId}`, { method: 'DELETE' });
+      toast.success('Member removed.');
+      await Promise.all([refreshCampaignList(), refreshActiveCampaign()]);
+    } catch (error) {
+      toast.error(error.message || 'Unable to remove member.');
+    }
+  };
+
+  const handleAttachCharacter = async (characterId) => {
+    try {
+      await apiJson(`${API}/campaigns/${activeCampaign.id}/characters/attach`, {
+        method: 'POST',
+        body: JSON.stringify({ characterId }),
       });
-      if (!res.ok) throw new Error('Delete failed');
-      setCampaigns(prev => prev.map(c =>
-        c.id === campaignId
-          ? { ...c, characters: c.characters.filter(ch => ch.id !== charId) }
-          : c
-      ));
-    } catch (e) { setError(e.message); }
+      toast.success('Character attached to campaign.');
+      await refreshActiveCampaign();
+    } catch (error) {
+      toast.error(error.message || 'Unable to attach character.');
+    }
   };
 
-  // Save session notes
-  const handleNotesSave = async (noteLines) => {
-    if (!activeCampaign) return;
+  const handleDetachCharacter = async (characterId) => {
     try {
-      const res = await fetch(`${API}/campaigns/${activeCampaign.id}`, {
+      await apiJson(`${API}/campaigns/${activeCampaign.id}/characters/${characterId}`, { method: 'DELETE' });
+      toast.success('Character detached from campaign.');
+      await refreshActiveCampaign();
+    } catch (error) {
+      toast.error(error.message || 'Unable to detach character.');
+    }
+  };
+
+  const handleSaveAttachment = async (characterId, patch) => {
+    await apiJson(`${API}/campaigns/${activeCampaign.id}/characters/${characterId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+    await refreshActiveCampaign();
+  };
+
+  const handleOpenSheet = (character, canEdit) => {
+    setSheetState({ character, canEdit });
+  };
+
+  const handleSheetSaved = async () => {
+    setSheetState(null);
+    await Promise.all([refreshCharacters(), refreshActiveCampaign()]);
+  };
+
+  const handleCreateItem = async (item) => {
+    try {
+      await apiJson(`${API}/campaigns/${activeCampaign.id}/inventory/items`, {
+        method: 'POST',
+        body: JSON.stringify(item),
+      });
+      toast.success('Item added to party stash.');
+      await refreshActiveCampaign();
+    } catch (error) {
+      toast.error(error.message || 'Unable to create item.');
+    }
+  };
+
+  const handleMoveItem = async (itemId, ownerType, ownerId = null) => {
+    try {
+      await apiJson(`${API}/campaigns/${activeCampaign.id}/inventory/move`, {
+        method: 'POST',
+        body: JSON.stringify({ itemId, ownerType, ownerId }),
+      });
+      await refreshActiveCampaign();
+    } catch (error) {
+      toast.error(error.message || 'Unable to move item.');
+    }
+  };
+
+  const handleDeleteItem = async (itemId) => {
+    try {
+      await apiJson(`${API}/campaigns/${activeCampaign.id}/inventory/items/${itemId}`, {
+        method: 'DELETE',
+      });
+      toast.success('Item deleted.');
+      await refreshActiveCampaign();
+    } catch (error) {
+      toast.error(error.message || 'Unable to delete item.');
+    }
+  };
+
+  const handleSaveSession = async () => {
+    try {
+      await apiJson(`${API}/campaigns/${activeCampaign.id}/session`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ sessionNotes: noteLines }),
+        body: JSON.stringify(sessionDraft),
       });
-      const j = await res.json();
-      if (res.ok) {
-        setCampaigns(prev => prev.map(c => c.id === activeCampaign.id ? j.campaign : c));
-      }
-    } catch (e) { setError(e.message); }
+      toast.success('Session workspace saved.');
+      await refreshActiveCampaign();
+    } catch (error) {
+      toast.error(error.message || 'Unable to save session.');
+    }
   };
 
-  // ── Guest view ──────────────────────────────────────────────────────────────
-  if (isGuest || !user) {
+  const handleSaveBoard = async () => {
+    try {
+      await apiJson(`${API}/campaigns/${activeCampaign.id}/board`, {
+        method: 'PATCH',
+        body: JSON.stringify(boardDraft),
+      });
+      toast.success('DM board saved.');
+      await refreshActiveCampaign();
+    } catch (error) {
+      toast.error(error.message || 'Unable to save DM board.');
+    }
+  };
+
+  if (!canUseCampaigns) {
     return (
       <div className="cp-page cp-page--guest">
         <div className="cp-guest-hero">
           <div className="cp-guest-emblem">⚔️</div>
-          <h1 className="cp-guest-title">Campaigns</h1>
-          <p className="cp-guest-sub">Track your party, characters, and adventures in Azterra.</p>
-          <p className="cp-guest-cta">Sign in to create campaigns and manage your character sheets.</p>
+          <h1 className="cp-guest-title">Campaign Workspace</h1>
+          <p className="cp-guest-sub">Sign in to join campaigns, manage characters, and coordinate the party.</p>
         </div>
       </div>
     );
   }
 
-  // ── Loading ─────────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="cp-page cp-page--loading">
@@ -695,24 +1200,18 @@ export default function CampaignPage() {
     );
   }
 
-  // ── Main layout ─────────────────────────────────────────────────────────────
   return (
-    <div className="cp-page">
-      {/* Character sheet overlay */}
-      {activeSheet && (
-        <div className="cp-sheet-overlay">
-          <CharacterSheet
-            character={activeSheet.new ? null : activeSheet.character}
-            campaignId={activeSheet.campaignId}
-            onSave={handleCharacterSaved}
-            onClose={() => setActiveSheet(null)}
-            isDM={isDM}
-            readOnly={false}
-          />
-        </div>
+    <div className="cp-page cp-page--workspace">
+      {sheetState && (
+        <CharacterSheetModal
+          character={sheetState.character}
+          campaignId={activeCampaign?.id || null}
+          canEdit={sheetState.canEdit}
+          onClose={() => setSheetState(null)}
+          onSaved={handleSheetSaved}
+        />
       )}
 
-      {/* Create campaign modal */}
       {showCreateCampaign && (
         <CreateCampaignModal
           onClose={() => setShowCreateCampaign(false)}
@@ -720,148 +1219,178 @@ export default function CampaignPage() {
         />
       )}
 
-      {/* Page header */}
-      <header className="cp-header">
+      <header className="cp-header cp-header--workspace">
         <div className="cp-header__left">
           <p className="cp-header__eyebrow">Azterra</p>
-          <h1 className="cp-header__title">
-            {isDM ? '⚔️ Campaign Master' : '🗡️ My Campaigns'}
-          </h1>
+          <h1 className="cp-header__title">Campaign Workspace</h1>
+          <p className="cp-header__subtitle">Build the party, manage items, run the session, and keep DM-only prep in one place.</p>
         </div>
-        {canEdit && (
-          <button className="cp-btn cp-btn--primary cp-btn--new-campaign"
-            onClick={() => setShowCreateCampaign(true)}>
+        <div className="cp-header__actions">
+          <button type="button" className="cp-btn cp-btn--ghost" onClick={() => setSheetState({ character: null, canEdit: true })}>
+            + New Character
+          </button>
+          <button type="button" className="cp-btn cp-btn--primary" onClick={() => setShowCreateCampaign(true)}>
             + New Campaign
           </button>
-        )}
+        </div>
       </header>
 
-      {error && <div className="cp-error">{error} <button onClick={() => setError('')}>×</button></div>}
-
-      <div className="cp-layout">
-        {/* ── Sidebar: Campaign list ── */}
-        <aside className="cp-sidebar">
-          <h2 className="cp-sidebar__title">Campaigns</h2>
-          {campaigns.length === 0 ? (
-            <div className="cp-sidebar__empty">
-              <p>No campaigns yet.</p>
-              {canEdit && (
-                <button className="cp-btn cp-btn--ghost cp-btn--sm" onClick={() => setShowCreateCampaign(true)}>
-                  Create your first
-                </button>
-              )}
+      <div className="cp-layout cp-layout--workspace">
+        <aside className="cp-sidebar cp-sidebar--workspace">
+          <section className="cp-sidebar__section">
+            <div className="cp-sidebar__section-head">
+              <h2>My Campaigns</h2>
+              <span>{campaigns.length}</span>
             </div>
-          ) : (
-            <ul className="cp-campaign-list">
-              {[...campaigns].sort((a, b) => (b.lastUsed || 0) - (a.lastUsed || 0)).map(c => (
-                <li
-                  key={c.id}
-                  className={`cp-campaign-item ${activeCampaignId === c.id ? 'cp-campaign-item--active' : ''}`}
-                  onClick={() => setActiveCampaignId(c.id)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={e => e.key === 'Enter' && setActiveCampaignId(c.id)}
-                >
-                  <div className="cp-campaign-item__body">
-                    <span className="cp-campaign-item__name">{c.name}</span>
-                    <span className="cp-campaign-item__meta">
-                      {c.characters?.length || 0} character{c.characters?.length !== 1 ? 's' : ''}
-                    </span>
-                    {c.description && <span className="cp-campaign-item__desc">{c.description}</span>}
+            {campaigns.length === 0 ? (
+              <p className="cp-empty">No campaign memberships yet.</p>
+            ) : (
+              <div className="cp-campaign-list">
+                {campaigns.map((campaign) => (
+                  <button
+                    key={campaign.id}
+                    type="button"
+                    className={`cp-campaign-item ${activeCampaignId === campaign.id ? 'cp-campaign-item--active' : ''}`}
+                    onClick={() => setActiveCampaignId(campaign.id)}
+                  >
+                    <div className="cp-campaign-item__body">
+                      <strong>{campaign.name}</strong>
+                      <span>{campaign.viewerStatus === 'pending' ? 'Pending approval' : `${campaign.attachedCharacterCount} attached characters`}</span>
+                      {campaign.description && <p>{campaign.description}</p>}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="cp-sidebar__section">
+            <div className="cp-sidebar__section-head">
+              <h2>Discover</h2>
+              <span>{discoverableCampaigns.length}</span>
+            </div>
+            {discoverableCampaigns.length === 0 ? (
+              <p className="cp-empty">No open campaigns right now.</p>
+            ) : (
+              <div className="cp-discover-list">
+                {discoverableCampaigns.map((campaign) => (
+                  <div key={campaign.id} className="cp-discover-card">
+                    <div>
+                      <strong>{campaign.name}</strong>
+                      <span>{campaign.ownerName}</span>
+                      {campaign.description && <p>{campaign.description}</p>}
+                    </div>
+                    <button type="button" className="cp-chip-btn" onClick={() => handleJoinRequest(campaign.id)}>
+                      Request Join
+                    </button>
                   </div>
-                  {canEdit && deletingCampaignId !== c.id && (
-                    <button
-                      className="cp-campaign-item__del"
-                      onClick={e => { e.stopPropagation(); handleDeleteCampaign(c.id); }}
-                      title="Delete campaign"
-                    >✕</button>
-                  )}
-                  {deletingCampaignId === c.id && <span className="cp-campaign-item__deleting">…</span>}
-                </li>
-              ))}
-            </ul>
-          )}
+                ))}
+              </div>
+            )}
+          </section>
         </aside>
 
-        {/* ── Main: Campaign detail ── */}
-        <main className="cp-main">
+        <main className="cp-main cp-main--workspace">
           {!activeCampaign ? (
             <div className="cp-main__empty">
               <p className="cp-main__empty-icon">🗺️</p>
-              <p>Select a campaign to view its party and details.</p>
-              {canEdit && (
-                <button className="cp-btn cp-btn--primary cp-btn--sm" onClick={() => setShowCreateCampaign(true)}>
-                  + New Campaign
-                </button>
-              )}
+              <p>Select a campaign to open its workspace.</p>
             </div>
+          ) : activeCampaign.pendingOnly ? (
+            <section className="cp-card cp-card--pending">
+              <h2>{activeCampaign.name}</h2>
+              <p>{activeCampaign.description}</p>
+              <p>Your request is pending DM approval.</p>
+            </section>
           ) : (
             <>
-              {/* Campaign title bar */}
-              <div className="cp-campaign-header">
+              <section className="cp-campaign-hero">
                 <div>
-                  <h2 className="cp-campaign-header__name">{activeCampaign.name}</h2>
-                  {activeCampaign.description && (
-                    <p className="cp-campaign-header__desc">{activeCampaign.description}</p>
-                  )}
+                  <p className="cp-campaign-hero__eyebrow">Owner DM · {activeCampaign.ownerName}</p>
+                  <h2>{activeCampaign.name}</h2>
+                  <p>{activeCampaign.description || 'No campaign description yet.'}</p>
                 </div>
-                {canEdit && (
-                  <button
-                    className="cp-btn cp-btn--gold"
-                    onClick={() => setActiveSheet({ new: true, campaignId: activeCampaign.id })}
-                  >
-                    + Add Character
-                  </button>
-                )}
-              </div>
-
-              {/* Party roster */}
-              <section className="cp-party">
-                <h3 className="cp-party__title">
-                  Party Roster
-                  <span className="cp-party__count">{activeCampaign.characters?.length || 0}</span>
-                </h3>
-
-                {(!activeCampaign.characters || activeCampaign.characters.length === 0) ? (
-                  <div className="cp-party__empty">
-                    <p>No characters in this campaign yet.</p>
-                    {canEdit && (
-                      <button className="cp-btn cp-btn--ghost cp-btn--sm"
-                        onClick={() => setActiveSheet({ new: true, campaignId: activeCampaign.id })}>
-                        Add the first character
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <div className="cp-party__grid">
-                    {activeCampaign.characters.map(ch => (
-                      <CharacterCard
-                        key={ch.id}
-                        character={ch}
-                        onClick={() => setActiveSheet({ character: ch, campaignId: activeCampaign.id })}
-                        canDelete={canEdit}
-                        onDelete={() => handleDeleteCharacter(activeCampaign.id, ch.id)}
-                      />
-                    ))}
-                  </div>
-                )}
+                <div className="cp-campaign-hero__meta">
+                  <span>{activeCampaign.members.length} approved members</span>
+                  <span>{activeCampaign.attachedCharacters.length} attached characters</span>
+                  <span>{activeCampaign.inventory?.items?.length || 0} items in play</span>
+                </div>
               </section>
 
-              {/* Session notes — visible to all, but DM gets an editable version */}
-              {isDM ? (
-                <SessionNotes
-                  notes={activeCampaign.sessionNotes || []}
-                  onSave={handleNotesSave}
-                />
-              ) : (activeCampaign.sessionNotes?.length > 0) && (
-                <section className="cp-notes cp-notes--readonly">
-                  <h3 className="cp-notes__title">⚔️ Session Notes</h3>
-                  <div className="cp-notes__read">
-                    {activeCampaign.sessionNotes.map((note, i) => (
-                      <p key={i} className="cp-notes__entry">{note}</p>
+              <div className="cp-tab-strip">
+                {CAMPAIGN_TABS.filter((tab) => tab !== 'DM Board' || activeCampaign.canManage).map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    className={`cp-tab ${activeTab === tab ? 'cp-tab--active' : ''}`}
+                    onClick={() => setActiveTab(tab)}
+                  >
+                    {tab}
+                  </button>
+                ))}
+              </div>
+
+              {activeTab === 'Overview' && (
+                <div className="cp-overview">
+                  <div className="cp-overview-grid cp-overview-grid--stats">
+                    {overviewStats.map(([label, value]) => (
+                      <section key={label} className="cp-card cp-stat-card">
+                        <strong>{value}</strong>
+                        <span>{label}</span>
+                      </section>
                     ))}
                   </div>
-                </section>
+                  <MemberList
+                    campaign={activeCampaign}
+                    onMembershipChange={handleMembershipChange}
+                    onMembershipRemove={handleMembershipRemove}
+                  />
+                </div>
+              )}
+
+              {activeTab === 'Party' && (
+                <PartyPanel
+                  campaign={activeCampaign}
+                  onOpenSheet={handleOpenSheet}
+                  onSaveAttachment={handleSaveAttachment}
+                  onDetachCharacter={handleDetachCharacter}
+                />
+              )}
+
+              {activeTab === 'Characters' && (
+                <CharactersPanel
+                  campaign={activeCampaign}
+                  playerCharacters={playerCharacters}
+                  onOpenSheet={handleOpenSheet}
+                  onAttachCharacter={handleAttachCharacter}
+                />
+              )}
+
+              {activeTab === 'Inventory' && (
+                <InventoryPanel
+                  campaign={activeCampaign}
+                  onCreateItem={handleCreateItem}
+                  onMoveItem={handleMoveItem}
+                  onDeleteItem={handleDeleteItem}
+                />
+              )}
+
+              {activeTab === 'Session' && (
+                <SessionPanel
+                  campaign={activeCampaign}
+                  draft={sessionDraft}
+                  onChange={setSessionDraft}
+                  onSave={handleSaveSession}
+                />
+              )}
+
+              {activeTab === 'DM Board' && activeCampaign.canManage && (
+                <BoardPanel
+                  boardDraft={boardDraft}
+                  setBoardDraft={setBoardDraft}
+                  boardCatalog={boardCatalog}
+                  onSave={handleSaveBoard}
+                />
               )}
             </>
           )}
