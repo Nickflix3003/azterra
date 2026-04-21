@@ -27,6 +27,10 @@ export function normalizeContentEntry(entry = {}) {
       entry.mapLocationId === null || entry.mapLocationId === undefined
         ? null
         : entry.mapLocationId,
+    secretId:
+      typeof entry.secretId === 'string' && entry.secretId.trim()
+        ? entry.secretId.trim()
+        : null,
     imageDescription:
       typeof entry.imageDescription === 'string'
         ? entry.imageDescription.trim()

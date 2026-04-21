@@ -4,6 +4,7 @@ import {
   DEFAULT_REGION_CATEGORY,
   REGION_CATEGORIES,
 } from '../../constants/regionConstants';
+import SecretScopeField from '../UI/SecretScopeField';
 
 function RegionInfoPanel({
   region: regionOverride,
@@ -74,6 +75,10 @@ function RegionInfoPanel({
             ))}
           </select>
         </label>
+        <SecretScopeField
+          secretId={region.secretId ?? null}
+          onChange={(nextSecretId) => onFieldChange?.(region.id, 'secretId', nextSecretId)}
+        />
         <label className="editor-info-panel__field editor-info-panel__field--inline">
           <span>Label</span>
           <input

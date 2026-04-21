@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { fetchWithRetry } from '../../utils/fetchWithRetry';
+import SecretScopeField from '../UI/SecretScopeField';
 import './PeoplePage.css';
 
 const API = '/api';
@@ -289,7 +290,7 @@ function NpcCard({ npc, isAdmin, isEditMode, locations, onUpdate, onDelete }) {
         credentials: 'include',
         body: JSON.stringify({
           name: d.name, type: d.type, role: d.role, blurb: d.blurb,
-          locationId: d.locationId || null, visible: d.visible,
+          locationId: d.locationId || null, visible: d.visible, secretId: d.secretId || null,
         }),
       });
       if (!res.ok) { const j = await res.json(); throw new Error(j.error || 'Save failed'); }
@@ -362,6 +363,11 @@ function NpcCard({ npc, isAdmin, isEditMode, locations, onUpdate, onDelete }) {
                     ))}
                   </select>
                 </label>
+                <SecretScopeField
+                  secretId={d.secretId || null}
+                  onChange={(nextSecretId) => set('secretId', nextSecretId)}
+                  className="pp-field pp-field--full"
+                />
                 <label className="pp-field pp-field--check">
                   <input type="checkbox" checked={d.visible !== false}
                     onChange={e => set('visible', e.target.checked)} />

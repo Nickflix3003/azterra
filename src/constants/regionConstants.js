@@ -48,6 +48,9 @@ export const normalizeRegionEntry = (region = {}) => {
     opacity: region.opacity !== undefined ? clamp(region.opacity, 0, 1) : 0.3,
     category: region.category || DEFAULT_REGION_CATEGORY,
     labelEnabled: region.labelEnabled !== false,
+    ...(typeof region.secretId === 'string' && region.secretId.trim()
+      ? { secretId: region.secretId.trim() }
+      : {}),
     ...(toOptionalYear(region.timeStart) != null && { timeStart: toOptionalYear(region.timeStart) }),
     ...(toOptionalYear(region.timeEnd) != null && { timeEnd: toOptionalYear(region.timeEnd) }),
     points,

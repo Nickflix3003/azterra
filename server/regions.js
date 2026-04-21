@@ -4,8 +4,9 @@ import { fileURLToPath } from 'node:url';
 import multer from 'multer';
 import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
-import { authRequired, editorRequired } from './utils.js';
+import { authRequired, editorRequired, resolveRequestUser } from './utils.js';
 import { db, throwIfError } from './db.js';
+import { canAccessSecretItem, sanitizeSecretItems } from './secretAccess.js';
 
 const router = Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -13,6 +14,7 @@ const __dirname = path.dirname(__filename);
 const REGION_IMAGES_DIR = path.join(__dirname, 'uploads', 'regions');
 const DATA_DIR = path.join(__dirname, 'data');
 const REGION_ERA_FILE = path.join(DATA_DIR, 'region-era.json');
+const REGION_SECRET_FILE = path.join(DATA_DIR, 'region-secrets.json');
 
 // ── Image upload setup ────────────────────────────────────────────────────────
 
@@ -37,6 +39,15 @@ async function ensureRegionEraFile() {
   }
 }
 
+async function ensureRegionSecretFile() {
+  if (!existsSync(DATA_DIR)) {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+  }
+  if (!existsSync(REGION_SECRET_FILE)) {
+    await fs.writeFile(REGION_SECRET_FILE, JSON.stringify({ secrets: {} }, null, 2));
+  }
+}
+
 async function readRegionEraMap() {
   await ensureRegionEraFile();
   try {
@@ -53,7 +64,35 @@ async function writeRegionEraMap(eras) {
   await fs.writeFile(REGION_ERA_FILE, JSON.stringify({ eras }, null, 2));
 }
 
-function mergeRegionEra(row, eras) {
+async function readRegionSecretMap() {
+  await ensureRegionSecretFile();
+  try {
+    const raw = await fs.readFile(REGION_SECRET_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    return parsed?.secrets && typeof parsed.secrets === 'object' ? parsed.secrets : {};
+  } catch {
+    return {};
+  }
+}
+
+async function writeRegionSecretMap(secrets) {
+  await ensureRegionSecretFile();
+  await fs.writeFile(REGION_SECRET_FILE, JSON.stringify({ secrets }, null, 2));
+}
+
+function normalizeSecretId(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function setRegionSecret(secrets, id, secretId) {
+  const next = { ...(secrets || {}) };
+  const normalized = normalizeSecretId(secretId);
+  if (normalized) next[String(id)] = { secretId: normalized };
+  else delete next[String(id)];
+  return next;
+}
+
+function mergeRegionMetadata(row, eras, secrets = {}) {
   const region = {
     id: row.id,
     name: row.name,
@@ -75,10 +114,12 @@ function mergeRegionEra(row, eras) {
     updatedAt: row.updated_at,
   };
   const era = eras?.[String(row.id)] || {};
+  const secret = secrets?.[String(row.id)] || {};
   return {
     ...region,
     ...(toOptionalYear(era.timeStart) != null && { timeStart: toOptionalYear(era.timeStart) }),
     ...(toOptionalYear(era.timeEnd) != null && { timeEnd: toOptionalYear(era.timeEnd) }),
+    ...(normalizeSecretId(secret.secretId) && { secretId: normalizeSecretId(secret.secretId) }),
   };
 }
 
@@ -114,7 +155,7 @@ router.use('/images', async (_req, _res, next) => {
 // ── DB helpers ────────────────────────────────────────────────────────────────
 
 function rowToRegion(row) {
-  return mergeRegionEra(row, {});
+  return mergeRegionMetadata(row, {}, {});
 }
 
 function regionToRow(r) {
@@ -140,20 +181,23 @@ function regionToRow(r) {
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 
-// GET /api/regions — all regions (public)
-router.get('/', async (_req, res) => {
+// GET /api/regions
+router.get('/', async (req, res) => {
   try {
+    const viewer = await resolveRequestUser(req);
     const eras = await readRegionEraMap();
+    const secretMap = await readRegionSecretMap();
     const { data, error } = await db().from('regions').select('*').order('name');
     throwIfError(error, 'regions GET /');
-    return res.json({ regions: (data || []).map((row) => mergeRegionEra(row, eras)) });
+    const regions = (data || []).map((row) => mergeRegionMetadata(row, eras, secretMap));
+    return res.json({ regions: sanitizeSecretItems(regions, viewer) });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Unable to load regions.' });
   }
 });
 
-// POST /api/regions/save — bulk-replace all regions (editor+)
+// POST /api/regions/save
 router.post('/save', authRequired, editorRequired, async (req, res) => {
   const payload = Array.isArray(req.body) ? req.body : req.body?.regions;
   if (!Array.isArray(payload)) {
@@ -161,7 +205,28 @@ router.post('/save', authRequired, editorRequired, async (req, res) => {
   }
 
   try {
-    const nextEraMap = payload.reduce((acc, region) => {
+    if (
+      req.user?.role !== 'admin' &&
+      payload.some((region) => region && Object.prototype.hasOwnProperty.call(region, 'secretId'))
+    ) {
+      return res.status(403).json({ error: 'Only admins can assign secrets.' });
+    }
+
+    const currentEraMap = await readRegionEraMap();
+    const currentSecretMap = await readRegionSecretMap();
+    const { data: existingRows, error: existingError } = await db().from('regions').select('*').order('name');
+    throwIfError(existingError, 'regions save existing fetch');
+
+    const existingRegions = (existingRows || []).map((row) =>
+      mergeRegionMetadata(row, currentEraMap, currentSecretMap)
+    );
+    const hiddenExisting =
+      req.user?.role === 'admin'
+        ? []
+        : existingRegions.filter((region) => !canAccessSecretItem(req.user, region));
+    const combinedPayload = req.user?.role === 'admin' ? payload : [...payload, ...hiddenExisting];
+
+    const nextEraMap = combinedPayload.reduce((acc, region) => {
       const timeStart = toOptionalYear(region.timeStart);
       const timeEnd = toOptionalYear(region.timeEnd);
       if (timeStart != null || timeEnd != null) {
@@ -175,8 +240,8 @@ router.post('/save', authRequired, editorRequired, async (req, res) => {
     const { error: delErr } = await db().from('regions').delete().neq('id', '__none__');
     throwIfError(delErr, 'regions save delete');
 
-    if (payload.length > 0) {
-      const rows = payload.map(regionToRow);
+    if (combinedPayload.length > 0) {
+      const rows = combinedPayload.map(regionToRow);
       const { error: insErr } = await db().from('regions').insert(rows);
       throwIfError(insErr, 'regions save insert');
     }
@@ -184,14 +249,25 @@ router.post('/save', authRequired, editorRequired, async (req, res) => {
     const { data, error } = await db().from('regions').select('*').order('name');
     throwIfError(error, 'regions save fetch');
     await writeRegionEraMap(nextEraMap);
-    return res.json({ regions: (data || []).map((row) => mergeRegionEra(row, nextEraMap)) });
+    const nextSecretMap =
+      req.user?.role === 'admin'
+        ? combinedPayload.reduce((acc, region) => {
+            const secretId = normalizeSecretId(region.secretId);
+            if (secretId) acc[String(region.id)] = { secretId };
+            return acc;
+          }, {})
+        : currentSecretMap;
+    await writeRegionSecretMap(nextSecretMap);
+    return res.json({
+      regions: (data || []).map((row) => mergeRegionMetadata(row, nextEraMap, nextSecretMap)),
+    });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Unable to save regions.' });
   }
 });
 
-// PATCH /api/regions/:id — update a single region's fields (editor+)
+// PATCH /api/regions/:id
 router.patch('/:id', authRequired, editorRequired, async (req, res) => {
   const { id } = req.params;
   const allowed = ['name', 'description', 'lore', 'emblem', 'bannerImage', 'color', 'borderColor', 'timeStart', 'timeEnd'];
@@ -201,7 +277,11 @@ router.patch('/:id', authRequired, editorRequired, async (req, res) => {
   });
 
   try {
+    if (req.body?.secretId !== undefined && req.user?.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can assign secrets.' });
+    }
     const eras = await readRegionEraMap();
+    let secretMap = await readRegionSecretMap();
     const patchRow = {
       ...(updates.name !== undefined && { name: updates.name }),
       ...(updates.description !== undefined && { description: updates.description }),
@@ -234,7 +314,11 @@ router.patch('/:id', authRequired, editorRequired, async (req, res) => {
     if (error?.code === 'PGRST116') return res.status(404).json({ error: 'Region not found.' });
     throwIfError(error, 'regions PATCH');
     await writeRegionEraMap(eras);
-    return res.json({ region: mergeRegionEra(data, eras) });
+    if (req.user?.role === 'admin' && req.body?.secretId !== undefined) {
+      secretMap = setRegionSecret(secretMap, id, req.body.secretId);
+      await writeRegionSecretMap(secretMap);
+    }
+    return res.json({ region: mergeRegionMetadata(data, eras, secretMap) });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Unable to update region.' });

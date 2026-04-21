@@ -26,6 +26,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useLocationData } from '../../context/LocationDataContext';
 import { useRegions } from '../../context/RegionDataContext';
+import SecretScopeField from '../UI/SecretScopeField';
 import './LocationsAtlasPage.css';
 
 const API = '/api';
@@ -102,6 +103,7 @@ function buildLocationPatchFromDraft(draft) {
     description: draft.description,
     lore: draft.lore,
     type: draft.type,
+    secretId: draft.secretId || null,
     regionId: draft.regionId || null,
     tags: draft.tags
       ? draft.tags.split(',').map((tag) => tag.trim()).filter(Boolean)
@@ -318,6 +320,7 @@ function LocationCard({
         description: location.description || '',
         lore:        location.lore        || '',
         type:        location.type        || '',
+        secretId:    location.secretId    || null,
         regionId:    location.regionId != null ? String(location.regionId) : '',
         tags:        Array.isArray(location.tags) ? location.tags.join(', ') : '',
       });
@@ -615,6 +618,11 @@ function LocationCard({
                     ))}
                   </select>
                 </label>
+                <SecretScopeField
+                  secretId={draft.secretId || null}
+                  onChange={(nextSecretId) => updateDraft('secretId', nextSecretId)}
+                  className="edit-field"
+                />
                 <label className="edit-field edit-field--full">
                   <span>Kingdom / Region</span>
                   <select
@@ -776,6 +784,7 @@ function RegionBanner({
         emblem:      region.emblem      || '',
         bannerImage: region.bannerImage || '',
         color:       region.color       || '#334155',
+        secretId:    region.secretId    || null,
       });
     } else {
       setDraft(null);
@@ -806,6 +815,7 @@ function RegionBanner({
       emblem:      region.emblem      || '',
       bannerImage: region.bannerImage || '',
       color:       region.color       || '#334155',
+      secretId:    region.secretId    || null,
     });
     setSaveErr('');
   };
@@ -917,6 +927,11 @@ function RegionBanner({
                   rows={4}
                 />
               </label>
+              <SecretScopeField
+                secretId={draft.secretId || null}
+                onChange={(nextSecretId) => updateDraft('secretId', nextSecretId)}
+                className="edit-field"
+              />
               <label className="edit-field edit-field--color">
                 <span>Accent Colour</span>
                 <div className="color-row">

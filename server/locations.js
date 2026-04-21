@@ -4,13 +4,16 @@ import { fileURLToPath } from 'node:url';
 import multer from 'multer';
 import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
-import { authRequired, editorRequired } from './utils.js';
+import { authRequired, editorRequired, resolveRequestUser } from './utils.js';
 import { db, throwIfError } from './db.js';
+import { canAccessSecretItem, sanitizeSecretItems } from './secretAccess.js';
 
 const router = Router();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const LOCATION_IMAGES_DIR = path.join(__dirname, 'uploads', 'locations');
+const DATA_DIR = path.join(__dirname, 'data');
+const LOCATION_SECRET_FILE = path.join(DATA_DIR, 'location-secrets.json');
 
 // ── Image upload setup ────────────────────────────────────────────────────────
 
@@ -18,6 +21,43 @@ async function ensureImagesDir() {
   if (!existsSync(LOCATION_IMAGES_DIR)) {
     await fs.mkdir(LOCATION_IMAGES_DIR, { recursive: true });
   }
+}
+
+async function ensureLocationSecretFile() {
+  if (!existsSync(DATA_DIR)) {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+  }
+  if (!existsSync(LOCATION_SECRET_FILE)) {
+    await fs.writeFile(LOCATION_SECRET_FILE, JSON.stringify({ secrets: {} }, null, 2));
+  }
+}
+
+async function readLocationSecretMap() {
+  await ensureLocationSecretFile();
+  try {
+    const raw = await fs.readFile(LOCATION_SECRET_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    return parsed?.secrets && typeof parsed.secrets === 'object' ? parsed.secrets : {};
+  } catch {
+    return {};
+  }
+}
+
+async function writeLocationSecretMap(secrets) {
+  await ensureLocationSecretFile();
+  await fs.writeFile(LOCATION_SECRET_FILE, JSON.stringify({ secrets }, null, 2));
+}
+
+function normalizeSecretId(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function setLocationSecret(secrets, id, secretId) {
+  const next = { ...(secrets || {}) };
+  const normalized = normalizeSecretId(secretId);
+  if (normalized) next[String(id)] = { secretId: normalized };
+  else delete next[String(id)];
+  return next;
 }
 
 const imageStorage = multer.diskStorage({
@@ -47,11 +87,12 @@ router.use('/images', express.static(LOCATION_IMAGES_DIR));
 
 // ── DB helpers ────────────────────────────────────────────────────────────────
 
-function rowToLocation(row) {
+function rowToLocation(row, secrets = {}) {
   const numericId =
     typeof row.id === 'string' && /^-?\d+$/.test(row.id)
       ? Number(row.id)
       : row.id;
+  const secret = secrets[String(row.id)] || secrets[String(numericId)] || {};
   return {
     id: numericId,
     name: row.name,
@@ -75,6 +116,7 @@ function rowToLocation(row) {
     updatedAt: row.updated_at,
     createdBy: row.created_by || null,
     updatedBy: row.updated_by || null,
+    ...(normalizeSecretId(secret.secretId) && { secretId: normalizeSecretId(secret.secretId) }),
   };
 }
 
@@ -120,11 +162,14 @@ function locationToRow(loc) {
 // ── Routes ────────────────────────────────────────────────────────────────────
 
 // GET /api/locations
-router.get('/', async function(_req, res) {
+router.get('/', async function(req, res) {
   try {
+    const viewer = await resolveRequestUser(req);
+    const secretMap = await readLocationSecretMap();
     const { data, error } = await db().from('locations').select('*').order('id');
     throwIfError(error, 'locations GET /');
-    return res.json({ locations: (data || []).map(rowToLocation) });
+    const locations = (data || []).map((row) => rowToLocation(row, secretMap));
+    return res.json({ locations: sanitizeSecretItems(locations, viewer) });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Unable to load locations.' });
@@ -134,6 +179,9 @@ router.get('/', async function(_req, res) {
 // POST /api/locations
 router.post('/', authRequired, editorRequired, async function(req, res) {
   try {
+    if (req.body?.secretId !== undefined && req.user?.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can assign secrets.' });
+    }
     const actor = (req.user && (req.user.username || req.user.name)) || 'unknown';
     const nextId = await getNextLocationId();
     const row = locationToRow({
@@ -144,7 +192,12 @@ router.post('/', authRequired, editorRequired, async function(req, res) {
     });
     const { data, error } = await db().from('locations').insert(row).select().single();
     throwIfError(error, 'locations POST insert');
-    return res.status(201).json({ location: rowToLocation(data) });
+    let secretMap = await readLocationSecretMap();
+    if (req.user?.role === 'admin') {
+      secretMap = setLocationSecret(secretMap, data.id, req.body?.secretId);
+      await writeLocationSecretMap(secretMap);
+    }
+    return res.status(201).json({ location: rowToLocation(data, secretMap) });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Unable to create location.' });
@@ -158,16 +211,35 @@ router.post('/save', authRequired, editorRequired, async function(req, res) {
     return res.status(400).json({ error: 'Locations payload must be an array.' });
   }
   try {
+    const currentSecretMap = await readLocationSecretMap();
+    const { data: existingRows, error: existingErr } = await db().from('locations').select('*').order('id');
+    throwIfError(existingErr, 'locations save existing fetch');
+    const existingLocations = (existingRows || []).map((row) => rowToLocation(row, currentSecretMap));
+    const hiddenExisting = req.user?.role === 'admin'
+      ? []
+      : existingLocations.filter((location) => !canAccessSecretItem(req.user, location));
+    const combinedPayload = req.user?.role === 'admin'
+      ? payload
+      : [...payload, ...hiddenExisting];
+
     const { error: delErr } = await db().from('locations').delete().neq('id', '__none__');
     throwIfError(delErr, 'locations save delete');
-    if (payload.length > 0) {
-      const rows = payload.map(locationToRow);
+    if (combinedPayload.length > 0) {
+      const rows = combinedPayload.map(locationToRow);
       const { error: insErr } = await db().from('locations').insert(rows);
       throwIfError(insErr, 'locations save insert');
     }
     const { data, error } = await db().from('locations').select('*').order('id');
     throwIfError(error, 'locations save fetch');
-    return res.json({ locations: (data || []).map(rowToLocation) });
+    const nextSecretMap = req.user?.role === 'admin'
+      ? combinedPayload.reduce((acc, location) => {
+          const secretId = normalizeSecretId(location.secretId);
+          if (secretId) acc[String(location.id)] = { secretId };
+          return acc;
+        }, {})
+      : currentSecretMap;
+    await writeLocationSecretMap(nextSecretMap);
+    return res.json({ locations: (data || []).map((row) => rowToLocation(row, nextSecretMap)) });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Unable to save locations.' });
@@ -182,6 +254,9 @@ router.patch('/:id', authRequired, editorRequired, async function(req, res) {
   allowed.forEach(function(key) { if (key in req.body) updates[key] = req.body[key]; });
 
   try {
+    if (req.body?.secretId !== undefined && req.user?.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can assign secrets.' });
+    }
     const fetchResult = await db().from('locations').select('*').eq('id', String(id)).single();
     throwIfError(fetchResult.error, 'locations PATCH fetch');
     if (!fetchResult.data) return res.status(404).json({ error: 'Location not found.' });
@@ -207,7 +282,12 @@ router.patch('/:id', authRequired, editorRequired, async function(req, res) {
 
     const { data, error } = await db().from('locations').update(patchRow).eq('id', String(id)).select().single();
     throwIfError(error, 'locations PATCH update');
-    return res.json({ location: rowToLocation(data) });
+    let secretMap = await readLocationSecretMap();
+    if (req.user?.role === 'admin' && req.body?.secretId !== undefined) {
+      secretMap = setLocationSecret(secretMap, id, req.body.secretId);
+      await writeLocationSecretMap(secretMap);
+    }
+    return res.json({ location: rowToLocation(data, secretMap) });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Unable to update location.' });
@@ -223,6 +303,8 @@ router.delete('/:id', authRequired, editorRequired, async function(req, res) {
     if (!existing) return res.status(404).json({ error: 'Location not found.' });
     const { error } = await db().from('locations').delete().eq('id', String(id));
     throwIfError(error, 'locations DELETE');
+    const secretMap = setLocationSecret(await readLocationSecretMap(), id, null);
+    await writeLocationSecretMap(secretMap);
     return res.json({ success: true, id: typeof existing.id === 'string' && /^-?\d+$/.test(existing.id) ? Number(existing.id) : existing.id });
   } catch (err) {
     console.error(err);

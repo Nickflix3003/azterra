@@ -203,40 +203,35 @@ function extractToken(req) {
   return null;
 }
 
-// ── Auth middleware ───────────────────────────────────────────────────────────
+export async function resolveRequestUser(req) {
+  const token = extractToken(req);
+  if (!token) return null;
 
-export const authRequired = async function(req, res, next) {
   try {
-    const token = extractToken(req);
-    if (!token) return res.status(401).json({ error: 'Authentication required.' });
-
     const payload = verifyToken(token);
     const userId = String(payload.id);
 
-    // Path A: Supabase profile (UUID format)
     const looksLikeUUID = /^[0-9a-f-]{36}$/.test(userId);
     if (looksLikeUUID) {
       try {
         const result = await db().from('profiles').select('*').eq('id', userId).single();
         if (!result.error && result.data) {
-          req.user = profileToUser(result.data);
-          return next();
+          return profileToUser(result.data);
         }
       } catch (e) {
-        // fall through to JSON
+        // fall through to JSON lookup
       }
     }
 
-    // Path B: Legacy local account in users.json
     const users = await readUsers();
     const numericId = Number(userId);
     const currentUser = users.find(function(u) {
       return Number.isFinite(numericId) ? u.id === numericId : u.email === userId;
     });
-    if (!currentUser) return res.status(401).json({ error: 'Invalid user.' });
+    if (!currentUser) return null;
 
     const friendState = applyFriendState(currentUser);
-    req.user = Object.assign({}, sanitizeUser(currentUser), {
+    return Object.assign({}, sanitizeUser(currentUser), {
       favorites: Array.isArray(currentUser.favorites) ? currentUser.favorites : [],
       featuredCharacter: currentUser.featuredCharacter != null ? currentUser.featuredCharacter : null,
       profile: {
@@ -250,6 +245,18 @@ export const authRequired = async function(req, res, next) {
       friends: friendState.friends,
       friendRequests: friendState.friendRequests,
     });
+  } catch (e) {
+    return null;
+  }
+}
+
+// ── Auth middleware ───────────────────────────────────────────────────────────
+
+export const authRequired = async function(req, res, next) {
+  try {
+    const user = await resolveRequestUser(req);
+    if (!user) return res.status(401).json({ error: 'Authentication required.' });
+    req.user = user;
     return next();
   } catch (e) {
     return res.status(401).json({ error: 'Invalid or expired token.' });

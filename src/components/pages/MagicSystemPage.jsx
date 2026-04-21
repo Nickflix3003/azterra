@@ -530,8 +530,8 @@ export default function MagicSystemPage() {
   const { id } = useParams();
   const system = getMagicSystem(id) || MAGIC_SYSTEMS[0];
   const isGods = system.id === 'gods';
-  const { isSecretUnlocked } = useAuth();
-  const locked = system.secretId && !isSecretUnlocked(system.secretId);
+  const { isSecretUnlocked, role } = useAuth();
+  const locked = system.secretId && role !== 'admin' && !isSecretUnlocked(system.secretId);
   const [selectedGod, setSelectedGod] = useState('kaya');
   const activeGod = isGods ? system.dukes[selectedGod] : null;
 

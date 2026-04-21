@@ -532,6 +532,7 @@ function InteractiveMap({
           type:        location.type        || '',
           lore:        location.lore        || '',
           description: location.description || '',
+          secretId:    location.secretId    ?? null,
           pinned:      location.pinned      ?? false,
           timeStart:   location.timeStart,
           timeEnd:     location.timeEnd,
@@ -909,6 +910,7 @@ function InteractiveMap({
         type: location.type || '',
         lore: location.lore || '',
         description: location.description || '',
+        secretId: location.secretId ?? null,
         pinned: location.pinned ?? false,
         timeStart: location.timeStart,
         timeEnd: location.timeEnd,
@@ -1390,7 +1392,10 @@ function InteractiveMap({
     }
 
     setSaveWarning('');
-    const mode = field === 'pinned' || field === 'regionId' ? 'immediate' : 'debounced';
+    const mode =
+      field === 'pinned' || field === 'regionId' || field === 'secretId'
+        ? 'immediate'
+        : 'debounced';
     updateLocation(editorSelection.id, { [field]: nextValue }, { mode, successMode: 'none' }).catch((error) => {
       setSaveWarning(error.message || 'Unable to save location.');
     });

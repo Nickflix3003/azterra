@@ -74,6 +74,7 @@ export const normalizeLocationEntry = (location) => {
     ...(toOptionalYear(location.timeStart) != null && { timeStart: toOptionalYear(location.timeStart) }),
     ...(toOptionalYear(location.timeEnd)   != null && { timeEnd:   toOptionalYear(location.timeEnd) }),
     ...(location.gallery   != null && { gallery:   location.gallery }),
+    ...(location.secretId  != null && { secretId:  location.secretId }),
     ...(location.createdBy != null && { createdBy: location.createdBy }),
     ...(location.createdAt != null && { createdAt: location.createdAt }),
     ...(location.updatedBy != null && { updatedBy: location.updatedBy }),

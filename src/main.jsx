@@ -8,6 +8,7 @@ import { MapEffectsProvider } from './context/MapEffectsContext';
 import { LocationDataProvider } from './context/LocationDataContext';
 import { RegionDataProvider } from './context/RegionDataContext';
 import { ContentProvider } from './context/ContentContext';
+import { SecretDataProvider } from './context/SecretDataContext';
 import { ToastProvider } from './context/ToastContext';
 import { TimelineDataProvider } from './context/TimelineDataContext';
 import ToastContainer from './components/UI/ToastContainer';
@@ -20,12 +21,14 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <RegionDataProvider>
             <LabelDataProvider>
               <TimelineDataProvider>
-                <ContentProvider>
-                  <App />
-                  {/* Global toast notifications render outside the router so they
-                      always appear regardless of which page is active. */}
-                  <ToastContainer />
-                </ContentProvider>
+                <SecretDataProvider>
+                  <ContentProvider>
+                    <App />
+                    {/* Global toast notifications render outside the router so they
+                        always appear regardless of which page is active. */}
+                    <ToastContainer />
+                  </ContentProvider>
+                </SecretDataProvider>
               </TimelineDataProvider>
             </LabelDataProvider>
           </RegionDataProvider>

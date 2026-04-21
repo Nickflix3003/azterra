@@ -93,6 +93,59 @@ export function ContentProvider({ children }) {
     [entries]
   );
 
+  const getBySecretId = useCallback(
+    (secretId) =>
+      entries.filter((entry) => String(entry.secretId || '') === String(secretId || '')),
+    [entries]
+  );
+
+  const createEntry = useCallback(async (payload) => {
+    const response = await fetch(`${API_BASE_URL}/content`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.error || 'Unable to create content entry.');
+    }
+    const nextEntry = normalizeContentEntry(data.entry || {});
+    setEntries((prev) => [...prev, nextEntry]);
+    return nextEntry;
+  }, []);
+
+  const updateEntry = useCallback(async (id, payload) => {
+    const response = await fetch(`${API_BASE_URL}/content/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.error || 'Unable to update content entry.');
+    }
+    const nextEntry = normalizeContentEntry(data.entry || {});
+    setEntries((prev) =>
+      prev.map((entry) => (String(entry.id) === String(id) ? nextEntry : entry))
+    );
+    return nextEntry;
+  }, []);
+
+  const deleteEntry = useCallback(async (id) => {
+    const response = await fetch(`${API_BASE_URL}/content/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.error || 'Unable to delete content entry.');
+    }
+    setEntries((prev) => prev.filter((entry) => String(entry.id) !== String(id)));
+    return data;
+  }, []);
+
   const refreshPortraitStatus = useCallback(async (id) => {
     if (!id) return null;
     try {
@@ -165,6 +218,10 @@ export function ContentProvider({ children }) {
       getByType,
       getByCategory,
       getById,
+      getBySecretId,
+      createEntry,
+      updateEntry,
+      deleteEntry,
       availableTypes,
       availableCategories,
       portraitConfig,
@@ -182,6 +239,10 @@ export function ContentProvider({ children }) {
       getByType,
       getByCategory,
       getById,
+      getBySecretId,
+      createEntry,
+      updateEntry,
+      deleteEntry,
       availableTypes,
       availableCategories,
       portraitConfig,

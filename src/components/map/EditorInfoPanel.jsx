@@ -1,6 +1,7 @@
 import React from 'react';
 import { useLocationData } from '../../context/LocationDataContext';
 import { useRegions } from '../../context/RegionDataContext';
+import SecretScopeField from '../UI/SecretScopeField';
 
 // ── Dual-thumb range slider ───────────────────────────────────────────────────
 function DualRangeSlider({ min = 0, max = 1000, startVal, endVal, onChangeStart, onChangeEnd }) {
@@ -153,6 +154,11 @@ function EditorInfoPanel({
             placeholder="e.g. City, Dungeon, Ruin…"
           />
         </label>
+
+        <SecretScopeField
+          secretId={draft.secretId ?? null}
+          onChange={(nextSecretId) => onFieldChange('secretId', nextSecretId)}
+        />
 
         <label className="editor-info-panel__field">
           <span>Region</span>

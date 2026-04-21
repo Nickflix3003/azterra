@@ -5,7 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import './MagicPage.css';
 
 export default function MagicHubPage() {
-  const { isSecretUnlocked } = useAuth();
+  const { isSecretUnlocked, role } = useAuth();
 
   return (
     <div className="magic-page magic-page--hub custom-scrollbar">
@@ -20,7 +20,7 @@ export default function MagicHubPage() {
 
       <div className="magic-grid">
         {MAGIC_SYSTEMS.map((system) => {
-          const locked = system.secretId && !isSecretUnlocked(system.secretId);
+          const locked = system.secretId && role !== 'admin' && !isSecretUnlocked(system.secretId);
           const Wrapper = locked ? 'div' : Link;
           return (
             <Wrapper

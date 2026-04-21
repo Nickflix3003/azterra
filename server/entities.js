@@ -8,8 +8,9 @@
 
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
-import { adminRequired, authRequired, editorRequired } from './utils.js';
+import { adminRequired, authRequired, editorRequired, resolveRequestUser } from './utils.js';
 import { db, throwIfError } from './db.js';
+import { sanitizeSecretItems } from './secretAccess.js';
 
 const router = Router();
 
@@ -58,11 +59,6 @@ function npcToRow(payload, actor) {
   };
 }
 
-function sanitize(item) {
-  const { secretDetails, ...rest } = item;
-  return rest;
-}
-
 // ── Routes ────────────────────────────────────────────────────────────────────
 
 // GET /api/entities/:type
@@ -74,13 +70,14 @@ router.get('/:type', async (req, res) => {
   }
 
   try {
+    const viewer = await resolveRequestUser(req);
+    const isAdmin = viewer?.role === 'admin';
     const { data, error } = await db().from('npcs').select('*').order('created_at');
     throwIfError(error, `entities GET /${type}`);
 
-    const isAdmin = req.user?.role === 'admin';
     const items = (data || []).map(rowToNpc);
-    const visible = isAdmin ? items : items.filter((i) => i.visible !== false);
-    return res.json({ items: visible.map((entry) => (isAdmin ? entry : sanitize(entry))) });
+    const visible = isAdmin ? items : items.filter((item) => item.visible !== false);
+    return res.json({ items: sanitizeSecretItems(visible, viewer) });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Unable to load entities.' });
@@ -98,6 +95,12 @@ router.post('/:type/save', authRequired, editorRequired, async (req, res) => {
   const payload = req.body || {};
 
   try {
+    if (payload.secretId !== undefined && req.user?.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can assign secrets.' });
+    }
+    if (payload.visible !== undefined && req.user?.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can change NPC visibility.' });
+    }
     if (payload.id) {
       // Update existing
       const row = {
@@ -123,7 +126,15 @@ router.post('/:type/save', authRequired, editorRequired, async (req, res) => {
         const updated = rowToNpc(data);
         const { data: allData, error: allErr } = await db().from('npcs').select('*').order('created_at');
         throwIfError(allErr, 'entities save fetch all');
-        return res.json({ item: updated, items: (allData || []).map(rowToNpc) });
+        const allItems = (allData || []).map(rowToNpc);
+        const visibleItems =
+          req.user?.role === 'admin'
+            ? allItems
+            : allItems.filter((item) => item.visible !== false);
+        return res.json({
+          item: sanitizeSecretItems([updated], req.user)[0] || null,
+          items: sanitizeSecretItems(visibleItems, req.user),
+        });
       }
     }
 
@@ -138,7 +149,15 @@ router.post('/:type/save', authRequired, editorRequired, async (req, res) => {
     const inserted = rowToNpc(data);
     const { data: allData, error: allErr } = await db().from('npcs').select('*').order('created_at');
     throwIfError(allErr, 'entities save fetch all');
-    return res.json({ item: inserted, items: (allData || []).map(rowToNpc) });
+    const allItems = (allData || []).map(rowToNpc);
+    const visibleItems =
+      req.user?.role === 'admin'
+        ? allItems
+        : allItems.filter((item) => item.visible !== false);
+    return res.json({
+      item: sanitizeSecretItems([inserted], req.user)[0] || null,
+      items: sanitizeSecretItems(visibleItems, req.user),
+    });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Unable to save entity.' });
@@ -178,6 +197,12 @@ router.patch('/:type/:id', authRequired, editorRequired, async (req, res) => {
 
   const actor = req.user?.username || req.user?.name || 'unknown';
   try {
+    if (req.body?.secretId !== undefined && req.user?.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can assign secrets.' });
+    }
+    if (req.body?.visible !== undefined && req.user?.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can change NPC visibility.' });
+    }
     const { data: existing, error: fetchErr } = await db()
       .from('npcs')
       .select('created_by, created_at')
@@ -197,7 +222,8 @@ router.patch('/:type/:id', authRequired, editorRequired, async (req, res) => {
       .select()
       .single();
     throwIfError(error, 'entities PATCH update');
-    return res.json({ item: rowToNpc(data) });
+    const updated = rowToNpc(data);
+    return res.json({ item: sanitizeSecretItems([updated], req.user)[0] || null });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Unable to update entity.' });
