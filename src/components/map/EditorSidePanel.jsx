@@ -110,6 +110,12 @@ function EditorSidePanel({
     if (!isEditorMode) setView(PANEL_VIEWS.HOME);
   }, [isEditorMode]);
 
+  useEffect(() => {
+    if (view !== PANEL_VIEWS.REGIONS && isRegionMode) {
+      onToggleRegionMode?.();
+    }
+  }, [isRegionMode, onToggleRegionMode, view]);
+
   // ── Panel resize ───────────────────────────────────────────────────────────
   const handleResizeStart = (event) => {
     event.preventDefault();
