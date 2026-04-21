@@ -214,6 +214,8 @@ function InteractiveMap({
   onToggleFilters,
   currentYear = 500,
   timelineActive = false,
+  onLocationHoverChange,
+  onRegionHoverChange,
 }) {
   const { role, user } = useAuth();
   const { toast } = useToast();
@@ -1646,6 +1648,7 @@ function InteractiveMap({
                   key={location.id}
                   location={location}
                   onLocationClick={handleLocationClick}
+                  onHoverChange={onLocationHoverChange}
                   isSelected={selectedLocation && selectedLocation.id === location.id}
                   isEditorMode={isEditorMode}
                   onDragStart={handleMarkerDragStart}
@@ -1667,6 +1670,7 @@ function InteractiveMap({
                 draftPoints={regionDraftPoints}
                 selectedRegionId={activeRegionId}
                 onRegionClick={handleRegionClick}
+                onRegionHoverChange={onRegionHoverChange}
                 interactionEnabled={!isRegionMode}
                 showLabels={regionLabelsEnabled}
                 zoomLevel={mapZoom}

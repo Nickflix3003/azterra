@@ -36,6 +36,7 @@ const DRAG_THRESHOLD = 6; // pixels before a press becomes a drag
 export default function LocationMarker({
   location,
   onLocationClick,
+  onHoverChange,
   isSelected,
   isEditorMode,
   onDragEnd,
@@ -196,8 +197,14 @@ export default function LocationMarker({
         iconAnchor: [iconSize / 2, iconSize],
       })}
       eventHandlers={{
-        mouseover: () => setIsHovered(true),
-        mouseout:  () => setIsHovered(false),
+        mouseover: () => {
+          setIsHovered(true);
+          onHoverChange?.({ type: 'location', id: location.id, name: location.name || 'Location' });
+        },
+        mouseout:  () => {
+          setIsHovered(false);
+          onHoverChange?.(null);
+        },
         // In editor mode clicks are handled in onPointerUp above.
         // In view mode (no pointerdown listener) Leaflet's native click fires.
         click: () => {

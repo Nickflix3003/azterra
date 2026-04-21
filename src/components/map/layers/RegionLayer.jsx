@@ -92,6 +92,7 @@ function RegionLayer({
   draftPoints = [],
   selectedRegionId = null,
   onRegionClick,
+  onRegionHoverChange,
   interactionEnabled = false,
   showLabels = false,
   zoomLevel = 4,
@@ -150,9 +151,20 @@ function RegionLayer({
               }}
               interactive={interactionEnabled}
               eventHandlers={
-                interactionEnabled && onRegionClick
+                interactionEnabled
                   ? {
+                      mouseover: () => {
+                        onRegionHoverChange?.({
+                          type: 'region',
+                          id: region.id,
+                          name: region.name || 'Region',
+                        });
+                      },
+                      mouseout: () => {
+                        onRegionHoverChange?.(null);
+                      },
                       click: (event) => {
+                        if (!onRegionClick) return;
                         event.originalEvent?.stopPropagation();
                         onRegionClick(region.id);
                       },

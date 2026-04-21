@@ -11,6 +11,7 @@ import mapLabelsRoutes from '../mapLabels.js';
 import portraitsRoutes from '../portraits.js';
 import regionsRoutes from '../regions.js';
 import secretsRoutes from '../secrets.js';
+import timelineRoutes from '../timeline.js';
 import usersRoutes from '../users.js';
 import viewRoutes from '../view.js';
 
@@ -21,6 +22,7 @@ const routes = [
   { path: '/api/map-labels', router: mapLabelsRoutes },
   { path: '/api/regions', router: regionsRoutes },
   { path: '/api/secrets', router: secretsRoutes },
+  { path: '/api/timeline', router: timelineRoutes },
   { path: '/api/characters', router: charactersRoutes },
   { path: '/api/files', router: filesRoutes },
   { path: '/api/view', router: viewRoutes },

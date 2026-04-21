@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useLocationData } from '../../context/LocationDataContext';
 import { useAuth } from '../../context/AuthContext';
 import InteractiveMap from '../map/InteractiveMap';
 import Timeline from '../map/Timeline';
@@ -14,8 +13,8 @@ export default function MapPage() {
   const [filtersOpen,    setFiltersOpen]    = useState(false);
   const [currentYear,    setCurrentYear]    = useState(500);
   const [timelineActive, setTimelineActive] = useState(false);
+  const [hoveredTimelineEntity, setHoveredTimelineEntity] = useState(null);
 
-  const { locations } = useLocationData();
   const { role } = useAuth();
   const canEdit = ['player', 'editor', 'admin'].includes(role);
 
@@ -66,6 +65,8 @@ export default function MapPage() {
             onToggleFilters={toggleFilters}
             currentYear={currentYear}
             timelineActive={timelineActive}
+            onLocationHoverChange={setHoveredTimelineEntity}
+            onRegionHoverChange={setHoveredTimelineEntity}
           />
         </div>
         <Timeline
@@ -73,8 +74,9 @@ export default function MapPage() {
           onYearChange={setCurrentYear}
           timelineActive={timelineActive}
           onToggle={toggleTimeline}
-          locations={locations}
           isEditorMode={isEditorMode}
+          canManageEras={canEdit}
+          hoveredEntity={hoveredTimelineEntity}
           minYear={TIMELINE_MIN}
           maxYear={TIMELINE_MAX}
         />
