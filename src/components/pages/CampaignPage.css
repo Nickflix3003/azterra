@@ -274,6 +274,19 @@
   overflow: hidden;
 }
 
+.cp-campaign-hero__aside {
+  display: grid;
+  gap: 0.8rem;
+  justify-items: end;
+}
+
+.cp-campaign-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+
 .cp-campaign-hero__meta {
   display: flex;
   flex-wrap: wrap;
@@ -563,6 +576,17 @@
   background: rgba(255, 248, 231, 0.03);
 }
 
+.cp-btn--danger {
+  border-color: rgba(222, 101, 84, 0.28);
+  background: rgba(141, 37, 28, 0.22);
+  color: #ffe7da;
+}
+
+.cp-btn--danger:hover {
+  border-color: rgba(236, 156, 119, 0.42);
+  background: rgba(161, 45, 33, 0.3);
+}
+
 .cp-chip-btn--danger {
   border-color: rgba(222, 101, 84, 0.28);
   background: rgba(141, 37, 28, 0.18);
@@ -648,6 +672,12 @@
 .cp-session-grid label {
   display: grid;
   gap: 0.45rem;
+}
+
+.cp-modal__copy {
+  margin: -0.2rem 0 0;
+  color: rgba(245, 236, 218, 0.72);
+  line-height: 1.5;
 }
 
 .cp-modal__field span,
@@ -861,8 +891,13 @@
   }
 
   .cp-header__actions,
+  .cp-campaign-hero__actions,
   .cp-campaign-hero__meta {
     justify-content: flex-start;
+  }
+
+  .cp-campaign-hero__aside {
+    justify-items: stretch;
   }
 
   .cp-overview-grid,

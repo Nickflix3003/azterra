@@ -339,11 +339,20 @@ function CharacterSheetModal({ character, campaignId, canEdit, onClose, onSaved 
   );
 }
 
-function CreateCampaignModal({ onClose, onCreate }) {
+function CampaignSettingsModal({ mode = 'create', campaign = null, canDelete = false, onClose, onSaved, onDeleted }) {
   const { toast } = useToast();
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
+  const [name, setName] = useState(campaign?.name || '');
+  const [description, setDescription] = useState(campaign?.description || '');
+  const [visibility, setVisibility] = useState(campaign?.visibility || 'request');
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const isCreate = mode === 'create';
+
+  useEffect(() => {
+    setName(campaign?.name || '');
+    setDescription(campaign?.description || '');
+    setVisibility(campaign?.visibility || 'request');
+  }, [campaign]);
 
   const submit = async () => {
     if (!name.trim()) {
@@ -352,23 +361,45 @@ function CreateCampaignModal({ onClose, onCreate }) {
     }
     setSaving(true);
     try {
-      const data = await apiJson(`${API}/campaigns`, {
-        method: 'POST',
-        body: JSON.stringify({ name, description }),
+      const data = await apiJson(isCreate ? `${API}/campaigns` : `${API}/campaigns/${campaign.id}`, {
+        method: isCreate ? 'POST' : 'PATCH',
+        body: JSON.stringify({ name, description, visibility }),
       });
-      toast.success('Campaign created.');
-      onCreate(data.campaign);
+      toast.success(isCreate ? 'Campaign created.' : 'Campaign updated.');
+      onSaved(data.campaign);
     } catch (error) {
-      toast.error(error.message || 'Unable to create campaign.');
+      toast.error(error.message || `Unable to ${isCreate ? 'create' : 'update'} campaign.`);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!campaign?.id) return;
+    const confirmed = window.confirm(`Delete "${campaign.name}"? This will remove the campaign workspace for everyone.`);
+    if (!confirmed) return;
+
+    setDeleting(true);
+    try {
+      await apiJson(`${API}/campaigns/${campaign.id}`, { method: 'DELETE' });
+      toast.success('Campaign deleted.');
+      onDeleted?.(campaign.id);
+    } catch (error) {
+      toast.error(error.message || 'Unable to delete campaign.');
+    } finally {
+      setDeleting(false);
     }
   };
 
   return (
     <div className="cp-modal-overlay" onClick={onClose}>
       <div className="cp-modal" onClick={(event) => event.stopPropagation()}>
-        <h2 className="cp-modal__title">New Campaign</h2>
+        <h2 className="cp-modal__title">{isCreate ? 'New Campaign' : 'Edit Campaign'}</h2>
+        <p className="cp-modal__copy">
+          {isCreate
+            ? 'Set up the campaign shell first. You can fill in party members, session prep, and inventory after it is created.'
+            : 'Update the campaign details and who can request access from the campaign browser.'}
+        </p>
         <label className="cp-modal__field">
           <span>Name</span>
           <input value={name} onChange={(event) => setName(event.target.value)} placeholder="The Dormfall Arc…" />
@@ -377,10 +408,22 @@ function CreateCampaignModal({ onClose, onCreate }) {
           <span>Description</span>
           <textarea rows={3} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="What is this campaign about?" />
         </label>
+        <label className="cp-modal__field">
+          <span>Join Access</span>
+          <select value={visibility} onChange={(event) => setVisibility(event.target.value)}>
+            <option value="request">Request to Join</option>
+            <option value="private">Private</option>
+          </select>
+        </label>
         <div className="cp-modal__actions">
+          {!isCreate && canDelete && (
+            <button type="button" className="cp-btn cp-btn--danger" onClick={handleDelete} disabled={deleting || saving}>
+              {deleting ? 'Deleting…' : 'Delete Campaign'}
+            </button>
+          )}
           <button type="button" className="cp-btn cp-btn--ghost" onClick={onClose}>Cancel</button>
           <button type="button" className="cp-btn cp-btn--primary" onClick={submit} disabled={saving}>
-            {saving ? 'Creating…' : 'Create Campaign'}
+            {saving ? (isCreate ? 'Creating…' : 'Saving…') : (isCreate ? 'Create Campaign' : 'Save Changes')}
           </button>
         </div>
       </div>
@@ -933,6 +976,7 @@ export default function CampaignPage() {
   const [activeTab, setActiveTab] = useState('Overview');
   const [loading, setLoading] = useState(true);
   const [showCreateCampaign, setShowCreateCampaign] = useState(false);
+  const [showEditCampaign, setShowEditCampaign] = useState(false);
   const [sheetState, setSheetState] = useState(null);
   const [sessionDraft, setSessionDraft] = useState({ title: '', summary: '', notes: '', objectives: [], recentLoot: [], currentLocationId: null });
   const [boardDraft, setBoardDraft] = useState({ cards: [], columns: { hidden: [], active: [], revealed: [] } });
@@ -1044,6 +1088,22 @@ export default function CampaignPage() {
     setShowCreateCampaign(false);
     await refreshCampaignList();
     setActiveCampaignId(campaign.id);
+  };
+
+  const handleCampaignUpdated = async (campaign) => {
+    setShowEditCampaign(false);
+    await refreshCampaignList();
+    await refreshActiveCampaign(campaign.id || activeCampaignId);
+  };
+
+  const handleCampaignDeleted = async (campaignId) => {
+    setShowEditCampaign(false);
+    if (String(activeCampaignId) === String(campaignId)) {
+      setActiveCampaignId(null);
+      setActiveCampaign(null);
+      setActiveTab('Overview');
+    }
+    await refreshCampaignList();
   };
 
   const handleJoinRequest = async (campaignId) => {
@@ -1213,9 +1273,21 @@ export default function CampaignPage() {
       )}
 
       {showCreateCampaign && (
-        <CreateCampaignModal
+        <CampaignSettingsModal
+          mode="create"
           onClose={() => setShowCreateCampaign(false)}
-          onCreate={handleCampaignCreated}
+          onSaved={handleCampaignCreated}
+        />
+      )}
+
+      {showEditCampaign && activeCampaign && activeCampaign.canManage && (
+        <CampaignSettingsModal
+          mode="edit"
+          campaign={activeCampaign}
+          canDelete={activeCampaign.viewerRole === 'owner' || role === 'admin'}
+          onClose={() => setShowEditCampaign(false)}
+          onSaved={handleCampaignUpdated}
+          onDeleted={handleCampaignDeleted}
         />
       )}
 
@@ -1310,10 +1382,19 @@ export default function CampaignPage() {
                   <h2>{activeCampaign.name}</h2>
                   <p>{activeCampaign.description || 'No campaign description yet.'}</p>
                 </div>
-                <div className="cp-campaign-hero__meta">
-                  <span>{activeCampaign.members.length} approved members</span>
-                  <span>{activeCampaign.attachedCharacters.length} attached characters</span>
-                  <span>{activeCampaign.inventory?.items?.length || 0} items in play</span>
+                <div className="cp-campaign-hero__aside">
+                  {activeCampaign.canManage && (
+                    <div className="cp-campaign-hero__actions">
+                      <button type="button" className="cp-btn cp-btn--ghost cp-btn--sm" onClick={() => setShowEditCampaign(true)}>
+                        Edit Campaign
+                      </button>
+                    </div>
+                  )}
+                  <div className="cp-campaign-hero__meta">
+                    <span>{activeCampaign.members.length} approved members</span>
+                    <span>{activeCampaign.attachedCharacters.length} attached characters</span>
+                    <span>{activeCampaign.inventory?.items?.length || 0} items in play</span>
+                  </div>
                 </div>
               </section>
 

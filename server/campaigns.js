@@ -338,7 +338,9 @@ router.get('/me', authRequired, async (req, res) => {
         accessible.push(summary);
         return;
       }
-      discoverable.push(summary);
+      if ((workspace.visibility || 'request') !== 'private') {
+        discoverable.push(summary);
+      }
     });
 
     await writeCampaignWorkspaceIndex(workspaceIndex);
