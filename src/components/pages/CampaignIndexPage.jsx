@@ -114,7 +114,7 @@ export default function CampaignIndexPage() {
         <div className="cp-guest-hero">
           <div className="cp-guest-emblem">⚔️</div>
           <h1 className="cp-guest-title">Campaigns</h1>
-          <p className="cp-guest-sub">Sign in to join campaigns, build character rosters, and enter the shared tabletop.</p>
+          <p className="cp-guest-sub">Sign in to join campaigns, build character rosters, and open the shared campaign sheets.</p>
         </div>
       </div>
     );
@@ -164,7 +164,7 @@ export default function CampaignIndexPage() {
         <div className="cp-header__left">
           <p className="cp-header__eyebrow">Campaigns</p>
           <h1 className="cp-header__title">Campaign Ledger</h1>
-          <p className="cp-header__subtitle">Use this page to create campaigns, scan party status, and jump into the shared tabletop for live play.</p>
+          <p className="cp-header__subtitle">Use this page to create campaigns, scan party status, and jump into the shared campaign workspace.</p>
         </div>
         <div className="cp-header__actions">
           <button type="button" className="cp-btn cp-btn--ghost" onClick={() => setSheetState({ character: null, canEdit: true })}>
@@ -181,7 +181,7 @@ export default function CampaignIndexPage() {
           <div className="cpi-featured__copy">
             <p className="cpi-featured__eyebrow">Most Recent Campaign</p>
             <h2>{featuredCampaign.name}</h2>
-            <p>{featuredCampaign.description || 'Jump back into the latest tabletop, manage its roster, and continue the session.'}</p>
+            <p>{featuredCampaign.description || 'Jump back into the latest campaign workspace, manage its roster, and keep the shared sheets current.'}</p>
           </div>
           <div className="cpi-featured__meta">
             <span>{featuredCampaign.approvedCount || 0} approved players</span>
@@ -190,7 +190,7 @@ export default function CampaignIndexPage() {
           </div>
           <div className="cpi-featured__actions">
             <button type="button" className="cp-btn cp-btn--primary" onClick={() => navigate(`/campaign/${featuredCampaign.id}`)}>
-              Open Tabletop
+              Open Campaign
             </button>
             {(featuredCampaign.viewerRole === 'owner' || featuredCampaign.viewerRole === 'co_dm' || role === 'admin') && (
               <button type="button" className="cp-btn cp-btn--ghost" onClick={() => setEditingCampaign(featuredCampaign)}>
@@ -268,7 +268,7 @@ export default function CampaignIndexPage() {
             <span>{playerCharacters.length}</span>
           </div>
           {playerCharacters.length === 0 ? (
-            <p className="cp-empty">No reusable characters yet. Create one here, then attach it inside a campaign tabletop.</p>
+            <p className="cp-empty">No reusable characters yet. Create one here, then attach it inside a campaign workspace.</p>
           ) : (
             <div className="cpi-library">
               {playerCharacters.slice(0, 5).map((character) => (

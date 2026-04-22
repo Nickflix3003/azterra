@@ -941,13 +941,18 @@ router.post('/:id/inventory/items', authRequired, async (req, res) => {
       return res.status(403).json({ error: 'Only campaign managers can create items.' });
     }
 
+    const name = String(req.body?.name || '').trim();
+    if (!name) {
+      return res.status(400).json({ error: 'Item name is required.' });
+    }
+
     const item = {
-      id: req.body?.id,
-      name: req.body?.name,
-      type: req.body?.type,
-      quantity: req.body?.quantity,
-      notes: req.body?.notes,
-      tags: req.body?.tags,
+      id: String(req.body?.id || `item-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`),
+      name,
+      type: String(req.body?.type || 'gear').trim() || 'gear',
+      quantity: Math.max(1, Number(req.body?.quantity) || 1),
+      notes: String(req.body?.notes || '').trim(),
+      tags: Array.isArray(req.body?.tags) ? req.body.tags.map((entry) => String(entry).trim()).filter(Boolean) : [],
       ownerType: req.body?.ownerType || 'stash',
       ownerId: req.body?.ownerId || null,
       createdBy: req.user.id,

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -12,29 +12,7 @@ import {
 import './CampaignPage.css';
 import './CampaignWorkspacePage.css';
 
-const CARD_SIZES = {
-  compact: { width: 228, height: 140 },
-  standard: { width: 280, height: 176 },
-  large: { width: 340, height: 224 },
-};
-
-const SURFACE_SIZE = { width: 1560, height: 920 };
-const ZOOM_MIN = 0.75;
-const ZOOM_MAX = 1.45;
-const ZOOM_STEP = 0.1;
-
-const WIDGET_TEMPLATES = [
-  { id: 'healing-potion', label: 'Healing Potion', accent: '#d66b5f', emoji: '🧪', payload: { note: 'Restores HP', amount: 1 } },
-  { id: 'damage-counter', label: 'Damage / Heal', accent: '#cfaa68', emoji: '✶', payload: { value: 0 } },
-  { id: 'condition-chip', label: 'Condition', accent: '#8fb86f', emoji: '☍', payload: { note: 'Status marker' } },
-  { id: 'note-token', label: 'Note', accent: '#7fb7d8', emoji: '✎', payload: { note: 'Table note' } },
-  { id: 'status-marker', label: 'Status Marker', accent: '#b78be2', emoji: '◆', payload: { note: 'Track a moment' } },
-  { id: 'progress-bar', label: 'Progress', accent: '#e4c770', emoji: '▤', payload: { value: 50 } },
-];
-
-function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
-}
+const ITEM_TYPES = ['gear', 'consumable', 'weapon', 'armor', 'trinket', 'quest'];
 
 function asTagArray(value) {
   if (!value) return [];
@@ -44,470 +22,290 @@ function asTagArray(value) {
     .filter(Boolean);
 }
 
-function sizeLabel(size) {
-  if (size === 'large') return 'Large';
-  if (size === 'standard') return 'Standard';
-  return 'Compact';
+function createItemId() {
+  return `item-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }
 
-function findTemplate(type) {
-  return WIDGET_TEMPLATES.find((entry) => entry.id === type) || null;
+function compactLine(character) {
+  const parts = [character.race, character.class].filter(Boolean);
+  if (character.level) parts.push(`Lvl ${character.level}`);
+  return parts.join(' / ') || 'Character sheet';
 }
 
-function cardMetrics(size) {
-  return CARD_SIZES[size] || CARD_SIZES.compact;
+function initModifier(character) {
+  return character.initiative ?? mod(character.stats?.dex);
 }
 
-function dragPayload(event) {
-  try {
-    return JSON.parse(event.dataTransfer.getData('application/azterra-campaign'));
-  } catch {
-    return null;
-  }
-}
-
-function setDragPayload(event, payload) {
-  event.dataTransfer.setData('application/azterra-campaign', JSON.stringify(payload));
-  event.dataTransfer.effectAllowed = 'move';
-}
-
-function CompactCard({ character, cardState, selected, spotlighted, canManage, editMode, onSelect, onResize, onDragStart, onOpenSheet, onWidgetDrop, attachedWidgets }) {
-  const metrics = cardMetrics(cardState?.size);
-  const attachment = character.attachment || {};
-
+function CharacterLibraryCard({ character, attached, onAttach, onOpenSheet }) {
   return (
-    <article
-      className={`cpt-card cpt-card--${cardState?.size || 'compact'} ${selected ? 'cpt-card--selected' : ''} ${spotlighted ? 'cpt-card--spotlight' : ''}`}
-      style={{
-        width: metrics.width,
-        minHeight: metrics.height,
-        left: cardState?.x || 0,
-        top: cardState?.y || 0,
-        zIndex: cardState?.zIndex || 1,
-        '--char-accent': character.color || '#cfaa68',
-      }}
-      draggable={Boolean(canManage && editMode)}
-      onDragStart={(event) => onDragStart(event, character.id)}
-      onClick={() => onSelect(character.id)}
-      onDragOver={(event) => {
-        if (!canManage || !editMode) return;
-        event.preventDefault();
-      }}
-      onDrop={(event) => {
-        if (!canManage || !editMode) return;
-        event.preventDefault();
-        event.stopPropagation();
-        onWidgetDrop(event, character.id);
-      }}
-    >
-      <div className="cpt-card__header">
-        <div className="cpt-card__identity">
-          <span className="cpt-card__owner">{character.ownerName}</span>
-          <h3>{attachment.nickname || character.name || 'Unnamed Character'}</h3>
-          <p>{[character.race, character.class].filter(Boolean).join(' · ')}{character.level ? ` · Lv ${character.level}` : ''}</p>
-        </div>
-        {canManage && editMode && (
-          <button
-            type="button"
-            className="cpt-card__size-btn"
-            onClick={(event) => {
-              event.stopPropagation();
-              onResize(character.id);
-            }}
-          >
-            {sizeLabel(cardState?.size)}
-          </button>
-        )}
+    <article className="cpt-library-card">
+      <div>
+        <strong>{character.name || 'Unnamed Character'}</strong>
+        <span>{compactLine(character)}</span>
       </div>
-
-      <div className="cpt-card__stats">
-        <div>
-          <span>HP</span>
-          <strong>{attachment.currentHp ?? character.hp}/{attachment.maxHp ?? character.maxHp}</strong>
-        </div>
-        <div>
-          <span>AC</span>
-          <strong>{character.ac ?? '—'}</strong>
-        </div>
-        <div>
-          <span>Speed</span>
-          <strong>{character.speed ?? '—'}</strong>
-        </div>
-        <div>
-          <span>Init</span>
-          <strong>{character.initiative ?? mod(character.stats?.dex)}</strong>
-        </div>
-        <div>
-          <span>Passive</span>
-          <strong>{calculatePassivePerception(character)}</strong>
-        </div>
-        <div>
-          <span>Status</span>
-          <strong>{attachment.status || 'active'}</strong>
-        </div>
-      </div>
-
-      {(attachedWidgets?.length || attachment.tags?.length) > 0 && (
-        <div className="cpt-card__tokens">
-          {(attachment.tags || []).slice(0, 3).map((tag) => (
-            <span key={tag} className="cpt-token cpt-token--condition">{tag}</span>
-          ))}
-          {(attachedWidgets || []).slice(0, 3).map((widget) => {
-            const template = findTemplate(widget.type);
-            return (
-              <span key={widget.id} className="cpt-token" style={{ '--token-accent': template?.accent || '#cfaa68' }}>
-                <span aria-hidden="true">{template?.emoji || '◆'}</span>
-                {template?.label || widget.type}
-              </span>
-            );
-          })}
-        </div>
-      )}
-
-      <div className="cpt-card__footer">
-        <button type="button" className="cp-chip-btn" onClick={(event) => {
-          event.stopPropagation();
-          onSelect(character.id);
-        }}>
-          Inspect
+      <div className="cpt-inline-actions">
+        <button type="button" className="cp-chip-btn" onClick={() => onOpenSheet(character, true)}>
+          Edit
         </button>
-        <button type="button" className="cp-chip-btn" onClick={(event) => {
-          event.stopPropagation();
-          onOpenSheet(character, character.canEditSheet);
-        }}>
-          {character.canEditSheet ? 'Edit Sheet' : 'View Sheet'}
+        <button type="button" className="cp-chip-btn" onClick={() => onAttach(character.id)} disabled={attached}>
+          {attached ? 'Attached' : 'Add to Campaign'}
         </button>
       </div>
     </article>
   );
 }
 
-function SurfaceWidget({ widget, editMode, canManage, onDragStart, onRemove }) {
-  const template = findTemplate(widget.type);
+function AttachedCharacterCard({ character, selected, onSelect, onOpenSheet }) {
+  const attachment = character.attachment || {};
 
   return (
-    <button
-      type="button"
-      className="cpt-widget"
-      style={{
-        left: widget.x || 0,
-        top: widget.y || 0,
-        zIndex: widget.zIndex || 2,
-        '--widget-accent': template?.accent || '#cfaa68',
+    <article
+      className={`cpt-character-card ${selected ? 'cpt-character-card--active' : ''}`}
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(character.id)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelect(character.id);
+        }
       }}
-      draggable={Boolean(canManage && editMode)}
-      onDragStart={(event) => onDragStart(event, widget.id)}
-      onClick={(event) => event.stopPropagation()}
-      title={template?.label || widget.type}
     >
-      <span className="cpt-widget__icon" aria-hidden="true">{template?.emoji || '◆'}</span>
-      <span className="cpt-widget__label">{template?.label || widget.type}</span>
-      {canManage && editMode && (
-        <span
-          className="cpt-widget__remove"
+      <div className="cpt-character-card__top">
+        <div>
+          <span className="cpt-card-eyebrow">{character.ownerName}</span>
+          <h3>{attachment.nickname || character.name || 'Unnamed Character'}</h3>
+          <p>{compactLine(character)}</p>
+        </div>
+        <button
+          type="button"
+          className="cp-chip-btn"
           onClick={(event) => {
             event.stopPropagation();
-            onRemove(widget.id);
+            onOpenSheet(character, character.canEditSheet);
           }}
         >
-          ×
-        </span>
-      )}
-    </button>
+          {character.canEditSheet ? 'Edit Sheet' : 'View Sheet'}
+        </button>
+      </div>
+
+      <div className="cpt-stat-row">
+        <div>
+          <span>HP</span>
+          <strong>{attachment.currentHp ?? character.hp}/{attachment.maxHp ?? character.maxHp}</strong>
+        </div>
+        <div>
+          <span>AC</span>
+          <strong>{character.ac ?? '-'}</strong>
+        </div>
+        <div>
+          <span>Init</span>
+          <strong>{initModifier(character)}</strong>
+        </div>
+        <div>
+          <span>Passive</span>
+          <strong>{calculatePassivePerception(character)}</strong>
+        </div>
+      </div>
+
+      <div className="cpt-character-card__footer">
+        <span>{attachment.status || 'active'}</span>
+        <span>{character.inventoryItems?.length || 0} campaign items</span>
+      </div>
+    </article>
   );
 }
 
-function TableShelf({ canManage, editMode }) {
+function ItemComposer({ title, buttonLabel, disabled, onCreate }) {
+  const [draft, setDraft] = useState({
+    name: '',
+    type: 'gear',
+    quantity: 1,
+    notes: '',
+    tags: '',
+  });
+
+  const submit = async () => {
+    if (!draft.name.trim() || disabled) return;
+    await onCreate({
+      id: createItemId(),
+      name: draft.name.trim(),
+      type: draft.type,
+      quantity: Math.max(1, Number(draft.quantity) || 1),
+      notes: draft.notes.trim(),
+      tags: asTagArray(draft.tags),
+    });
+    setDraft({
+      name: '',
+      type: 'gear',
+      quantity: 1,
+      notes: '',
+      tags: '',
+    });
+  };
+
   return (
-    <section className={`cpt-shelf ${!canManage || !editMode ? 'cpt-shelf--locked' : ''}`}>
-      <div className="cpt-shelf__head">
-        <div>
-          <p className="cpt-shelf__eyebrow">Play Widget Shelf</p>
-          <h3>Drag tabletop aids onto the board</h3>
-        </div>
-        <span>{canManage && editMode ? 'Drop onto the table or a character card' : 'DM edit mode required'}</span>
+    <section className="cpt-composer">
+      <div className="cpt-section-head">
+        <h4>{title}</h4>
       </div>
-      <div className="cpt-shelf__items">
-        {WIDGET_TEMPLATES.map((template) => (
-          <button
-            key={template.id}
-            type="button"
-            className="cpt-shelf__item"
-            draggable={Boolean(canManage && editMode)}
-            onDragStart={(event) => setDragPayload(event, { kind: 'template', templateId: template.id })}
-            style={{ '--widget-accent': template.accent }}
+      <div className="cpt-form-grid cpt-form-grid--tight">
+        <label>
+          <span>Name</span>
+          <input
+            value={draft.name}
+            onChange={(event) => setDraft((prev) => ({ ...prev, name: event.target.value }))}
+            placeholder="Health Potion"
+            disabled={disabled}
+          />
+        </label>
+        <label>
+          <span>Type</span>
+          <select
+            value={draft.type}
+            onChange={(event) => setDraft((prev) => ({ ...prev, type: event.target.value }))}
+            disabled={disabled}
           >
-            <span className="cpt-shelf__icon" aria-hidden="true">{template.emoji}</span>
-            <span className="cpt-shelf__label">{template.label}</span>
-          </button>
-        ))}
+            {ITEM_TYPES.map((entry) => (
+              <option key={entry} value={entry}>
+                {entry}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Qty</span>
+          <input
+            type="number"
+            min={1}
+            value={draft.quantity}
+            onChange={(event) => setDraft((prev) => ({ ...prev, quantity: event.target.value }))}
+            disabled={disabled}
+          />
+        </label>
       </div>
+      <label>
+        <span>Notes</span>
+        <textarea
+          rows={2}
+          value={draft.notes}
+          onChange={(event) => setDraft((prev) => ({ ...prev, notes: event.target.value }))}
+          placeholder="Short reminder or effect"
+          disabled={disabled}
+        />
+      </label>
+      <label>
+        <span>Tags</span>
+        <input
+          value={draft.tags}
+          onChange={(event) => setDraft((prev) => ({ ...prev, tags: event.target.value }))}
+          placeholder="healing, rare, consumable"
+          disabled={disabled}
+        />
+      </label>
+      <button type="button" className="cp-btn cp-btn--primary cp-btn--sm" onClick={submit} disabled={disabled}>
+        {buttonLabel}
+      </button>
     </section>
   );
 }
 
-function CampaignInspector({
-  campaign,
-  selectedCharacter,
-  attachmentDraft,
-  setAttachmentDraft,
-  canEditAttachment,
-  savingAttachment,
-  onSaveAttachment,
-  onOpenSheet,
-  spotlighted,
-  onToggleSpotlight,
-  onDetachCharacter,
-}) {
-  if (!selectedCharacter) {
-    return (
-      <aside className="cpt-inspector">
-        <div className="cpt-inspector__empty">
-          <p className="cpt-inspector__eyebrow">Inspector</p>
-          <h3>Select a party card</h3>
-          <p>Inspect character details, inventory, conditions, and quick play stats from here without leaving the tabletop.</p>
-        </div>
-      </aside>
-    );
-  }
+function InventoryItemCard({ item, canDelete, moveLabel, onMove, onSave, onDelete }) {
+  const [draft, setDraft] = useState({
+    name: item.name || '',
+    type: item.type || 'gear',
+    quantity: item.quantity || 1,
+    notes: item.notes || '',
+    tags: Array.isArray(item.tags) ? item.tags.join(', ') : '',
+  });
 
-  const attachment = selectedCharacter.attachment || {};
-  const inventoryItems = selectedCharacter.inventoryItems || [];
+  useEffect(() => {
+    setDraft({
+      name: item.name || '',
+      type: item.type || 'gear',
+      quantity: item.quantity || 1,
+      notes: item.notes || '',
+      tags: Array.isArray(item.tags) ? item.tags.join(', ') : '',
+    });
+  }, [item]);
+
+  const editable = Boolean(item.canManage);
 
   return (
-    <aside className="cpt-inspector">
-      <div className="cpt-inspector__hero" style={{ '--char-accent': selectedCharacter.color || '#cfaa68' }}>
-        <div>
-          <p className="cpt-inspector__eyebrow">{selectedCharacter.ownerName}</p>
-          <h3>{attachment.nickname || selectedCharacter.name}</h3>
-          <span>{[selectedCharacter.race, selectedCharacter.class].filter(Boolean).join(' · ')}{selectedCharacter.level ? ` · Lv ${selectedCharacter.level}` : ''}</span>
-        </div>
-        <div className="cpt-inspector__hero-actions">
-          <button type="button" className="cp-chip-btn" onClick={() => onToggleSpotlight(selectedCharacter.id)}>
-            {spotlighted ? 'Unfocus' : 'Focus'}
-          </button>
-          <button type="button" className="cp-chip-btn" onClick={() => onOpenSheet(selectedCharacter, selectedCharacter.canEditSheet)}>
-            {selectedCharacter.canEditSheet ? 'Open Full Sheet' : 'View Sheet'}
-          </button>
-          {selectedCharacter.canEditAttachment && (
-            <button type="button" className="cp-chip-btn cp-chip-btn--danger" onClick={() => onDetachCharacter(selectedCharacter.id)}>
-              Detach
+    <article className="cpt-item-card">
+      {editable ? (
+        <div className="cpt-item-card__form">
+          <div className="cpt-form-grid cpt-form-grid--tight">
+            <label>
+              <span>Name</span>
+              <input value={draft.name} onChange={(event) => setDraft((prev) => ({ ...prev, name: event.target.value }))} />
+            </label>
+            <label>
+              <span>Type</span>
+              <select value={draft.type} onChange={(event) => setDraft((prev) => ({ ...prev, type: event.target.value }))}>
+                {ITEM_TYPES.map((entry) => (
+                  <option key={entry} value={entry}>
+                    {entry}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Qty</span>
+              <input
+                type="number"
+                min={1}
+                value={draft.quantity}
+                onChange={(event) => setDraft((prev) => ({ ...prev, quantity: event.target.value }))}
+              />
+            </label>
+          </div>
+          <label>
+            <span>Notes</span>
+            <textarea rows={2} value={draft.notes} onChange={(event) => setDraft((prev) => ({ ...prev, notes: event.target.value }))} />
+          </label>
+          <label>
+            <span>Tags</span>
+            <input value={draft.tags} onChange={(event) => setDraft((prev) => ({ ...prev, tags: event.target.value }))} />
+          </label>
+          <div className="cpt-inline-actions">
+            <button
+              type="button"
+              className="cp-chip-btn"
+              onClick={() =>
+                onSave(item.id, {
+                  name: draft.name.trim(),
+                  type: draft.type,
+                  quantity: Math.max(1, Number(draft.quantity) || 1),
+                  notes: draft.notes.trim(),
+                  tags: asTagArray(draft.tags),
+                })
+              }
+            >
+              Save
             </button>
-          )}
-        </div>
-      </div>
-
-      <section className="cpt-inspector__section">
-        <div className="cpt-inspector__stats">
-          <div><span>HP</span><strong>{attachment.currentHp ?? selectedCharacter.hp}/{attachment.maxHp ?? selectedCharacter.maxHp}</strong></div>
-          <div><span>AC</span><strong>{selectedCharacter.ac ?? '—'}</strong></div>
-          <div><span>Speed</span><strong>{selectedCharacter.speed ?? '—'}</strong></div>
-          <div><span>Init</span><strong>{selectedCharacter.initiative ?? mod(selectedCharacter.stats?.dex)}</strong></div>
-          <div><span>Passive</span><strong>{calculatePassivePerception(selectedCharacter)}</strong></div>
-          <div><span>Prof.</span><strong>{selectedCharacter.proficiencyBonus ?? '—'}</strong></div>
-        </div>
-      </section>
-
-      <section className="cpt-inspector__section">
-        <div className="cpt-inspector__section-head">
-          <h4>Conditions & Resources</h4>
-        </div>
-        {canEditAttachment ? (
-          <div className="cpt-form">
-            <div className="cpt-form__row">
-              <label>
-                <span>Current HP</span>
-                <input type="number" value={attachmentDraft.currentHp ?? ''} onChange={(event) => setAttachmentDraft((prev) => ({ ...prev, currentHp: event.target.value === '' ? null : Number(event.target.value) }))} />
-              </label>
-              <label>
-                <span>Max HP</span>
-                <input type="number" value={attachmentDraft.maxHp ?? ''} onChange={(event) => setAttachmentDraft((prev) => ({ ...prev, maxHp: event.target.value === '' ? null : Number(event.target.value) }))} />
-              </label>
-            </div>
-            <label>
-              <span>Status</span>
-              <input value={attachmentDraft.status || 'active'} onChange={(event) => setAttachmentDraft((prev) => ({ ...prev, status: event.target.value }))} />
-            </label>
-            <label>
-              <span>Condition Tags</span>
-              <input value={(attachmentDraft.tags || []).join(', ')} onChange={(event) => setAttachmentDraft((prev) => ({ ...prev, tags: asTagArray(event.target.value) }))} placeholder="Blessed, Hidden, Concentrating" />
-            </label>
-            <label>
-              <span>Table Notes</span>
-              <textarea rows={4} value={attachmentDraft.notes || ''} onChange={(event) => setAttachmentDraft((prev) => ({ ...prev, notes: event.target.value }))} />
-            </label>
-            <button type="button" className="cp-btn cp-btn--primary cp-btn--sm" onClick={onSaveAttachment} disabled={savingAttachment}>
-              {savingAttachment ? 'Saving…' : 'Save Table State'}
-            </button>
+            {moveLabel && (
+              <button type="button" className="cp-chip-btn" onClick={() => onMove(item.id)}>
+                {moveLabel}
+              </button>
+            )}
+            {canDelete && (
+              <button type="button" className="cp-chip-btn cp-chip-btn--danger" onClick={() => onDelete(item.id)}>
+                Delete
+              </button>
+            )}
           </div>
-        ) : (
-          <div className="cpt-readout">
-            <div className="cpt-token-row">
-              {(attachment.tags || []).length === 0 ? (
-                <span className="cpt-empty-inline">No active conditions.</span>
-              ) : (
-                (attachment.tags || []).map((tag) => <span key={tag} className="cpt-token cpt-token--condition">{tag}</span>)
-              )}
-            </div>
-            <p>{attachment.notes || 'No campaign-only notes yet.'}</p>
-          </div>
-        )}
-      </section>
-
-      <section className="cpt-inspector__section">
-        <div className="cpt-inspector__section-head">
-          <h4>Inventory</h4>
-          <span>{inventoryItems.length}</span>
         </div>
-        {inventoryItems.length === 0 ? (
-          <p className="cpt-empty-inline">No campaign items assigned.</p>
-        ) : (
-          <ul className="cpt-list">
-            {inventoryItems.map((item) => (
-              <li key={item.id}>
-                <strong>{item.name}</strong>
-                <span>{item.type} · qty {item.quantity}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-        {(selectedCharacter.equipment || []).length > 0 && (
-          <div className="cpt-inspector__subsection">
-            <h5>Sheet Equipment</h5>
-            <p>{selectedCharacter.equipment.join(', ')}</p>
+      ) : (
+        <div className="cpt-item-card__readout">
+          <div>
+            <strong>{item.name}</strong>
+            <span>{item.type} / qty {item.quantity}</span>
           </div>
-        )}
-      </section>
-
-      <section className="cpt-inspector__section">
-        <div className="cpt-inspector__section-head">
-          <h4>Sheet Snapshot</h4>
-        </div>
-        <div className="cpt-sheet-grid">
-          <div><span>Background</span><strong>{selectedCharacter.background || '—'}</strong></div>
-          <div><span>Alignment</span><strong>{selectedCharacter.alignment || '—'}</strong></div>
-          <div><span>Hit Dice</span><strong>{selectedCharacter.hitDice || '—'}</strong></div>
-          <div><span>Notes</span><strong>{selectedCharacter.notes || '—'}</strong></div>
-        </div>
-      </section>
-    </aside>
-  );
-}
-
-function TableSidebar({
-  campaign,
-  playerCharacters,
-  attachedIds,
-  drawerTab,
-  setDrawerTab,
-  onAttachCharacter,
-  onMembershipChange,
-  onOpenSheet,
-}) {
-  return (
-    <aside className="cpt-sidebar">
-      <div className="cpt-sidebar__tabs">
-        {['Roster', 'Library', 'Requests'].filter((entry) => entry !== 'Requests' || campaign.canManage).map((entry) => (
-          <button
-            key={entry}
-            type="button"
-            className={`cpt-sidebar__tab ${drawerTab === entry ? 'cpt-sidebar__tab--active' : ''}`}
-            onClick={() => setDrawerTab(entry)}
-          >
-            {entry}
-          </button>
-        ))}
-      </div>
-
-      {drawerTab === 'Roster' && (
-        <div className="cpt-sidebar__panel">
-          <div className="cpt-sidebar__section">
-            <div className="cpt-sidebar__section-head">
-              <h4>Party Members</h4>
-              <span>{campaign.members?.length || 0}</span>
-            </div>
-            <div className="cpt-sidebar__list">
-              <div className="cpt-sidebar__entry cpt-sidebar__entry--owner">
-                <strong>{campaign.ownerName}</strong>
-                <span>Campaign Owner DM</span>
-              </div>
-              {(campaign.members || []).map((member) => (
-                <div key={member.userId} className="cpt-sidebar__entry">
-                  <strong>{member.name}</strong>
-                  <span>{member.isCoDm ? 'Co-DM' : 'Player'}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+          {item.notes && <p>{item.notes}</p>}
         </div>
       )}
-
-      {drawerTab === 'Library' && (
-        <div className="cpt-sidebar__panel">
-          <div className="cpt-sidebar__section">
-            <div className="cpt-sidebar__section-head">
-              <h4>My Character Library</h4>
-              <span>{playerCharacters.length}</span>
-            </div>
-            <div className="cpt-sidebar__list">
-              {playerCharacters.length === 0 ? (
-                <p className="cpt-empty-inline">Create a reusable character to add it to the table.</p>
-              ) : (
-                playerCharacters.map((character) => (
-                  <div key={character.id} className="cpt-sidebar__entry">
-                    <div>
-                      <strong>{character.name || 'Unnamed Character'}</strong>
-                      <span>{[character.race, character.class].filter(Boolean).join(' · ') || 'Character sheet'}</span>
-                    </div>
-                    <div className="cpt-sidebar__actions">
-                      <button type="button" className="cp-chip-btn" onClick={() => onOpenSheet(character, true)}>
-                        Edit
-                      </button>
-                      <button type="button" className="cp-chip-btn" onClick={() => onAttachCharacter(character.id)} disabled={attachedIds.has(String(character.id))}>
-                        {attachedIds.has(String(character.id)) ? 'Attached' : 'Attach'}
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {drawerTab === 'Requests' && campaign.canManage && (
-        <div className="cpt-sidebar__panel">
-          <div className="cpt-sidebar__section">
-            <div className="cpt-sidebar__section-head">
-              <h4>Pending Requests</h4>
-              <span>{campaign.pendingMembers?.length || 0}</span>
-            </div>
-            <div className="cpt-sidebar__list">
-              {(campaign.pendingMembers || []).length === 0 ? (
-                <p className="cpt-empty-inline">No pending approvals.</p>
-              ) : (
-                (campaign.pendingMembers || []).map((member) => (
-                  <div key={member.userId} className="cpt-sidebar__entry">
-                    <div>
-                      <strong>{member.name}</strong>
-                      <span>{member.email || member.username || 'Pending player'}</span>
-                    </div>
-                    <div className="cpt-sidebar__actions">
-                      <button type="button" className="cp-chip-btn" onClick={() => onMembershipChange(member.userId, { status: 'approved', role: member.role || 'player' })}>
-                        Approve
-                      </button>
-                      <button type="button" className="cp-chip-btn cp-chip-btn--danger" onClick={() => onMembershipChange(member.userId, { status: 'rejected', role: 'player' })}>
-                        Reject
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-    </aside>
+    </article>
   );
 }
 
@@ -516,27 +314,37 @@ export default function CampaignWorkspacePage() {
   const { id } = useParams();
   const { user, role } = useAuth();
   const { toast } = useToast();
-  const surfaceRef = useRef(null);
   const canUseCampaigns = Boolean(user) && ['player', 'editor', 'admin'].includes(role);
+
   const [loading, setLoading] = useState(true);
   const [campaign, setCampaign] = useState(null);
-  const [tableState, setTableState] = useState({ cards: [], widgets: [] });
   const [playerCharacters, setPlayerCharacters] = useState([]);
   const [selectedCharacterId, setSelectedCharacterId] = useState(null);
-  const [spotlightCharacterId, setSpotlightCharacterId] = useState(null);
-  const [viewZoom, setViewZoom] = useState(1);
-  const [drawerTab, setDrawerTab] = useState('Roster');
-  const [editMode, setEditMode] = useState(false);
-  const [savingTable, setSavingTable] = useState(false);
-  const [savingAttachment, setSavingAttachment] = useState(false);
   const [sheetState, setSheetState] = useState(null);
   const [editingCampaign, setEditingCampaign] = useState(null);
-  const [attachmentDraft, setAttachmentDraft] = useState({ currentHp: null, maxHp: null, status: 'active', tags: [], notes: '' });
+  const [savingAttachment, setSavingAttachment] = useState(false);
+  const [savingSession, setSavingSession] = useState(false);
+  const [attachmentDraft, setAttachmentDraft] = useState({
+    nickname: '',
+    currentHp: null,
+    maxHp: null,
+    status: 'active',
+    tags: [],
+    notes: '',
+  });
+  const [sessionDraft, setSessionDraft] = useState({
+    title: '',
+    summary: '',
+    notes: '',
+    objectives: [],
+    recentLoot: [],
+    currentLocationId: null,
+  });
 
   const loadWorkspace = useCallback(async () => {
     if (!canUseCampaigns || !id) {
       setCampaign(null);
-      setTableState({ cards: [], widgets: [] });
+      setPlayerCharacters([]);
       return;
     }
 
@@ -545,7 +353,6 @@ export default function CampaignWorkspacePage() {
       apiJson('/api/player-characters/me'),
     ]);
     setCampaign(campaignData.campaign || null);
-    setTableState(campaignData.campaign?.tableState || { cards: [], widgets: [] });
     setPlayerCharacters(characterData.characters || []);
   }, [canUseCampaigns, id]);
 
@@ -557,6 +364,7 @@ export default function CampaignWorkspacePage() {
         setLoading(false);
         return;
       }
+
       setLoading(true);
       try {
         const [campaignData, characterData] = await Promise.all([
@@ -565,11 +373,10 @@ export default function CampaignWorkspacePage() {
         ]);
         if (cancelled) return;
         setCampaign(campaignData.campaign || null);
-        setTableState(campaignData.campaign?.tableState || { cards: [], widgets: [] });
         setPlayerCharacters(characterData.characters || []);
       } catch (error) {
         if (!cancelled) {
-          toast.error(error.message || 'Unable to load campaign tabletop.');
+          toast.error(error.message || 'Unable to load campaign workspace.');
           navigate('/campaign');
         }
       } finally {
@@ -589,6 +396,7 @@ export default function CampaignWorkspacePage() {
       setSelectedCharacterId(null);
       return;
     }
+
     if (!attachedCharacters.some((entry) => String(entry.id) === String(selectedCharacterId))) {
       setSelectedCharacterId(String(attachedCharacters[0].id));
     }
@@ -601,10 +409,19 @@ export default function CampaignWorkspacePage() {
 
   useEffect(() => {
     if (!selectedCharacter) {
-      setAttachmentDraft({ currentHp: null, maxHp: null, status: 'active', tags: [], notes: '' });
+      setAttachmentDraft({
+        nickname: '',
+        currentHp: null,
+        maxHp: null,
+        status: 'active',
+        tags: [],
+        notes: '',
+      });
       return;
     }
+
     setAttachmentDraft({
+      nickname: selectedCharacter.attachment?.nickname || '',
       currentHp: selectedCharacter.attachment?.currentHp ?? selectedCharacter.hp ?? null,
       maxHp: selectedCharacter.attachment?.maxHp ?? selectedCharacter.maxHp ?? null,
       status: selectedCharacter.attachment?.status || 'active',
@@ -613,207 +430,44 @@ export default function CampaignWorkspacePage() {
     });
   }, [selectedCharacter]);
 
+  useEffect(() => {
+    setSessionDraft({
+      title: campaign?.sessionState?.title || '',
+      summary: campaign?.sessionState?.summary || '',
+      notes: campaign?.sessionState?.notes || '',
+      objectives: campaign?.sessionState?.objectives || [],
+      recentLoot: campaign?.sessionState?.recentLoot || [],
+      currentLocationId: campaign?.sessionState?.currentLocationId || null,
+    });
+  }, [campaign?.sessionState]);
+
   const attachedIds = useMemo(
     () => new Set((campaign?.attachedCharacters || []).map((entry) => String(entry.id))),
     [campaign?.attachedCharacters]
   );
 
-  const cardsByCharacterId = useMemo(
-    () => Object.fromEntries((tableState.cards || []).map((card) => [String(card.characterId), card])),
-    [tableState.cards]
+  const stashItems = useMemo(
+    () => (campaign?.inventory?.items || []).filter((item) => item.ownerType === 'stash'),
+    [campaign?.inventory?.items]
   );
 
-  const widgetsByCharacterId = useMemo(() => {
-    const grouped = {};
-    (tableState.widgets || []).forEach((widget) => {
-      if (!widget.attachedToCharacterId) return;
-      const key = String(widget.attachedToCharacterId);
-      grouped[key] = grouped[key] || [];
-      grouped[key].push(widget);
-    });
-    return grouped;
-  }, [tableState.widgets]);
-
-  const detachedWidgets = useMemo(
-    () => (tableState.widgets || []).filter((widget) => !widget.attachedToCharacterId),
-    [tableState.widgets]
-  );
+  const selectedCharacterItems = useMemo(() => {
+    if (!selectedCharacter) return [];
+    return (campaign?.inventory?.items || []).filter(
+      (item) => item.ownerType === 'character' && String(item.ownerId) === String(selectedCharacter.id)
+    );
+  }, [campaign?.inventory?.items, selectedCharacter]);
 
   const canManage = Boolean(campaign?.canManage);
+  const canEditNotes = Boolean(campaign?.canEditSession);
 
-  const persistTable = useCallback(async (nextTableState) => {
-    if (!canManage || !campaign?.id) {
-      setTableState(nextTableState);
-      return;
-    }
-
-    const previous = tableState;
-    setTableState(nextTableState);
-    setSavingTable(true);
+  const refreshWorkspace = useCallback(async () => {
     try {
-      const data = await apiJson(`/api/campaigns/${campaign.id}/table`, {
-        method: 'PATCH',
-        body: JSON.stringify(nextTableState),
-      });
-      setTableState(data.tableState || nextTableState);
-      setCampaign((prev) => (prev ? { ...prev, tableState: data.tableState || nextTableState } : prev));
-    } catch (error) {
-      setTableState(previous);
-      toast.error(error.message || 'Unable to save tabletop layout.');
-    } finally {
-      setSavingTable(false);
-    }
-  }, [campaign?.id, canManage, tableState, toast]);
-
-  const cardDropPosition = (event, size = 'compact') => {
-    const rect = surfaceRef.current?.getBoundingClientRect();
-    if (!rect) return { x: 0, y: 0 };
-    const metrics = cardMetrics(size);
-    const x = (event.clientX - rect.left) / viewZoom - metrics.width / 2;
-    const y = (event.clientY - rect.top) / viewZoom - metrics.height / 2;
-    return {
-      x: clamp(Math.round(x), 16, SURFACE_SIZE.width - metrics.width - 16),
-      y: clamp(Math.round(y), 16, SURFACE_SIZE.height - metrics.height - 16),
-    };
-  };
-
-  const widgetDropPosition = (event) => {
-    const rect = surfaceRef.current?.getBoundingClientRect();
-    if (!rect) return { x: 0, y: 0 };
-    const x = (event.clientX - rect.left) / viewZoom - 36;
-    const y = (event.clientY - rect.top) / viewZoom - 18;
-    return {
-      x: clamp(Math.round(x), 12, SURFACE_SIZE.width - 120),
-      y: clamp(Math.round(y), 12, SURFACE_SIZE.height - 48),
-    };
-  };
-
-  const nextCardSize = (size) => {
-    if (size === 'compact') return 'standard';
-    if (size === 'standard') return 'large';
-    return 'compact';
-  };
-
-  const handleCardResize = (characterId) => {
-    if (!canManage || !editMode) return;
-    const current = cardsByCharacterId[String(characterId)];
-    const nextCards = (tableState.cards || []).map((card) =>
-      String(card.characterId) === String(characterId)
-        ? { ...card, size: nextCardSize(card.size || 'compact') }
-        : card
-    );
-    persistTable({ ...tableState, cards: nextCards });
-  };
-
-  const handleCardDragStart = (event, characterId) => {
-    if (!canManage || !editMode) return;
-    setDragPayload(event, { kind: 'card', characterId: String(characterId) });
-  };
-
-  const createWidget = (templateId, position, attachedToCharacterId = null) => {
-    const template = findTemplate(templateId);
-    return {
-      id: `widget-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
-      type: templateId,
-      x: position.x,
-      y: position.y,
-      attachedToCharacterId,
-      payload: { ...(template?.payload || {}) },
-      zIndex: (tableState.widgets || []).length + 2,
-    };
-  };
-
-  const moveCardToSurface = (characterId, position) => {
-    const nextCards = (tableState.cards || []).map((card) =>
-      String(card.characterId) === String(characterId)
-        ? {
-            ...card,
-            x: position.x,
-            y: position.y,
-            zIndex: Math.max(...(tableState.cards || []).map((entry) => Number(entry.zIndex) || 1), 1) + 1,
-          }
-        : card
-    );
-    persistTable({ ...tableState, cards: nextCards });
-  };
-
-  const moveWidget = (widgetId, patch) => {
-    const nextWidgets = (tableState.widgets || []).map((widget) =>
-      String(widget.id) === String(widgetId)
-        ? { ...widget, ...patch }
-        : widget
-    );
-    persistTable({ ...tableState, widgets: nextWidgets });
-  };
-
-  const handleSurfaceDrop = (event) => {
-    if (!canManage || !editMode) return;
-    event.preventDefault();
-    const payload = dragPayload(event);
-    if (!payload) return;
-
-    if (payload.kind === 'card') {
-      const card = cardsByCharacterId[String(payload.characterId)];
-      moveCardToSurface(payload.characterId, cardDropPosition(event, card?.size || 'compact'));
-      return;
-    }
-
-    if (payload.kind === 'template') {
-      const nextWidget = createWidget(payload.templateId, widgetDropPosition(event), null);
-      persistTable({ ...tableState, widgets: [...(tableState.widgets || []), nextWidget] });
-      return;
-    }
-
-    if (payload.kind === 'widget') {
-      moveWidget(payload.widgetId, {
-        ...widgetDropPosition(event),
-        attachedToCharacterId: null,
-        zIndex: Math.max(...(tableState.widgets || []).map((entry) => Number(entry.zIndex) || 1), 1) + 1,
-      });
-    }
-  };
-
-  const handleWidgetDropOnCharacter = (event, characterId) => {
-    const payload = dragPayload(event);
-    if (!payload) return;
-
-    if (payload.kind === 'template') {
-      const nextWidget = createWidget(payload.templateId, { x: 0, y: 0 }, String(characterId));
-      persistTable({ ...tableState, widgets: [...(tableState.widgets || []), nextWidget] });
-      return;
-    }
-
-    if (payload.kind === 'widget') {
-      moveWidget(payload.widgetId, { attachedToCharacterId: String(characterId) });
-    }
-  };
-
-  const handleWidgetDragStart = (event, widgetId) => {
-    if (!canManage || !editMode) return;
-    setDragPayload(event, { kind: 'widget', widgetId: String(widgetId) });
-  };
-
-  const handleRemoveWidget = (widgetId) => {
-    const nextWidgets = (tableState.widgets || []).filter((widget) => String(widget.id) !== String(widgetId));
-    persistTable({ ...tableState, widgets: nextWidgets });
-  };
-
-  const handleSaveAttachment = async () => {
-    if (!selectedCharacter || !selectedCharacter.canEditAttachment) return;
-    setSavingAttachment(true);
-    try {
-      await apiJson(`/api/campaigns/${campaign.id}/characters/${selectedCharacter.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(attachmentDraft),
-      });
-      toast.success('Character table state saved.');
       await loadWorkspace();
     } catch (error) {
-      toast.error(error.message || 'Unable to save character table state.');
-    } finally {
-      setSavingAttachment(false);
+      toast.error(error.message || 'Unable to refresh campaign workspace.');
     }
-  };
+  }, [loadWorkspace, toast]);
 
   const handleAttachCharacter = async (characterId) => {
     try {
@@ -821,8 +475,9 @@ export default function CampaignWorkspacePage() {
         method: 'POST',
         body: JSON.stringify({ characterId }),
       });
-      toast.success('Character attached to campaign.');
-      await loadWorkspace();
+      toast.success('Character added to campaign.');
+      await refreshWorkspace();
+      setSelectedCharacterId(String(characterId));
     } catch (error) {
       toast.error(error.message || 'Unable to attach character.');
     }
@@ -830,9 +485,11 @@ export default function CampaignWorkspacePage() {
 
   const handleDetachCharacter = async (characterId) => {
     try {
-      await apiJson(`/api/campaigns/${campaign.id}/characters/${characterId}`, { method: 'DELETE' });
-      toast.success('Character detached.');
-      await loadWorkspace();
+      await apiJson(`/api/campaigns/${campaign.id}/characters/${characterId}`, {
+        method: 'DELETE',
+      });
+      toast.success('Character removed from campaign.');
+      await refreshWorkspace();
     } catch (error) {
       toast.error(error.message || 'Unable to detach character.');
     }
@@ -844,10 +501,106 @@ export default function CampaignWorkspacePage() {
         method: 'PATCH',
         body: JSON.stringify(patch),
       });
-      toast.success('Membership updated.');
-      await loadWorkspace();
+      toast.success('Campaign membership updated.');
+      await refreshWorkspace();
     } catch (error) {
       toast.error(error.message || 'Unable to update membership.');
+    }
+  };
+
+  const handleSaveAttachment = async () => {
+    if (!selectedCharacter?.canEditAttachment) return;
+    setSavingAttachment(true);
+    try {
+      await apiJson(`/api/campaigns/${campaign.id}/characters/${selectedCharacter.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          ...attachmentDraft,
+          tags: attachmentDraft.tags || [],
+        }),
+      });
+      toast.success('Campaign character state saved.');
+      await refreshWorkspace();
+    } catch (error) {
+      toast.error(error.message || 'Unable to save character details.');
+    } finally {
+      setSavingAttachment(false);
+    }
+  };
+
+  const handleSaveSession = async () => {
+    if (!canEditNotes) return;
+    setSavingSession(true);
+    try {
+      await apiJson(`/api/campaigns/${campaign.id}/session`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          ...sessionDraft,
+          objectives: sessionDraft.objectives || [],
+          recentLoot: sessionDraft.recentLoot || [],
+        }),
+      });
+      toast.success('Shared notes saved.');
+      await refreshWorkspace();
+    } catch (error) {
+      toast.error(error.message || 'Unable to save shared notes.');
+    } finally {
+      setSavingSession(false);
+    }
+  };
+
+  const handleCreateItem = async (item, ownerType, ownerId = null) => {
+    try {
+      await apiJson(`/api/campaigns/${campaign.id}/inventory/items`, {
+        method: 'POST',
+        body: JSON.stringify({
+          ...item,
+          ownerType,
+          ownerId,
+        }),
+      });
+      toast.success('Inventory updated.');
+      await refreshWorkspace();
+    } catch (error) {
+      toast.error(error.message || 'Unable to create item.');
+    }
+  };
+
+  const handleUpdateItem = async (itemId, patch) => {
+    try {
+      await apiJson(`/api/campaigns/${campaign.id}/inventory/items/${itemId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      });
+      toast.success('Item saved.');
+      await refreshWorkspace();
+    } catch (error) {
+      toast.error(error.message || 'Unable to update item.');
+    }
+  };
+
+  const handleMoveItem = async (itemId, ownerType, ownerId = null) => {
+    try {
+      await apiJson(`/api/campaigns/${campaign.id}/inventory/move`, {
+        method: 'POST',
+        body: JSON.stringify({ itemId, ownerType, ownerId }),
+      });
+      toast.success('Item moved.');
+      await refreshWorkspace();
+    } catch (error) {
+      toast.error(error.message || 'Unable to move item.');
+    }
+  };
+
+  const handleDeleteItem = async (itemId) => {
+    try {
+      await apiJson(`/api/campaigns/${campaign.id}/inventory/items/${itemId}`, {
+        method: 'DELETE',
+      });
+      toast.success('Item removed.');
+      await refreshWorkspace();
+    } catch (error) {
+      toast.error(error.message || 'Unable to delete item.');
     }
   };
 
@@ -855,9 +608,9 @@ export default function CampaignWorkspacePage() {
     return (
       <div className="cp-page cp-page--guest">
         <div className="cp-guest-hero">
-          <div className="cp-guest-emblem">⚔️</div>
-          <h1 className="cp-guest-title">Campaign Tabletop</h1>
-          <p className="cp-guest-sub">Sign in to open the shared campaign table.</p>
+          <div className="cp-guest-emblem">[]</div>
+          <h1 className="cp-guest-title">Campaign Workspace</h1>
+          <p className="cp-guest-sub">Sign in to join a campaign, share character sheets, and use the party notes.</p>
         </div>
       </div>
     );
@@ -867,7 +620,7 @@ export default function CampaignWorkspacePage() {
     return (
       <div className="cp-page cp-page--loading">
         <div className="cp-spinner" />
-        <p>Loading tabletop…</p>
+        <p>Loading campaign workspace...</p>
       </div>
     );
   }
@@ -876,7 +629,6 @@ export default function CampaignWorkspacePage() {
     return (
       <div className="cp-page cp-page--workspace">
         <div className="cp-main__empty">
-          <p className="cp-main__empty-icon">🗺️</p>
           <p>Campaign not found.</p>
         </div>
       </div>
@@ -888,11 +640,11 @@ export default function CampaignWorkspacePage() {
       <div className="cp-page cp-page--workspace">
         <div className="cpt-pending">
           <button type="button" className="cp-btn cp-btn--ghost cp-btn--sm" onClick={() => navigate('/campaign')}>
-            ← Back to Campaigns
+            Back to Campaigns
           </button>
           <h1>{campaign.name}</h1>
-          <p>{campaign.description}</p>
-          <p>Your request is still waiting for DM approval before you can open the tabletop.</p>
+          <p>{campaign.description || 'Your request is waiting for DM approval.'}</p>
+          <p>You will be able to open the shared character sheets after approval.</p>
         </div>
       </div>
     );
@@ -908,7 +660,7 @@ export default function CampaignWorkspacePage() {
           onClose={() => setSheetState(null)}
           onSaved={async () => {
             setSheetState(null);
-            await loadWorkspace();
+            await refreshWorkspace();
           }}
         />
       )}
@@ -921,7 +673,7 @@ export default function CampaignWorkspacePage() {
           onClose={() => setEditingCampaign(null)}
           onSaved={async () => {
             setEditingCampaign(null);
-            await loadWorkspace();
+            await refreshWorkspace();
           }}
           onDeleted={async () => {
             setEditingCampaign(null);
@@ -933,137 +685,419 @@ export default function CampaignWorkspacePage() {
       <header className="cpt-header">
         <div className="cpt-header__left">
           <button type="button" className="cp-btn cp-btn--ghost cp-btn--sm" onClick={() => navigate('/campaign')}>
-            ← Campaigns
+            Back to Campaigns
           </button>
           <div>
-            <p className="cpt-header__eyebrow">Campaign Tabletop</p>
+            <p className="cpt-header__eyebrow">Shared Character Sheets</p>
             <h1>{campaign.name}</h1>
-            <p>{campaign.description || 'A shared play surface for party cards, quick tools, and live session state.'}</p>
+            <p>{campaign.description || 'Keep the party, DM edits, inventory, and shared notes in one place.'}</p>
           </div>
         </div>
         <div className="cpt-header__actions">
-          <span>{campaign.members?.length || 0} players</span>
-          <span>{campaign.attachedCharacters?.length || 0} cards on table</span>
+          <span>{campaign.members?.length || 0} approved players</span>
+          <span>{campaign.attachedCharacters?.length || 0} attached characters</span>
+          <span>{campaign.inventory?.items?.length || 0} items in play</span>
           {canManage && (
-            <>
-              <button type="button" className={`cp-btn cp-btn--ghost cp-btn--sm ${editMode ? 'cpt-btn--active' : ''}`} onClick={() => setEditMode((prev) => !prev)}>
-                {editMode ? 'Exit Edit Mode' : 'Enter Edit Mode'}
-              </button>
-              <button type="button" className="cp-btn cp-btn--ghost cp-btn--sm" onClick={() => setEditingCampaign(campaign)}>
-                Campaign Settings
-              </button>
-            </>
+            <button type="button" className="cp-btn cp-btn--ghost cp-btn--sm" onClick={() => setEditingCampaign(campaign)}>
+              Campaign Settings
+            </button>
           )}
         </div>
       </header>
 
-      <div className="cpt-layout">
-        <TableSidebar
-          campaign={campaign}
-          playerCharacters={playerCharacters}
-          attachedIds={attachedIds}
-          drawerTab={drawerTab}
-          setDrawerTab={setDrawerTab}
-          onAttachCharacter={handleAttachCharacter}
-          onMembershipChange={handleMembershipChange}
-          onOpenSheet={(character, canEdit) => setSheetState({ character, canEdit })}
-        />
+      <div className="cpt-shell">
+        <aside className="cpt-sidebar">
+          <section className="cpt-panel">
+            <div className="cpt-section-head">
+              <h3>Party</h3>
+              <span>{campaign.members?.length || 0}</span>
+            </div>
+            <div className="cpt-member-list">
+              <div className="cpt-member cpt-member--owner">
+                <strong>{campaign.ownerName}</strong>
+                <span>Campaign DM</span>
+              </div>
+              {(campaign.members || []).map((member) => (
+                <div key={member.userId} className="cpt-member">
+                  <strong>{member.name}</strong>
+                  <span>{member.isCoDm ? 'Co-DM' : 'Player'}</span>
+                </div>
+              ))}
+            </div>
+          </section>
 
-        <section className="cpt-stage-wrap">
-          <div className="cpt-toolbar">
-            <div className="cpt-toolbar__rail">
-              {(campaign.attachedCharacters || []).map((character) => (
-                <button
-                  key={character.id}
-                  type="button"
-                  className={`cpt-rail-card ${String(selectedCharacterId) === String(character.id) ? 'cpt-rail-card--active' : ''}`}
-                  onClick={() => setSelectedCharacterId(String(character.id))}
-                >
-                  <strong>{character.attachment?.nickname || character.name}</strong>
-                  <span>HP {character.attachment?.currentHp ?? character.hp}/{character.attachment?.maxHp ?? character.maxHp} · AC {character.ac}</span>
+          {canManage && (
+            <section className="cpt-panel">
+              <div className="cpt-section-head">
+                <h3>Pending Requests</h3>
+                <span>{campaign.pendingMembers?.length || 0}</span>
+              </div>
+              {(campaign.pendingMembers || []).length === 0 ? (
+                <p className="cpt-empty">No pending approvals.</p>
+              ) : (
+                <div className="cpt-member-list">
+                  {(campaign.pendingMembers || []).map((member) => (
+                    <div key={member.userId} className="cpt-member">
+                      <div>
+                        <strong>{member.name}</strong>
+                        <span>{member.email || member.username || 'Pending player'}</span>
+                      </div>
+                      <div className="cpt-inline-actions">
+                        <button
+                          type="button"
+                          className="cp-chip-btn"
+                          onClick={() => handleMembershipChange(member.userId, { status: 'approved', role: member.role || 'player' })}
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          className="cp-chip-btn cp-chip-btn--danger"
+                          onClick={() => handleMembershipChange(member.userId, { status: 'rejected', role: 'player' })}
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
+          <section className="cpt-panel">
+            <div className="cpt-section-head">
+              <h3>My Character Library</h3>
+              <span>{playerCharacters.length}</span>
+            </div>
+            <div className="cpt-inline-actions">
+              <button type="button" className="cp-btn cp-btn--ghost cp-btn--sm" onClick={() => setSheetState({ character: null, canEdit: true })}>
+                New Character
+              </button>
+            </div>
+            {playerCharacters.length === 0 ? (
+              <p className="cpt-empty">Create a character here, then add it to the campaign.</p>
+            ) : (
+              <div className="cpt-library-list">
+                {playerCharacters.map((character) => (
+                  <CharacterLibraryCard
+                    key={character.id}
+                    character={character}
+                    attached={attachedIds.has(String(character.id))}
+                    onAttach={handleAttachCharacter}
+                    onOpenSheet={(nextCharacter, canEdit) => setSheetState({ character: nextCharacter, canEdit })}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        </aside>
+
+        <main className="cpt-main">
+          <section className="cpt-panel cpt-notes-panel">
+            <div className="cpt-section-head">
+              <div>
+                <p className="cpt-card-eyebrow">Shared Notes</p>
+                <h3>Campaign Notes</h3>
+              </div>
+              {canEditNotes && (
+                <button type="button" className="cp-btn cp-btn--primary cp-btn--sm" onClick={handleSaveSession} disabled={savingSession}>
+                  {savingSession ? 'Saving...' : 'Save Notes'}
                 </button>
-              ))}
+              )}
             </div>
-            <div className="cpt-toolbar__actions">
-              <button type="button" className="cp-chip-btn" onClick={() => setViewZoom((prev) => clamp(Number((prev - ZOOM_STEP).toFixed(2)), ZOOM_MIN, ZOOM_MAX))}>
-                −
-              </button>
-              <span>{Math.round(viewZoom * 100)}%</span>
-              <button type="button" className="cp-chip-btn" onClick={() => setViewZoom((prev) => clamp(Number((prev + ZOOM_STEP).toFixed(2)), ZOOM_MIN, ZOOM_MAX))}>
-                +
-              </button>
-              <button type="button" className="cp-chip-btn" onClick={() => setViewZoom(1)}>
-                Reset View
-              </button>
-              {savingTable && <span className="cpt-saving">Saving layout…</span>}
-            </div>
-          </div>
-
-          <div
-            className="cpt-stage-viewport"
-            onDragOver={(event) => {
-              if (!canManage || !editMode) return;
-              event.preventDefault();
-            }}
-            onDrop={handleSurfaceDrop}
-          >
-            <div
-              ref={surfaceRef}
-              className="cpt-stage"
-              style={{
-                width: SURFACE_SIZE.width,
-                height: SURFACE_SIZE.height,
-                transform: `scale(${viewZoom})`,
-              }}
-              onClick={() => setSpotlightCharacterId(null)}
-            >
-              {detachedWidgets.map((widget) => (
-                <SurfaceWidget
-                  key={widget.id}
-                  widget={widget}
-                  editMode={editMode}
-                  canManage={canManage}
-                  onDragStart={handleWidgetDragStart}
-                  onRemove={handleRemoveWidget}
+            <div className="cpt-form-grid">
+              <label>
+                <span>Session Title</span>
+                <input
+                  value={sessionDraft.title || ''}
+                  onChange={(event) => setSessionDraft((prev) => ({ ...prev, title: event.target.value }))}
+                  disabled={!canEditNotes}
                 />
-              ))}
-
-              {(campaign.attachedCharacters || []).map((character) => (
-                <CompactCard
-                  key={character.id}
-                  character={character}
-                  cardState={cardsByCharacterId[String(character.id)]}
-                  selected={String(selectedCharacterId) === String(character.id)}
-                  spotlighted={String(spotlightCharacterId) === String(character.id)}
-                  canManage={canManage}
-                  editMode={editMode}
-                  onSelect={(characterId) => setSelectedCharacterId(String(characterId))}
-                  onResize={handleCardResize}
-                  onDragStart={handleCardDragStart}
-                  onOpenSheet={(nextCharacter, canEdit) => setSheetState({ character: nextCharacter, canEdit })}
-                  onWidgetDrop={handleWidgetDropOnCharacter}
-                  attachedWidgets={widgetsByCharacterId[String(character.id)] || []}
+              </label>
+              <label>
+                <span>Summary</span>
+                <input
+                  value={sessionDraft.summary || ''}
+                  onChange={(event) => setSessionDraft((prev) => ({ ...prev, summary: event.target.value }))}
+                  disabled={!canEditNotes}
                 />
-              ))}
+              </label>
             </div>
+            <div className="cpt-form-grid">
+              <label>
+                <span>Objectives</span>
+                <textarea
+                  rows={5}
+                  value={(sessionDraft.objectives || []).join('\n')}
+                  onChange={(event) =>
+                    setSessionDraft((prev) => ({
+                      ...prev,
+                      objectives: event.target.value.split('\n').map((entry) => entry.trim()).filter(Boolean),
+                    }))
+                  }
+                  disabled={!canEditNotes}
+                />
+              </label>
+              <label>
+                <span>Shared Notes</span>
+                <textarea
+                  rows={5}
+                  value={sessionDraft.notes || ''}
+                  onChange={(event) => setSessionDraft((prev) => ({ ...prev, notes: event.target.value }))}
+                  disabled={!canEditNotes}
+                />
+              </label>
+            </div>
+          </section>
+
+          <div className="cpt-main-grid">
+            <section className="cpt-panel">
+              <div className="cpt-section-head">
+                <div>
+                  <p className="cpt-card-eyebrow">Attached Sheets</p>
+                  <h3>Party Characters</h3>
+                </div>
+                <span>{campaign.attachedCharacters?.length || 0}</span>
+              </div>
+
+              {(campaign.attachedCharacters || []).length === 0 ? (
+                <div className="cpt-empty-state">
+                  <h4>No characters attached yet</h4>
+                  <p>Players should add one of their saved character sheets from the library on the left.</p>
+                </div>
+              ) : (
+                <div className="cpt-character-grid">
+                  {(campaign.attachedCharacters || []).map((character) => (
+                    <AttachedCharacterCard
+                      key={character.id}
+                      character={character}
+                      selected={String(selectedCharacterId) === String(character.id)}
+                      onSelect={setSelectedCharacterId}
+                      onOpenSheet={(nextCharacter, canEdit) => setSheetState({ character: nextCharacter, canEdit })}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section className="cpt-panel cpt-detail-panel">
+              {!selectedCharacter ? (
+                <div className="cpt-empty-state">
+                  <h4>Select a character</h4>
+                  <p>Pick an attached character to edit campaign stats, inventory, and notes.</p>
+                </div>
+              ) : (
+                <>
+                  <div className="cpt-detail-hero">
+                    <div>
+                      <p className="cpt-card-eyebrow">{selectedCharacter.ownerName}</p>
+                      <h3>{selectedCharacter.attachment?.nickname || selectedCharacter.name}</h3>
+                      <p>{compactLine(selectedCharacter)}</p>
+                    </div>
+                    <div className="cpt-inline-actions">
+                      <button
+                        type="button"
+                        className="cp-chip-btn"
+                        onClick={() => setSheetState({ character: selectedCharacter, canEdit: selectedCharacter.canEditSheet })}
+                      >
+                        {selectedCharacter.canEditSheet ? 'Edit Full Sheet' : 'View Full Sheet'}
+                      </button>
+                      {selectedCharacter.canEditAttachment && (
+                        <button
+                          type="button"
+                          className="cp-chip-btn cp-chip-btn--danger"
+                          onClick={() => handleDetachCharacter(selectedCharacter.id)}
+                        >
+                          Remove from Campaign
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="cpt-stat-row cpt-stat-row--detail">
+                    <div>
+                      <span>HP</span>
+                      <strong>{attachmentDraft.currentHp ?? selectedCharacter.hp}/{attachmentDraft.maxHp ?? selectedCharacter.maxHp}</strong>
+                    </div>
+                    <div>
+                      <span>AC</span>
+                      <strong>{selectedCharacter.ac ?? '-'}</strong>
+                    </div>
+                    <div>
+                      <span>Speed</span>
+                      <strong>{selectedCharacter.speed ?? '-'}</strong>
+                    </div>
+                    <div>
+                      <span>Init</span>
+                      <strong>{initModifier(selectedCharacter)}</strong>
+                    </div>
+                    <div>
+                      <span>Passive</span>
+                      <strong>{calculatePassivePerception(selectedCharacter)}</strong>
+                    </div>
+                    <div>
+                      <span>Status</span>
+                      <strong>{attachmentDraft.status || 'active'}</strong>
+                    </div>
+                  </div>
+
+                  <section className="cpt-section">
+                    <div className="cpt-section-head">
+                      <h4>Campaign Character Details</h4>
+                      {selectedCharacter.canEditAttachment && (
+                        <button type="button" className="cp-btn cp-btn--primary cp-btn--sm" onClick={handleSaveAttachment} disabled={savingAttachment}>
+                          {savingAttachment ? 'Saving...' : 'Save Character State'}
+                        </button>
+                      )}
+                    </div>
+
+                    {selectedCharacter.canEditAttachment ? (
+                      <>
+                        <div className="cpt-form-grid">
+                          <label>
+                            <span>Display Name</span>
+                            <input
+                              value={attachmentDraft.nickname || ''}
+                              onChange={(event) => setAttachmentDraft((prev) => ({ ...prev, nickname: event.target.value }))}
+                            />
+                          </label>
+                          <label>
+                            <span>Status</span>
+                            <input
+                              value={attachmentDraft.status || 'active'}
+                              onChange={(event) => setAttachmentDraft((prev) => ({ ...prev, status: event.target.value }))}
+                            />
+                          </label>
+                        </div>
+                        <div className="cpt-form-grid">
+                          <label>
+                            <span>Current HP</span>
+                            <input
+                              type="number"
+                              value={attachmentDraft.currentHp ?? ''}
+                              onChange={(event) =>
+                                setAttachmentDraft((prev) => ({
+                                  ...prev,
+                                  currentHp: event.target.value === '' ? null : Number(event.target.value),
+                                }))
+                              }
+                            />
+                          </label>
+                          <label>
+                            <span>Max HP</span>
+                            <input
+                              type="number"
+                              value={attachmentDraft.maxHp ?? ''}
+                              onChange={(event) =>
+                                setAttachmentDraft((prev) => ({
+                                  ...prev,
+                                  maxHp: event.target.value === '' ? null : Number(event.target.value),
+                                }))
+                              }
+                            />
+                          </label>
+                        </div>
+                        <label>
+                          <span>Condition Tags</span>
+                          <input
+                            value={(attachmentDraft.tags || []).join(', ')}
+                            onChange={(event) => setAttachmentDraft((prev) => ({ ...prev, tags: asTagArray(event.target.value) }))}
+                            placeholder="Blessed, Exhausted, Concentrating"
+                          />
+                        </label>
+                        <label>
+                          <span>Campaign Notes</span>
+                          <textarea
+                            rows={4}
+                            value={attachmentDraft.notes || ''}
+                            onChange={(event) => setAttachmentDraft((prev) => ({ ...prev, notes: event.target.value }))}
+                          />
+                        </label>
+                      </>
+                    ) : (
+                      <div className="cpt-readout">
+                        <p>{selectedCharacter.attachment?.notes || 'No campaign-specific notes on this character yet.'}</p>
+                        {(selectedCharacter.attachment?.tags || []).length > 0 && (
+                          <div className="cpt-tag-row">
+                            {(selectedCharacter.attachment?.tags || []).map((tag) => (
+                              <span key={tag} className="cpt-tag">
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </section>
+
+                  <section className="cpt-section">
+                    <div className="cpt-section-head">
+                      <h4>{selectedCharacter.name}'s Inventory</h4>
+                      <span>{selectedCharacterItems.length}</span>
+                    </div>
+                    {canManage && (
+                      <ItemComposer
+                        title="Give an Item"
+                        buttonLabel="Add to Character"
+                        disabled={!selectedCharacter}
+                        onCreate={(item) => handleCreateItem(item, 'character', selectedCharacter.id)}
+                      />
+                    )}
+                    {selectedCharacterItems.length === 0 ? (
+                      <p className="cpt-empty">No campaign items assigned to this character.</p>
+                    ) : (
+                      <div className="cpt-item-list">
+                        {selectedCharacterItems.map((item) => (
+                          <InventoryItemCard
+                            key={item.id}
+                            item={item}
+                            canDelete={campaign.canManage}
+                            moveLabel={item.canManage ? 'Move to Party Stash' : null}
+                            onMove={(itemId) => handleMoveItem(itemId, 'stash')}
+                            onSave={handleUpdateItem}
+                            onDelete={handleDeleteItem}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </section>
+
+                  <section className="cpt-section">
+                    <div className="cpt-section-head">
+                      <h4>Party Stash</h4>
+                      <span>{stashItems.length}</span>
+                    </div>
+                    {canManage && (
+                      <ItemComposer
+                        title="Create Stash Item"
+                        buttonLabel="Add to Stash"
+                        onCreate={(item) => handleCreateItem(item, 'stash', null)}
+                      />
+                    )}
+                    {stashItems.length === 0 ? (
+                      <p className="cpt-empty">No shared stash items yet.</p>
+                    ) : (
+                      <div className="cpt-item-list">
+                        {stashItems.map((item) => (
+                          <InventoryItemCard
+                            key={item.id}
+                            item={item}
+                            canDelete={campaign.canManage}
+                            moveLabel={selectedCharacter && item.canManage ? `Give to ${selectedCharacter.attachment?.nickname || selectedCharacter.name}` : null}
+                            onMove={(itemId) => handleMoveItem(itemId, 'character', selectedCharacter.id)}
+                            onSave={handleUpdateItem}
+                            onDelete={handleDeleteItem}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                </>
+              )}
+            </section>
           </div>
-
-          <TableShelf canManage={canManage} editMode={editMode} />
-        </section>
-
-        <CampaignInspector
-          campaign={campaign}
-          selectedCharacter={selectedCharacter}
-          attachmentDraft={attachmentDraft}
-          setAttachmentDraft={setAttachmentDraft}
-          canEditAttachment={Boolean(selectedCharacter?.canEditAttachment)}
-          savingAttachment={savingAttachment}
-          onSaveAttachment={handleSaveAttachment}
-          onOpenSheet={(character, canEdit) => setSheetState({ character, canEdit })}
-          spotlighted={String(spotlightCharacterId) === String(selectedCharacter?.id)}
-          onToggleSpotlight={(characterId) => setSpotlightCharacterId((prev) => (String(prev) === String(characterId) ? null : String(characterId)))}
-          onDetachCharacter={handleDetachCharacter}
-        />
+        </main>
       </div>
     </div>
   );
