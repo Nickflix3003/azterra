@@ -25,7 +25,8 @@ import './components/UI/PageUI.css';
 import AuthCallback from './components/auth/AuthCallback';
 import AuthLandingPage from './components/pages/AuthLandingPage';
 import CharacterSheetPage from './components/pages/CharacterSheetPage';
-import CampaignPage from './components/pages/CampaignPage';
+import CampaignIndexPage from './components/pages/CampaignIndexPage';
+import CampaignWorkspacePage from './components/pages/CampaignWorkspacePage';
 import MagicHubPage from './components/pages/MagicHubPage';
 import MagicSystemPage from './components/pages/MagicSystemPage';
 import LoadingScreenDemo from './components/pages/LoadingScreenDemo';
@@ -67,7 +68,8 @@ function HashApp() {
             <Route path="/about" element={<AboutPage />} />
 
             {/* 2. CAMPAIGN (User's campaigns and characters) */}
-            <Route path="/campaign" element={<CampaignPage />} />
+            <Route path="/campaign" element={<CampaignIndexPage />} />
+            <Route path="/campaign/:id" element={<CampaignWorkspacePage />} />
 
             {/* Character Sheet */}
             <Route path="/character-sheet" element={<CharacterSheetPage />} />

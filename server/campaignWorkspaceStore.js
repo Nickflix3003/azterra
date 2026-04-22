@@ -39,6 +39,11 @@ function normalizeNumber(value, fallback = null) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function normalizePlainObject(value, fallback = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return fallback;
+  return value;
+}
+
 function normalizeMembership(entry = {}) {
   const now = nowIso();
   return {
@@ -113,6 +118,39 @@ function normalizeBoardState(state = {}) {
   };
 }
 
+function normalizeTableCard(card = {}) {
+  return {
+    characterId: normalizeString(card.characterId),
+    x: normalizeNumber(card.x, 0) || 0,
+    y: normalizeNumber(card.y, 0) || 0,
+    size: ['compact', 'standard', 'large'].includes(card.size) ? card.size : 'compact',
+    zIndex: normalizeNumber(card.zIndex, 1) || 1,
+  };
+}
+
+function normalizeTableWidget(widget = {}) {
+  return {
+    id: normalizeString(widget.id) || randomUUID(),
+    type: normalizeString(widget.type, 'note-token') || 'note-token',
+    x: normalizeNumber(widget.x, 0) || 0,
+    y: normalizeNumber(widget.y, 0) || 0,
+    attachedToCharacterId: normalizeString(widget.attachedToCharacterId) || null,
+    payload: normalizePlainObject(widget.payload, {}),
+    zIndex: normalizeNumber(widget.zIndex, 2) || 2,
+  };
+}
+
+function normalizeTableState(state = {}) {
+  return {
+    cards: normalizeArray(state.cards)
+      .map(normalizeTableCard)
+      .filter((card) => card.characterId),
+    widgets: normalizeArray(state.widgets).map(normalizeTableWidget),
+    updatedAt: state.updatedAt || null,
+    updatedBy: normalizeString(state.updatedBy) || null,
+  };
+}
+
 function normalizeSessionState(state = {}) {
   return {
     title: normalizeString(state.title),
@@ -150,6 +188,7 @@ function normalizeWorkspace(workspace = {}, campaignId = '') {
     inventory: {
       items: normalizeArray(workspace.inventory?.items).map(normalizeInventoryItem),
     },
+    tableState: normalizeTableState(workspace.tableState),
     boardState: normalizeBoardState(workspace.boardState),
     sessionState: normalizeSessionState(workspace.sessionState),
     createdAt: workspace.createdAt || now,

@@ -237,6 +237,47 @@ function buildLocationOptions(catalog) {
   }));
 }
 
+function defaultTableCard(characterId, index) {
+  const col = index % 4;
+  const row = Math.floor(index / 4);
+  return {
+    characterId: String(characterId),
+    x: 88 + col * 272,
+    y: 64 + row * 198,
+    size: index === 0 ? 'standard' : 'compact',
+    zIndex: index + 1,
+  };
+}
+
+function buildCampaignTableState(workspace, attachedCharacters = []) {
+  const existingCards = new Map(
+    (workspace.tableState?.cards || []).map((card) => [String(card.characterId), card])
+  );
+  const attachedIds = new Set(attachedCharacters.map((character) => String(character.id)));
+  const cards = attachedCharacters.map((character, index) => {
+    const fallback = defaultTableCard(character.id, index);
+    const existing = existingCards.get(String(character.id)) || {};
+    return {
+      ...fallback,
+      ...existing,
+      characterId: String(character.id),
+    };
+  });
+  const widgets = (workspace.tableState?.widgets || []).map((widget) => ({
+    ...widget,
+    attachedToCharacterId: attachedIds.has(String(widget.attachedToCharacterId || ''))
+      ? String(widget.attachedToCharacterId)
+      : null,
+  }));
+
+  return {
+    cards,
+    widgets,
+    updatedAt: workspace.tableState?.updatedAt || workspace.updatedAt || null,
+    updatedBy: workspace.tableState?.updatedBy || null,
+  };
+}
+
 function buildCampaignPayload(campaignRow, workspace, viewer, usersById, playerCharacters, boardCatalog) {
   const attachedCharacters = buildAttachedCharacters(workspace, playerCharacters, usersById);
   const inventoryItems = sortInventoryItems(workspace.inventory?.items || []);
@@ -299,6 +340,7 @@ function buildCampaignPayload(campaignRow, workspace, viewer, usersById, playerC
         canManage: canManageInventoryItem(viewer, campaignRow, workspace, item, attachedCharacters),
       })),
     },
+    tableState: buildCampaignTableState(workspace, attachedCharacters),
     boardState: canManage ? workspace.boardState : null,
     sessionState: workspace.sessionState,
     locationOptions: buildLocationOptions(boardCatalog),
@@ -388,6 +430,43 @@ router.get('/:id', authRequired, async (req, res) => {
   }
 });
 
+router.get('/:id/table', authRequired, async (req, res) => {
+  try {
+    const campaignRow = await readCampaignRow(req.params.id);
+    if (!campaignRow) {
+      return res.status(404).json({ error: 'Campaign not found.' });
+    }
+
+    const [workspaceIndex, users, playerCharacters, boardCatalog] = await Promise.all([
+      readCampaignWorkspaceIndex(),
+      readAllUsers(),
+      readPlayerCharacters(),
+      buildBoardCatalog(),
+    ]);
+    const workspace = ensureCampaignWorkspace(workspaceIndex, campaignRow.id);
+
+    if (!canViewCampaignWorkspace(req.user, campaignRow, workspace)) {
+      if (canSeePendingCampaign(req.user, campaignRow, workspace)) {
+        return res.json({
+          campaign: {
+            ...normalizeCampaignSummary(campaignRow, workspace, req.user),
+            pendingOnly: true,
+          },
+        });
+      }
+      return res.status(403).json({ error: 'You do not have access to this campaign.' });
+    }
+
+    const usersById = buildUserMap(users);
+    const payload = buildCampaignPayload(campaignRow, workspace, req.user, usersById, playerCharacters, boardCatalog);
+    await writeCampaignWorkspaceIndex(workspaceIndex);
+    return res.json({ campaign: payload });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to load campaign tabletop.' });
+  }
+});
+
 router.post('/', authRequired, async (req, res) => {
   const name = String(req.body?.name || '').trim();
   const description = String(req.body?.description || '').trim();
@@ -464,6 +543,45 @@ router.patch('/:id', authRequired, async (req, res) => {
   } catch (error) {
     console.error(error);
     return res.status(500).json({ error: 'Unable to update campaign.' });
+  }
+});
+
+router.patch('/:id/table', authRequired, async (req, res) => {
+  try {
+    const [campaignRow, workspaceIndex, users, playerCharacters, boardCatalog] = await Promise.all([
+      readCampaignRow(req.params.id),
+      readCampaignWorkspaceIndex(),
+      readAllUsers(),
+      readPlayerCharacters(),
+      buildBoardCatalog(),
+    ]);
+    if (!campaignRow) {
+      return res.status(404).json({ error: 'Campaign not found.' });
+    }
+
+    const workspace = ensureCampaignWorkspace(workspaceIndex, campaignRow.id);
+    if (!isCampaignManager(req.user, campaignRow, workspace)) {
+      return res.status(403).json({ error: 'Only campaign managers can update the tabletop layout.' });
+    }
+
+    const existing = workspace.tableState || { cards: [], widgets: [], updatedAt: null, updatedBy: null };
+    workspace.tableState = {
+      ...existing,
+      ...(Array.isArray(req.body?.cards) ? { cards: req.body.cards } : {}),
+      ...(Array.isArray(req.body?.widgets) ? { widgets: req.body.widgets } : {}),
+      updatedAt: nowIso(),
+      updatedBy: String(req.user.id),
+    };
+    workspace.updatedAt = workspace.tableState.updatedAt;
+    await writeCampaignWorkspaceIndex(workspaceIndex);
+    await touchCampaign(campaignRow.id);
+
+    const usersById = buildUserMap(users);
+    const payload = buildCampaignPayload(campaignRow, workspace, req.user, usersById, playerCharacters, boardCatalog);
+    return res.json({ tableState: payload.tableState });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to update campaign tabletop.' });
   }
 });
 
