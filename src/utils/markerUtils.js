@@ -79,6 +79,7 @@ export const normalizeLocationEntry = (location) => {
     ...(location.createdAt != null && { createdAt: location.createdAt }),
     ...(location.updatedBy != null && { updatedBy: location.updatedBy }),
     ...(location.updatedAt != null && { updatedAt: location.updatedAt }),
+    ...(location.hasLocalMap != null && { hasLocalMap: Boolean(location.hasLocalMap) }),
   };
 };
 

@@ -22,7 +22,7 @@ import React, {
   useState,
 } from 'react';
 import * as d3 from 'd3';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useLocationData } from '../../context/LocationDataContext';
 import { useRegions } from '../../context/RegionDataContext';
@@ -566,6 +566,19 @@ function LocationCard({
                   {location.tags.map((tag) => (
                     <span key={tag} className="atlas-loc-card__tag">{tag}</span>
                   ))}
+                </div>
+              )}
+
+              {(location.hasLocalMap || location.id != null) && (
+                <div className="loc-detail__actions">
+                  {location.hasLocalMap && (
+                    <Link to={`/location/${location.id}/map`} className="loc-detail__action-btn">
+                      Open Local Map
+                    </Link>
+                  )}
+                  <Link to={`/location/${location.id}`} className="loc-detail__action-btn loc-detail__action-btn--ghost">
+                    Location Page
+                  </Link>
                 </div>
               )}
 

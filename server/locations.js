@@ -13,6 +13,13 @@ import {
   readLocationScene,
   saveLocationScene,
 } from './locationSceneStore.js';
+import {
+  hasLocationMapImage,
+  normalizeLocationMap,
+  readLocationMap,
+  readLocationMapMap,
+  saveLocationMap,
+} from './locationMapStore.js';
 
 const router = Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -102,7 +109,7 @@ router.use('/images', express.static(LOCATION_IMAGES_DIR));
 
 // ── DB helpers ────────────────────────────────────────────────────────────────
 
-function rowToLocation(row, secrets = {}) {
+function rowToLocation(row, secrets = {}, locationMap = null) {
   const numericId =
     typeof row.id === 'string' && /^-?\d+$/.test(row.id)
       ? Number(row.id)
@@ -131,6 +138,7 @@ function rowToLocation(row, secrets = {}) {
     updatedAt: row.updated_at,
     createdBy: row.created_by || null,
     updatedBy: row.updated_by || null,
+    hasLocalMap: hasLocationMapImage(locationMap),
     ...(normalizeSecretId(secret.secretId) && { secretId: normalizeSecretId(secret.secretId) }),
   };
 }
@@ -180,10 +188,14 @@ function locationToRow(loc) {
 router.get('/', async function(req, res) {
   try {
     const viewer = await resolveRequestUser(req);
-    const secretMap = await readLocationSecretMap();
-    const { data, error } = await db().from('locations').select('*').order('id');
+    const [secretMap, locationMapIndex, result] = await Promise.all([
+      readLocationSecretMap(),
+      readLocationMapMap(),
+      db().from('locations').select('*').order('id'),
+    ]);
+    const { data, error } = result;
     throwIfError(error, 'locations GET /');
-    const locations = (data || []).map((row) => rowToLocation(row, secretMap));
+    const locations = (data || []).map((row) => rowToLocation(row, secretMap, locationMapIndex[String(row.id)]));
     return res.json({ locations: sanitizeSecretItems(locations, viewer) });
   } catch (err) {
     console.error(err);
@@ -263,6 +275,7 @@ router.post('/save', authRequired, editorRequired, async function(req, res) {
       const { error: insErr } = await db().from('locations').insert(rows);
       throwIfError(insErr, 'locations save insert');
     }
+    const locationMapIndex = await readLocationMapMap();
     const { data, error } = await db().from('locations').select('*').order('id');
     throwIfError(error, 'locations save fetch');
     const nextSecretMap = combinedPayload.reduce((acc, location) => {
@@ -271,10 +284,140 @@ router.post('/save', authRequired, editorRequired, async function(req, res) {
       return acc;
     }, {});
     await writeLocationSecretMap(nextSecretMap);
-    return res.json({ locations: (data || []).map((row) => rowToLocation(row, nextSecretMap)) });
+    return res.json({
+      locations: (data || []).map((row) => rowToLocation(row, nextSecretMap, locationMapIndex[String(row.id)])),
+    });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Unable to save locations.' });
+  }
+});
+
+// GET /api/locations/:id/map
+router.get('/:id/map', async function(req, res) {
+  const { id } = req.params;
+  try {
+    const viewer = await resolveRequestUser(req);
+    const [secretMap, locationMap, existingResult] = await Promise.all([
+      readLocationSecretMap(),
+      readLocationMap(id),
+      db().from('locations').select('*').eq('id', String(id)).single(),
+    ]);
+    throwIfError(existingResult.error, 'location map fetch location');
+    if (!existingResult.data) return res.status(404).json({ error: 'Location not found.' });
+
+    const location = rowToLocation(existingResult.data, secretMap, locationMap);
+    if (!canAccessSecretItem(viewer, location)) {
+      return res.status(404).json({ error: 'Location not found.' });
+    }
+
+    const visiblePois = (locationMap.localPois || []).filter((poi) => poi.visible !== false);
+    const linkedMarkers = (locationMap.linkedLocations || []).filter((marker) => marker.visible !== false);
+    const linkedIds = Array.from(new Set(linkedMarkers.map((marker) => String(marker.locationId)).filter(Boolean)));
+    let resolvedById = new Map();
+
+    if (linkedIds.length > 0) {
+      const relatedMapIndex = await readLocationMapMap();
+      const relatedResult = await db().from('locations').select('*').in('id', linkedIds);
+      throwIfError(relatedResult.error, 'location map linked locations');
+      resolvedById = new Map(
+        (relatedResult.data || [])
+          .map((row) => rowToLocation(row, secretMap, relatedMapIndex[String(row.id)]))
+          .filter((entry) => canAccessSecretItem(viewer, entry))
+          .map((entry) => [String(entry.id), entry])
+      );
+    }
+
+    const resolvedLinkedMarkers = linkedMarkers
+      .map((marker) => {
+        const linkedLocation = resolvedById.get(String(marker.locationId));
+        if (!linkedLocation) return null;
+        return {
+          ...marker,
+          location: {
+            id: linkedLocation.id,
+            name: linkedLocation.name,
+            type: linkedLocation.type,
+            description: linkedLocation.description,
+            hasLocalMap: Boolean(linkedLocation.hasLocalMap),
+          },
+        };
+      })
+      .filter(Boolean);
+
+    return res.json({
+      location,
+      canEdit: ['editor', 'admin'].includes(viewer?.role),
+      locationMap: {
+        ...locationMap,
+        localPois: visiblePois,
+        linkedLocations: resolvedLinkedMarkers,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Unable to load local map.' });
+  }
+});
+
+// PATCH /api/locations/:id/map
+router.patch('/:id/map', authRequired, async function(req, res) {
+  const { id } = req.params;
+  if (!['editor', 'admin'].includes(req.user?.role)) {
+    return res.status(403).json({ error: 'Editor or admin access required.' });
+  }
+
+  try {
+    const { data: existing, error } = await db().from('locations').select('id').eq('id', String(id)).single();
+    throwIfError(error, 'location map patch location');
+    if (!existing) return res.status(404).json({ error: 'Location not found.' });
+
+    const current = await readLocationMap(id);
+    const next = normalizeLocationMap({
+      ...current,
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'imageUrl') ? { imageUrl: req.body.imageUrl } : {}),
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'assetPath') ? { assetPath: req.body.assetPath } : {}),
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'width') ? { width: req.body.width } : {}),
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'height') ? { height: req.body.height } : {}),
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'minZoom') ? { minZoom: req.body.minZoom } : {}),
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'maxZoom') ? { maxZoom: req.body.maxZoom } : {}),
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'localPois') ? { localPois: req.body.localPois } : {}),
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'linkedLocations') ? { linkedLocations: req.body.linkedLocations } : {}),
+    });
+
+    const locationMap = await saveLocationMap(id, next);
+    return res.json({ locationMap });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Unable to save local map.' });
+  }
+});
+
+// POST /api/locations/:id/map/upload
+router.post('/:id/map/upload', authRequired, uploadImage.single('image'), async function(req, res) {
+  const { id } = req.params;
+  if (!['editor', 'admin'].includes(req.user?.role)) {
+    return res.status(403).json({ error: 'Editor or admin access required.' });
+  }
+  if (!req.file) return res.status(400).json({ error: 'No image provided.' });
+
+  const url = '/api/locations/images/' + req.file.filename;
+
+  try {
+    const { data: existing, error } = await db().from('locations').select('id').eq('id', String(id)).single();
+    throwIfError(error, 'location map upload location');
+    if (!existing) return res.status(404).json({ error: 'Location not found.' });
+
+    const current = await readLocationMap(id);
+    const locationMap = await saveLocationMap(id, {
+      ...current,
+      imageUrl: url,
+      assetPath: url,
+    });
+    return res.json({ locationMap, url });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Unable to upload local map image.' });
   }
 });
 
@@ -397,7 +540,8 @@ router.patch('/:id', authRequired, editorRequired, async function(req, res) {
       secretMap = setLocationSecret(secretMap, id, req.body.secretId);
       await writeLocationSecretMap(secretMap);
     }
-    return res.json({ location: rowToLocation(data, secretMap) });
+    const locationMap = await readLocationMap(id);
+    return res.json({ location: rowToLocation(data, secretMap, locationMap) });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Unable to update location.' });

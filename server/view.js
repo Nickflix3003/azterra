@@ -17,6 +17,7 @@ import {
 } from './utils.js';
 import { db, throwIfError } from './db.js';
 import { sanitizeSecretItems } from './secretAccess.js';
+import { hasLocationMapImage, readLocationMapMap } from './locationMapStore.js';
 
 const router = express.Router();
 
@@ -92,7 +93,7 @@ function rowToNpc(row) {
   };
 }
 
-function rowToLocation(row, secrets = {}) {
+function rowToLocation(row, secrets = {}, locationMap = null) {
   const numericId =
     typeof row.id === 'string' && /^-?\d+$/.test(row.id)
       ? Number(row.id)
@@ -115,6 +116,7 @@ function rowToLocation(row, secrets = {}) {
     glowColor: row.glow_color || '#ffd700',
     campaign: row.campaign || 'Main',
     lore: row.lore || '',
+    hasLocalMap: hasLocationMapImage(locationMap),
     ...(normalizeSecretId(secret.secretId) && { secretId: normalizeSecretId(secret.secretId) }),
   };
 }
@@ -157,12 +159,13 @@ async function getNpcs() {
 
 async function getLocations() {
   try {
-    const [secretMap, result] = await Promise.all([
+    const [secretMap, locationMapIndex, result] = await Promise.all([
       readSecretMap('location-secrets.json'),
+      readLocationMapMap(),
       db().from('locations').select('*').order('id'),
     ]);
     throwIfError(result.error, 'view locations');
-    return (result.data || []).map((row) => rowToLocation(row, secretMap));
+    return (result.data || []).map((row) => rowToLocation(row, secretMap, locationMapIndex[String(row.id)]));
   } catch {
     const parsed = await readJsonFile(path.join(DATA_DIR, 'locations.json'), { locations: [] });
     const list = Array.isArray(parsed) ? parsed : parsed?.locations;

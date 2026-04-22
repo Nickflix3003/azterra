@@ -48,13 +48,31 @@ function LocationDetailPage() {
       <h1>{location?.name || 'Location'}</h1>
       <p className="account-muted">{location?.description || 'No description provided.'}</p>
       <p className="account-muted">Campaign: {location?.campaign || 'Main'}</p>
-      <button
-        type="button"
-        className="tab-btn"
-        onClick={() => navigate('/people')}
-      >
-        View in Viewer Page
-      </button>
+      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+        {location?.hasLocalMap && (
+          <button
+            type="button"
+            className="tab-btn"
+            onClick={() => navigate(`/location/${location.id}/map`)}
+          >
+            Open Local Map
+          </button>
+        )}
+        <button
+          type="button"
+          className="tab-btn"
+          onClick={() => navigate(`/atlas?loc=${location.id}`)}
+        >
+          Open in Atlas
+        </button>
+        <button
+          type="button"
+          className="tab-btn"
+          onClick={() => navigate('/people')}
+        >
+          View in Viewer Page
+        </button>
+      </div>
 
       <div className="view-grid">
         <div className="view-card">

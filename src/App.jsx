@@ -17,6 +17,7 @@ import PeoplePage from './components/pages/ViewingPage';
 import AdminEntitiesPage from './components/pages/AdminEntitiesPage';
 import RegionDetailPage from './components/pages/RegionDetailPage';
 import LocationDetailPage from './components/pages/LocationDetailPage';
+import LocationMapPage from './components/pages/LocationMapPage';
 import LoginPage from './components/pages/LoginPage';
 import SignupPage from './components/pages/SignupPage';
 import Header from './components/UI/Header';
@@ -129,6 +130,7 @@ function HashApp() {
             {/* Detail pages */}
             <Route path="/region/:id" element={<RegionDetailPage />} />
             <Route path="/location/:id" element={<LocationDetailPage />} />
+            <Route path="/location/:id/map" element={<LocationMapPage />} />
 
             {/* Admin */}
             <Route path="/admin" element={<AdminDashboard />} />

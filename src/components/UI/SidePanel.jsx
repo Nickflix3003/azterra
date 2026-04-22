@@ -10,12 +10,12 @@ function SidePanel({ location, region, regionLocations = [], onClose, onSelectLo
       <div className="side-panel custom-scrollbar">
         <div className="side-panel-header">
           <div>
-            {region.category && (
-              <p className="side-panel-type">{region.category}</p>
-            )}
+            {region.category && <p className="side-panel-type">{region.category}</p>}
             <h2>{region.name}</h2>
           </div>
-          <button className="close-button" onClick={onClose} aria-label="Close">×</button>
+          <button className="close-button" onClick={onClose} aria-label="Close">
+            x
+          </button>
         </div>
 
         <div className="side-panel-content">
@@ -58,17 +58,13 @@ function SidePanel({ location, region, regionLocations = [], onClose, onSelectLo
             <p className="side-panel-empty">No lore or linked locations added yet.</p>
           )}
 
-          <Link
-            to="/atlas"
-            className="side-panel-atlas-btn"
-            onClick={onClose}
-          >
-            <span className="side-panel-atlas-btn__icon">🗺️</span>
+          <Link to="/atlas" className="side-panel-atlas-btn" onClick={onClose}>
+            <span className="side-panel-atlas-btn__icon">A</span>
             <span className="side-panel-atlas-btn__text">
               <strong>View full atlas</strong>
               <small>Browse all kingdoms, lore, and locations</small>
             </span>
-            <span className="side-panel-atlas-btn__arrow">›</span>
+            <span className="side-panel-atlas-btn__arrow">{'>'}</span>
           </Link>
         </div>
       </div>
@@ -79,12 +75,12 @@ function SidePanel({ location, region, regionLocations = [], onClose, onSelectLo
     <div className="side-panel custom-scrollbar">
       <div className="side-panel-header">
         <div>
-          {location.type && (
-            <p className="side-panel-type">{location.type}</p>
-          )}
+          {location.type && <p className="side-panel-type">{location.type}</p>}
           <h2>{location.name}</h2>
         </div>
-        <button className="close-button" onClick={onClose} aria-label="Close">×</button>
+        <button className="close-button" onClick={onClose} aria-label="Close">
+          x
+        </button>
       </div>
 
       <div className="side-panel-content">
@@ -106,18 +102,31 @@ function SidePanel({ location, region, regionLocations = [], onClose, onSelectLo
           <p className="side-panel-empty">No lore or description added yet.</p>
         )}
 
-        <Link
-          to={`/atlas?loc=${location.id}`}
-          className="side-panel-atlas-btn"
-          onClick={onClose}
-        >
-          <span className="side-panel-atlas-btn__icon">🗺️</span>
-          <span className="side-panel-atlas-btn__text">
-            <strong>View full entry in Atlas</strong>
-            <small>Gallery, lore, characters &amp; more</small>
-          </span>
-          <span className="side-panel-atlas-btn__arrow">›</span>
-        </Link>
+        <div className="side-panel-action-stack">
+          {location.hasLocalMap && (
+            <Link
+              to={`/location/${location.id}/map`}
+              className="side-panel-atlas-btn side-panel-atlas-btn--map"
+              onClick={onClose}
+            >
+            <span className="side-panel-atlas-btn__icon">M</span>
+              <span className="side-panel-atlas-btn__text">
+                <strong>Open local map</strong>
+                <small>Explore this major location in detail</small>
+              </span>
+              <span className="side-panel-atlas-btn__arrow">{'>'}</span>
+            </Link>
+          )}
+
+          <Link to={`/atlas?loc=${location.id}`} className="side-panel-atlas-btn" onClick={onClose}>
+            <span className="side-panel-atlas-btn__icon">A</span>
+            <span className="side-panel-atlas-btn__text">
+              <strong>View full entry in Atlas</strong>
+              <small>Gallery, lore, characters &amp; more</small>
+            </span>
+            <span className="side-panel-atlas-btn__arrow">{'>'}</span>
+          </Link>
+        </div>
       </div>
     </div>
   );
