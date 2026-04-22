@@ -1,27 +1,42 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useLocationData } from '../../context/LocationDataContext';
 import { useRegions } from '../../context/RegionDataContext';
+import { useToast } from '../../context/ToastContext';
+import SceneCanvas from '../scene/SceneCanvas';
 import SecretScopeField from '../UI/SecretScopeField';
 
-// ── Dual-thumb range slider ───────────────────────────────────────────────────
+function makePoiId() {
+  return `poi-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+}
+
+function blankScene() {
+  return {
+    imageUrl: '',
+    assetPath: '',
+    width: null,
+    height: null,
+    pois: [],
+  };
+}
+
+// Dual-thumb range slider
 function DualRangeSlider({ min = 0, max = 1000, startVal, endVal, onChangeStart, onChangeEnd }) {
   const safeStart = startVal ?? min;
-  const safeEnd   = endVal   ?? max;
-  const startPct  = ((safeStart - min) / (max - min)) * 100;
-  const endPct    = ((safeEnd   - min) / (max - min)) * 100;
+  const safeEnd = endVal ?? max;
+  const startPct = ((safeStart - min) / (max - min)) * 100;
+  const endPct = ((safeEnd - min) / (max - min)) * 100;
 
   return (
     <div
       className="dual-range"
       style={{
         '--range-start': `${startPct}%`,
-        '--range-end':   `${endPct}%`,
+        '--range-end': `${endPct}%`,
       }}
     >
       <div className="dual-range__track">
         <div className="dual-range__fill" />
       </div>
-      {/* Start thumb */}
       <input
         type="range"
         className="dual-range__input dual-range__input--start"
@@ -29,13 +44,12 @@ function DualRangeSlider({ min = 0, max = 1000, startVal, endVal, onChangeStart,
         max={max}
         step={1}
         value={safeStart}
-        onChange={(e) => {
-          const v = Number(e.target.value);
-          if (v <= safeEnd) onChangeStart(v);
+        onChange={(event) => {
+          const value = Number(event.target.value);
+          if (value <= safeEnd) onChangeStart(value);
         }}
         aria-label="Era start year"
       />
-      {/* End thumb */}
       <input
         type="range"
         className="dual-range__input dual-range__input--end"
@@ -43,9 +57,9 @@ function DualRangeSlider({ min = 0, max = 1000, startVal, endVal, onChangeStart,
         max={max}
         step={1}
         value={safeEnd}
-        onChange={(e) => {
-          const v = Number(e.target.value);
-          if (v >= safeStart) onChangeEnd(v);
+        onChange={(event) => {
+          const value = Number(event.target.value);
+          if (value >= safeStart) onChangeEnd(value);
         }}
         aria-label="Era end year"
       />
@@ -53,7 +67,6 @@ function DualRangeSlider({ min = 0, max = 1000, startVal, endVal, onChangeStart,
   );
 }
 
-// ── EditorInfoPanel ────────────────────────────────────────────────────────────
 function EditorInfoPanel({
   isOpen,
   draft,
@@ -69,8 +82,73 @@ function EditorInfoPanel({
   onDelete,
 }) {
   const { locations, selectedLocationId } = useLocationData();
-  const currentLocation = locations.find((location) => location.id === selectedLocationId);
   const { regions } = useRegions();
+  const { toast } = useToast();
+  const currentLocation = locations.find((location) => location.id === selectedLocationId) || null;
+
+  const [sceneDraft, setSceneDraft] = useState(blankScene());
+  const [sceneLoading, setSceneLoading] = useState(false);
+  const [sceneSaving, setSceneSaving] = useState(false);
+  const [sceneUploading, setSceneUploading] = useState(false);
+  const [selectedPoiId, setSelectedPoiId] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadScene() {
+      if (!currentLocation?.id) {
+        setSceneDraft(blankScene());
+        setSelectedPoiId(null);
+        return;
+      }
+
+      setSceneLoading(true);
+      try {
+        const response = await fetch(`/api/locations/${currentLocation.id}/scene`, {
+          credentials: 'include',
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || 'Unable to load location scene.');
+        }
+        if (cancelled) return;
+        setSceneDraft({
+          imageUrl: data.scene?.imageUrl || '',
+          assetPath: data.scene?.assetPath || '',
+          width: data.scene?.width ?? null,
+          height: data.scene?.height ?? null,
+          pois: Array.isArray(data.scene?.pois) ? data.scene.pois : [],
+        });
+        setSelectedPoiId((prev) =>
+          (data.scene?.pois || []).some((poi) => String(poi.id) === String(prev))
+            ? prev
+            : data.scene?.pois?.[0]?.id || null
+        );
+      } catch (error) {
+        if (!cancelled) {
+          setSceneDraft(blankScene());
+          setSelectedPoiId(null);
+          toast.error(error.message || 'Unable to load location scene.');
+        }
+      } finally {
+        if (!cancelled) setSceneLoading(false);
+      }
+    }
+
+    if (isOpen) {
+      loadScene();
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentLocation?.id, isOpen, toast]);
+
+  useEffect(() => {
+    if (!sceneDraft.pois.some((poi) => String(poi.id) === String(selectedPoiId))) {
+      setSelectedPoiId(sceneDraft.pois[0]?.id || null);
+    }
+  }, [sceneDraft.pois, selectedPoiId]);
 
   if (!isOpen || !draft) return null;
 
@@ -82,15 +160,18 @@ function EditorInfoPanel({
   const handleInputChange = (field) => (event) => {
     onFieldChange(field, event.target.value);
   };
+
   const handleFieldBlur = () => {
     onFieldBlur?.();
   };
+
   const handleSingleLineKeyDown = (event) => {
     if (event.key === 'Enter') {
       event.preventDefault();
       onFieldCommit?.();
     }
   };
+
   const handleTextareaKeyDown = (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
       event.preventDefault();
@@ -98,14 +179,13 @@ function EditorInfoPanel({
     }
   };
 
-  // Era values (stored as numbers or undefined)
   const timeStart = draft.timeStart != null ? Number(draft.timeStart) : undefined;
-  const timeEnd   = draft.timeEnd   != null ? Number(draft.timeEnd)   : undefined;
-  const hasEra    = timeStart != null || timeEnd != null;
+  const timeEnd = draft.timeEnd != null ? Number(draft.timeEnd) : undefined;
+  const hasEra = timeStart != null || timeEnd != null;
   const saveStatusText = saveState?.error
     ? `Retry save: ${saveState.error}`
     : saveState?.saving
-      ? 'Saving…'
+      ? 'Saving...'
       : saveState?.dirty
         ? 'Unsaved changes'
         : saveState?.lastSavedAt
@@ -113,6 +193,99 @@ function EditorInfoPanel({
             ? 'Saved just now'
             : 'Saved'
           : '';
+
+  const selectedPoi = useMemo(
+    () => sceneDraft.pois.find((poi) => String(poi.id) === String(selectedPoiId)) || null,
+    [sceneDraft.pois, selectedPoiId]
+  );
+
+  const updatePoi = (poiId, patch) => {
+    setSceneDraft((prev) => ({
+      ...prev,
+      pois: prev.pois.map((poi) => (
+        String(poi.id) === String(poiId)
+          ? { ...poi, ...patch }
+          : poi
+      )),
+    }));
+  };
+
+  const handleAddPoi = ({ x, y }) => {
+    const nextPoi = {
+      id: makePoiId(),
+      name: `POI ${sceneDraft.pois.length + 1}`,
+      x,
+      y,
+      icon: '✦',
+      dmNotes: '',
+    };
+    setSceneDraft((prev) => ({
+      ...prev,
+      pois: [...prev.pois, nextPoi],
+    }));
+    setSelectedPoiId(nextPoi.id);
+  };
+
+  const handleSaveScene = async () => {
+    if (!currentLocation?.id) return;
+    setSceneSaving(true);
+    try {
+      const response = await fetch(`/api/locations/${currentLocation.id}/scene`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sceneDraft),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || 'Unable to save location scene.');
+      }
+      setSceneDraft({
+        imageUrl: data.scene?.imageUrl || '',
+        assetPath: data.scene?.assetPath || '',
+        width: data.scene?.width ?? null,
+        height: data.scene?.height ?? null,
+        pois: Array.isArray(data.scene?.pois) ? data.scene.pois : [],
+      });
+      toast.success('Location scene saved.');
+    } catch (error) {
+      toast.error(error.message || 'Unable to save location scene.');
+    } finally {
+      setSceneSaving(false);
+    }
+  };
+
+  const handleSceneUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file || !currentLocation?.id) return;
+
+    const formData = new FormData();
+    formData.append('image', file);
+
+    setSceneUploading(true);
+    try {
+      const response = await fetch(`/api/locations/${currentLocation.id}/scene/upload`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || 'Unable to upload scene image.');
+      }
+      setSceneDraft((prev) => ({
+        ...prev,
+        imageUrl: data.scene?.imageUrl || data.url || '',
+        assetPath: data.scene?.assetPath || data.url || '',
+      }));
+      toast.success('Scene image uploaded.');
+    } catch (error) {
+      toast.error(error.message || 'Unable to upload scene image.');
+    } finally {
+      event.target.value = '';
+      setSceneUploading(false);
+    }
+  };
 
   return (
     <aside className="editor-info-panel" aria-label="Edit location">
@@ -139,7 +312,7 @@ function EditorInfoPanel({
             onChange={handleInputChange('name')}
             onBlur={handleFieldBlur}
             onKeyDown={handleSingleLineKeyDown}
-            placeholder="Location name…"
+            placeholder="Location name..."
           />
         </label>
 
@@ -151,7 +324,7 @@ function EditorInfoPanel({
             onChange={handleInputChange('type')}
             onBlur={handleFieldBlur}
             onKeyDown={handleSingleLineKeyDown}
-            placeholder="e.g. City, Dungeon, Ruin…"
+            placeholder="e.g. City, Dungeon, Ruin..."
           />
         </label>
 
@@ -165,12 +338,12 @@ function EditorInfoPanel({
           <select
             className="editor-info-panel__select"
             value={draft.regionId != null ? String(draft.regionId) : ''}
-            onChange={(e) => onFieldChange('regionId', e.target.value !== '' ? e.target.value : null)}
+            onChange={(event) => onFieldChange('regionId', event.target.value !== '' ? event.target.value : null)}
             onBlur={handleFieldBlur}
           >
             <option value="">— No region —</option>
             {[...regions]
-              .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+              .sort((left, right) => (left.name || '').localeCompare(right.name || ''))
               .map((region) => (
                 <option key={region.id} value={region.id}>
                   {region.name}
@@ -187,7 +360,7 @@ function EditorInfoPanel({
             onClick={() => onFieldChange('pinned', !draft.pinned)}
             title={draft.pinned ? 'Unlock position — marker can be dragged' : 'Lock position — marker cannot be accidentally moved'}
           >
-            {draft.pinned ? '🔒 Position Locked' : '🔓 Unlocked — click to lock'}
+            {draft.pinned ? '🔒 Position Locked' : '📍 Unlocked — click to lock'}
           </button>
         </div>
 
@@ -199,7 +372,7 @@ function EditorInfoPanel({
             onChange={handleInputChange('lore')}
             onBlur={handleFieldBlur}
             onKeyDown={handleTextareaKeyDown}
-            placeholder="History, legends, world context…"
+            placeholder="History, legends, world context..."
           />
         </label>
 
@@ -215,7 +388,138 @@ function EditorInfoPanel({
           />
         </label>
 
-        {/* ── Era / Timeline ── */}
+        <div className="editor-info-panel__field editor-info-panel__field--scene">
+          <div className="editor-scene__header">
+            <div>
+              <span>DM Scene Setup</span>
+              <small>Prep a revealable scene image and place POIs for live play.</small>
+            </div>
+            <button
+              type="button"
+              className="panel-button panel-button--primary panel-button--sm"
+              onClick={handleSaveScene}
+              disabled={sceneLoading || sceneSaving}
+            >
+              {sceneSaving ? 'Saving Scene...' : 'Save Scene'}
+            </button>
+          </div>
+
+          <label className="editor-info-panel__field">
+            <span>Scene Image URL</span>
+            <input
+              type="text"
+              value={sceneDraft.imageUrl || ''}
+              onChange={(event) => setSceneDraft((prev) => ({ ...prev, imageUrl: event.target.value, assetPath: prev.assetPath || event.target.value }))}
+              placeholder="https://..."
+            />
+          </label>
+
+          <div className="editor-scene__upload-row">
+            <label className="panel-button panel-button--ghost panel-button--sm editor-scene__upload-btn">
+              {sceneUploading ? 'Uploading...' : 'Upload Scene Image'}
+              <input type="file" accept="image/*" onChange={handleSceneUpload} disabled={sceneUploading} hidden />
+            </label>
+            {(sceneDraft.width || sceneDraft.height) && (
+              <span className="editor-scene__meta">
+                {sceneDraft.width || '?'} × {sceneDraft.height || '?'}
+              </span>
+            )}
+          </div>
+
+          <SceneCanvas
+            imageUrl={sceneDraft.imageUrl}
+            pois={sceneDraft.pois}
+            selectedPoiId={selectedPoiId}
+            editable
+            onSelectPoi={setSelectedPoiId}
+            onAddPoi={handleAddPoi}
+            onMovePoi={(poiId, position) => updatePoi(poiId, position)}
+            onImageLoad={(dimensions) => setSceneDraft((prev) => ({ ...prev, ...dimensions }))}
+            emptyTitle="No scene image yet"
+            emptyText="Paste a scene image URL or upload one, then click on the image to place POIs."
+          />
+
+          <div className="editor-scene__split">
+            <div className="editor-scene__poi-list">
+              <div className="editor-scene__subhead">
+                <strong>POIs</strong>
+                <span>{sceneDraft.pois.length}</span>
+              </div>
+              {sceneDraft.pois.length === 0 ? (
+                <p className="editor-scene__empty">Click on the image to create the first point of interest.</p>
+              ) : (
+                sceneDraft.pois.map((poi) => (
+                  <button
+                    key={poi.id}
+                    type="button"
+                    className={`editor-scene__poi-item ${String(selectedPoiId) === String(poi.id) ? 'editor-scene__poi-item--active' : ''}`}
+                    onClick={() => setSelectedPoiId(poi.id)}
+                  >
+                    <span>{poi.icon || '✦'}</span>
+                    <div>
+                      <strong>{poi.name || 'Point of Interest'}</strong>
+                      <small>{Math.round((poi.x || 0) * 100)}% / {Math.round((poi.y || 0) * 100)}%</small>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+
+            <div className="editor-scene__poi-editor">
+              <div className="editor-scene__subhead">
+                <strong>Selected POI</strong>
+              </div>
+              {!selectedPoi ? (
+                <p className="editor-scene__empty">Select a POI to rename it, change its icon, or add DM notes.</p>
+              ) : (
+                <>
+                  <label className="editor-info-panel__field">
+                    <span>Name</span>
+                    <input
+                      type="text"
+                      value={selectedPoi.name || ''}
+                      onChange={(event) => updatePoi(selectedPoi.id, { name: event.target.value })}
+                    />
+                  </label>
+                  <label className="editor-info-panel__field">
+                    <span>Icon</span>
+                    <input
+                      type="text"
+                      value={selectedPoi.icon || ''}
+                      onChange={(event) => updatePoi(selectedPoi.id, { icon: event.target.value || '✦' })}
+                      placeholder="✦"
+                    />
+                  </label>
+                  <label className="editor-info-panel__field">
+                    <span>DM Notes</span>
+                    <textarea
+                      rows={4}
+                      value={selectedPoi.dmNotes || ''}
+                      onChange={(event) => updatePoi(selectedPoi.id, { dmNotes: event.target.value })}
+                      placeholder="What should the DM remember about this reveal?"
+                    />
+                  </label>
+                  <div className="editor-scene__poi-actions">
+                    <button
+                      type="button"
+                      className="panel-button panel-button--danger panel-button--sm"
+                      onClick={() => {
+                        setSceneDraft((prev) => ({
+                          ...prev,
+                          pois: prev.pois.filter((poi) => String(poi.id) !== String(selectedPoi.id)),
+                        }));
+                        setSelectedPoiId(null);
+                      }}
+                    >
+                      Remove POI
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
         <div className="editor-info-panel__field editor-info-panel__field--era">
           <div className="era-header">
             <span>Era (Timeline)</span>
@@ -225,7 +529,7 @@ function EditorInfoPanel({
                 className="era-clear-btn"
                 onClick={() => {
                   onFieldChange('timeStart', undefined);
-                  onFieldChange('timeEnd',   undefined);
+                  onFieldChange('timeEnd', undefined);
                 }}
                 title="Clear era — location exists at all times"
               >
@@ -239,8 +543,8 @@ function EditorInfoPanel({
             max={1000}
             startVal={timeStart}
             endVal={timeEnd}
-            onChangeStart={(v) => onFieldChange('timeStart', v)}
-            onChangeEnd={(v)   => onFieldChange('timeEnd',   v)}
+            onChangeStart={(value) => onFieldChange('timeStart', value)}
+            onChangeEnd={(value) => onFieldChange('timeEnd', value)}
           />
 
           <div className="era-year-row">
@@ -251,7 +555,7 @@ function EditorInfoPanel({
                 min={0}
                 max={1000}
                 value={timeStart ?? ''}
-                onChange={(e) => onFieldChange('timeStart', e.target.value === '' ? undefined : Number(e.target.value))}
+                onChange={(event) => onFieldChange('timeStart', event.target.value === '' ? undefined : Number(event.target.value))}
                 onBlur={handleFieldBlur}
                 onKeyDown={handleSingleLineKeyDown}
                 placeholder="0"
@@ -265,7 +569,7 @@ function EditorInfoPanel({
                 min={0}
                 max={1000}
                 value={timeEnd ?? ''}
-                onChange={(e) => onFieldChange('timeEnd', e.target.value === '' ? undefined : Number(e.target.value))}
+                onChange={(event) => onFieldChange('timeEnd', event.target.value === '' ? undefined : Number(event.target.value))}
                 onBlur={handleFieldBlur}
                 onKeyDown={handleSingleLineKeyDown}
                 placeholder="1000"
@@ -316,7 +620,6 @@ function EditorInfoPanel({
           </p>
         )}
 
-        {/* Attribution footer */}
         {(currentLocation?.createdBy || currentLocation?.updatedBy) && (
           <div className="editor-attribution">
             {currentLocation.createdBy && (

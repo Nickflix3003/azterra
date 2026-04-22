@@ -9,6 +9,7 @@ import {
   calculatePassivePerception,
   mod,
 } from './CampaignShared';
+import SceneCanvas from '../scene/SceneCanvas';
 import './CampaignPage.css';
 import './CampaignWorkspacePage.css';
 
@@ -324,6 +325,10 @@ export default function CampaignWorkspacePage() {
   const [editingCampaign, setEditingCampaign] = useState(null);
   const [savingAttachment, setSavingAttachment] = useState(false);
   const [savingSession, setSavingSession] = useState(false);
+  const [campaignScene, setCampaignScene] = useState(null);
+  const [sceneLoading, setSceneLoading] = useState(true);
+  const [sceneSaving, setSceneSaving] = useState(false);
+  const [selectedScenePoiId, setSelectedScenePoiId] = useState(null);
   const [attachmentDraft, setAttachmentDraft] = useState({
     nickname: '',
     currentHp: null,
@@ -356,6 +361,37 @@ export default function CampaignWorkspacePage() {
     setPlayerCharacters(characterData.characters || []);
   }, [canUseCampaigns, id]);
 
+  const loadScene = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!canUseCampaigns || !id) {
+        setCampaignScene(null);
+        setSceneLoading(false);
+        return null;
+      }
+
+      if (!silent) {
+        setSceneLoading(true);
+      }
+
+      try {
+        const sceneData = await apiJson(`/api/campaigns/${id}/scene`);
+        const nextScene = sceneData.sceneState || null;
+        setCampaignScene(nextScene);
+        return nextScene;
+      } catch (error) {
+        if (!silent) {
+          toast.error(error.message || 'Unable to load the campaign scene.');
+        }
+        throw error;
+      } finally {
+        if (!silent) {
+          setSceneLoading(false);
+        }
+      }
+    },
+    [canUseCampaigns, id, toast]
+  );
+
   useEffect(() => {
     let cancelled = false;
 
@@ -370,10 +406,12 @@ export default function CampaignWorkspacePage() {
         const [campaignData, characterData] = await Promise.all([
           apiJson(`/api/campaigns/${id}/table`),
           apiJson('/api/player-characters/me'),
+          loadScene({ silent: true }),
         ]);
         if (cancelled) return;
         setCampaign(campaignData.campaign || null);
         setPlayerCharacters(characterData.characters || []);
+        setSceneLoading(false);
       } catch (error) {
         if (!cancelled) {
           toast.error(error.message || 'Unable to load campaign workspace.');
@@ -382,13 +420,25 @@ export default function CampaignWorkspacePage() {
       } finally {
         if (!cancelled) setLoading(false);
       }
-    }
+      }
 
     load();
     return () => {
       cancelled = true;
     };
-  }, [canUseCampaigns, id, navigate, toast]);
+  }, [canUseCampaigns, id, loadScene, navigate, toast]);
+
+  useEffect(() => {
+    if (!canUseCampaigns || !id || campaign?.pendingOnly) return undefined;
+
+    const intervalId = window.setInterval(() => {
+      loadScene({ silent: true }).catch(() => {});
+    }, 3000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [campaign?.pendingOnly, canUseCampaigns, id, loadScene]);
 
   useEffect(() => {
     const attachedCharacters = campaign?.attachedCharacters || [];
@@ -441,6 +491,18 @@ export default function CampaignWorkspacePage() {
     });
   }, [campaign?.sessionState]);
 
+  useEffect(() => {
+    const pois = campaignScene?.scene?.pois || [];
+    if (pois.length === 0) {
+      setSelectedScenePoiId(null);
+      return;
+    }
+
+    if (!pois.some((poi) => String(poi.id) === String(selectedScenePoiId))) {
+      setSelectedScenePoiId(String(pois[0].id));
+    }
+  }, [campaignScene?.scene?.pois, selectedScenePoiId]);
+
   const attachedIds = useMemo(
     () => new Set((campaign?.attachedCharacters || []).map((entry) => String(entry.id))),
     [campaign?.attachedCharacters]
@@ -460,6 +522,17 @@ export default function CampaignWorkspacePage() {
 
   const canManage = Boolean(campaign?.canManage);
   const canEditNotes = Boolean(campaign?.canEditSession);
+  const revealedPoiIds = campaignScene?.revealedPoiIds || [];
+  const revealedPoiSet = useMemo(() => new Set(revealedPoiIds.map((poiId) => String(poiId))), [revealedPoiIds]);
+  const scenePois = campaignScene?.scene?.pois || [];
+  const selectedScenePoi = useMemo(
+    () => scenePois.find((poi) => String(poi.id) === String(selectedScenePoiId)) || null,
+    [scenePois, selectedScenePoiId]
+  );
+  const hiddenScenePoiIds = useMemo(() => {
+    if (!canManage) return [];
+    return scenePois.filter((poi) => !revealedPoiSet.has(String(poi.id))).map((poi) => poi.id);
+  }, [canManage, revealedPoiSet, scenePois]);
 
   const refreshWorkspace = useCallback(async () => {
     try {
@@ -481,6 +554,71 @@ export default function CampaignWorkspacePage() {
     } catch (error) {
       toast.error(error.message || 'Unable to attach character.');
     }
+  };
+
+  const handleScenePatch = async (patch) => {
+    if (!campaign?.id || !canManage) return;
+
+    setSceneSaving(true);
+    try {
+      const response = await apiJson(`/api/campaigns/${campaign.id}/scene`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      });
+      const nextScene = response.sceneState || null;
+      setCampaignScene(nextScene);
+
+      if (Object.prototype.hasOwnProperty.call(patch, 'currentLocationId')) {
+        setCampaign((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            sessionState: {
+              ...(prev.sessionState || {}),
+              currentLocationId: patch.currentLocationId || null,
+            },
+          };
+        });
+      }
+    } catch (error) {
+      toast.error(error.message || 'Unable to update DM scene.');
+    } finally {
+      setSceneSaving(false);
+    }
+  };
+
+  const handleSceneLocationChange = (locationId) => {
+    if (!canManage) return;
+    handleScenePatch({ currentLocationId: locationId || null });
+  };
+
+  const handleTogglePoiReveal = (poiId) => {
+    if (!canManage || !campaignScene?.currentLocationId) return;
+
+    const nextIds = revealedPoiSet.has(String(poiId))
+      ? revealedPoiIds.filter((entry) => String(entry) !== String(poiId))
+      : [...revealedPoiIds, poiId];
+
+    handleScenePatch({
+      locationId: campaignScene.currentLocationId,
+      revealedPoiIds: nextIds,
+    });
+  };
+
+  const handleRevealAllPois = () => {
+    if (!canManage || !campaignScene?.currentLocationId) return;
+    handleScenePatch({
+      locationId: campaignScene.currentLocationId,
+      revealedPoiIds: scenePois.map((poi) => poi.id),
+    });
+  };
+
+  const handleHideAllPois = () => {
+    if (!canManage || !campaignScene?.currentLocationId) return;
+    handleScenePatch({
+      locationId: campaignScene.currentLocationId,
+      revealedPoiIds: [],
+    });
   };
 
   const handleDetachCharacter = async (characterId) => {
@@ -794,6 +932,170 @@ export default function CampaignWorkspacePage() {
         </aside>
 
         <main className="cpt-main">
+          <section className="cpt-panel cpt-scene-panel">
+            <div className="cpt-section-head">
+              <div>
+                <p className="cpt-card-eyebrow">DM Scene</p>
+                <h3>Live Location Surface</h3>
+              </div>
+              <div className="cpt-inline-actions">
+                {campaignScene?.activeLocation?.name && <span>{campaignScene.activeLocation.name}</span>}
+                {canManage && sceneSaving && <span>Updating scene...</span>}
+              </div>
+            </div>
+
+            {sceneLoading ? (
+              <div className="cpt-scene-empty">
+                <h4>Loading scene...</h4>
+                <p>Pulling the current location image and reveal state for this campaign.</p>
+              </div>
+            ) : (
+              <div className="cpt-scene-layout">
+                <div className="cpt-scene-stage">
+                  <div className="cpt-scene-toolbar">
+                    {canManage ? (
+                      <>
+                        <label className="cpt-scene-location">
+                          <span>Current Location</span>
+                          <select
+                            value={campaignScene?.currentLocationId || ''}
+                            onChange={(event) => handleSceneLocationChange(event.target.value || null)}
+                            disabled={sceneSaving}
+                          >
+                            <option value="">Select a campaign location</option>
+                            {(campaignScene?.locationOptions || []).map((location) => (
+                              <option key={location.id} value={location.id}>
+                                {location.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <div className="cpt-inline-actions">
+                          <button
+                            type="button"
+                            className="cp-chip-btn"
+                            onClick={handleRevealAllPois}
+                            disabled={!campaignScene?.currentLocationId || scenePois.length === 0 || sceneSaving}
+                          >
+                            Reveal All
+                          </button>
+                          <button
+                            type="button"
+                            className="cp-chip-btn"
+                            onClick={handleHideAllPois}
+                            disabled={!campaignScene?.currentLocationId || scenePois.length === 0 || sceneSaving}
+                          >
+                            Hide All
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="cpt-scene-readout">
+                        <strong>{campaignScene?.activeLocation?.name || 'No active scene yet'}</strong>
+                        <span>{scenePois.length} revealed point{scenePois.length === 1 ? '' : 's'} of interest</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <SceneCanvas
+                    imageUrl={campaignScene?.scene?.imageUrl || ''}
+                    pois={scenePois}
+                    hiddenPoiIds={hiddenScenePoiIds}
+                    selectedPoiId={selectedScenePoiId}
+                    showLabels
+                    onSelectPoi={(poiId) => setSelectedScenePoiId(poiId)}
+                    emptyTitle={campaignScene?.currentLocationId ? 'No scene image prepared' : 'No active scene selected'}
+                    emptyText={
+                      campaignScene?.currentLocationId
+                        ? canManage
+                          ? 'Open this location in the map editor and add a scene image before running it live.'
+                          : 'The DM has not prepared a scene image for this location yet.'
+                        : canManage
+                          ? 'Choose a campaign location to start the live scene view.'
+                          : 'Wait for the DM to activate a location scene.'
+                    }
+                  />
+                </div>
+
+                <aside className="cpt-scene-sidebar">
+                  <div className="cpt-section-head">
+                    <h4>{canManage ? 'POI Controls' : 'Visible Points'}</h4>
+                    <span>{scenePois.length}</span>
+                  </div>
+
+                  {scenePois.length === 0 ? (
+                    <div className="cpt-scene-empty cpt-scene-empty--compact">
+                      <p>
+                        {campaignScene?.currentLocationId
+                          ? canManage
+                            ? 'No points of interest exist for this scene yet.'
+                            : 'Nothing has been revealed in this scene yet.'
+                          : 'Select a location to start.'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="cpt-scene-poi-list">
+                      {scenePois.map((poi) => {
+                        const isRevealed = revealedPoiSet.has(String(poi.id));
+                        return (
+                          <article
+                            key={poi.id}
+                            className={`cpt-scene-poi ${String(selectedScenePoiId) === String(poi.id) ? 'cpt-scene-poi--active' : ''} ${
+                              canManage && !isRevealed ? 'cpt-scene-poi--hidden' : ''
+                            }`}
+                          >
+                            <button type="button" className="cpt-scene-poi__main" onClick={() => setSelectedScenePoiId(String(poi.id))}>
+                              <span className="cpt-scene-poi__icon">{poi.icon || '?'}</span>
+                              <span className="cpt-scene-poi__body">
+                                <strong>{poi.name || 'Untitled POI'}</strong>
+                                <span>
+                                  {canManage
+                                    ? isRevealed
+                                      ? 'Visible to players'
+                                      : 'Hidden from players'
+                                    : 'Visible in this scene'}
+                                </span>
+                              </span>
+                            </button>
+                            {canManage && (
+                              <span className="cpt-scene-poi__action">
+                                <button
+                                  type="button"
+                                  className="cp-chip-btn"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleTogglePoiReveal(poi.id);
+                                  }}
+                                  disabled={sceneSaving}
+                                >
+                                  {isRevealed ? 'Hide' : 'Reveal'}
+                                </button>
+                              </span>
+                            )}
+                          </article>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {selectedScenePoi && (
+                    <section className="cpt-scene-notes">
+                      <div className="cpt-section-head">
+                        <h4>{selectedScenePoi.name || 'Selected POI'}</h4>
+                        <span>{selectedScenePoi.icon || '?'}</span>
+                      </div>
+                      {canManage ? (
+                        <p>{selectedScenePoi.dmNotes || 'No DM notes for this point yet.'}</p>
+                      ) : (
+                        <p>This marker is currently visible to the party.</p>
+                      )}
+                    </section>
+                  )}
+                </aside>
+              </div>
+            )}
+          </section>
+
           <section className="cpt-panel cpt-notes-panel">
             <div className="cpt-section-head">
               <div>

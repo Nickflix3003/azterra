@@ -1,0 +1,91 @@
+.scene-canvas {
+  position: relative;
+  overflow: hidden;
+  min-height: 16rem;
+  border-radius: 1.05rem;
+  border: 1px solid rgba(244, 219, 169, 0.14);
+  background:
+    radial-gradient(circle at top, rgba(207, 170, 104, 0.12), transparent 42%),
+    linear-gradient(180deg, rgba(21, 18, 14, 0.96), rgba(10, 9, 7, 0.98));
+}
+
+.scene-canvas--editable {
+  cursor: crosshair;
+}
+
+.scene-canvas--empty {
+  display: grid;
+  place-items: center;
+  text-align: center;
+  gap: 0.55rem;
+  padding: 1.2rem;
+}
+
+.scene-canvas--empty h4,
+.scene-canvas--empty p {
+  margin: 0;
+}
+
+.scene-canvas--empty p {
+  color: rgba(245, 236, 218, 0.72);
+}
+
+.scene-canvas__image {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: 16rem;
+  object-fit: cover;
+}
+
+.scene-canvas__overlay {
+  position: absolute;
+  inset: 0;
+}
+
+.scene-canvas__poi {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #fff7e3;
+  cursor: pointer;
+}
+
+.scene-canvas__poi-icon {
+  width: 1.95rem;
+  height: 1.95rem;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 244, 220, 0.5);
+  background: radial-gradient(circle at 30% 30%, rgba(255, 238, 191, 0.95), rgba(185, 136, 48, 0.9));
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  color: #2b1904;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.scene-canvas__poi-label {
+  padding: 0.26rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(17, 12, 9, 0.82);
+  border: 1px solid rgba(244, 219, 169, 0.2);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+  white-space: nowrap;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+}
+
+.scene-canvas__poi--selected .scene-canvas__poi-icon {
+  box-shadow: 0 0 0 2px rgba(255, 229, 176, 0.4), 0 8px 20px rgba(0, 0, 0, 0.34);
+}
+
+.scene-canvas__poi--hidden .scene-canvas__poi-icon,
+.scene-canvas__poi--hidden .scene-canvas__poi-label {
+  opacity: 0.42;
+}

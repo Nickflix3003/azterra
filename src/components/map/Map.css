@@ -2266,3 +2266,97 @@ html, body, #root {
   font-style: italic;
   color: rgba(255,255,255,.3);
 }
+
+.panel-button--sm {
+  padding: 0.42rem 0.8rem;
+  font-size: 0.72rem;
+}
+
+.editor-info-panel__field--scene {
+  gap: 0.7rem;
+}
+
+.editor-scene__header,
+.editor-scene__upload-row,
+.editor-scene__subhead,
+.editor-scene__poi-item,
+.editor-scene__poi-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.editor-scene__header {
+  align-items: flex-start;
+}
+
+.editor-scene__header small,
+.editor-scene__meta,
+.editor-scene__poi-item small,
+.editor-scene__empty {
+  color: rgba(241, 245, 249, 0.62);
+  font-size: 0.73rem;
+}
+
+.editor-scene__upload-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.editor-scene__split {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  gap: 0.75rem;
+}
+
+.editor-scene__poi-list,
+.editor-scene__poi-editor {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.8rem;
+  border-radius: 0.95rem;
+  border: 1px solid rgba(244, 219, 169, 0.1);
+  background: rgba(255, 248, 231, 0.04);
+}
+
+.editor-scene__poi-item {
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid rgba(244, 219, 169, 0.12);
+  border-radius: 0.85rem;
+  background: rgba(8, 7, 5, 0.36);
+  color: #f8f2e2;
+  cursor: pointer;
+  text-align: left;
+}
+
+.editor-scene__poi-item span {
+  font-size: 1rem;
+}
+
+.editor-scene__poi-item strong,
+.editor-scene__poi-item small {
+  display: block;
+}
+
+.editor-scene__poi-item--active {
+  border-color: rgba(250, 204, 21, 0.38);
+  background: rgba(250, 204, 21, 0.08);
+}
+
+@media (max-width: 760px) {
+  .editor-scene__split {
+    grid-template-columns: 1fr;
+  }
+
+  .editor-scene__header,
+  .editor-scene__upload-row,
+  .editor-scene__subhead,
+  .editor-scene__poi-item,
+  .editor-scene__poi-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

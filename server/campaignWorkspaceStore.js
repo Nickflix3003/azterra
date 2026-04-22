@@ -151,6 +151,27 @@ function normalizeTableState(state = {}) {
   };
 }
 
+function normalizeSceneRevealState(state = {}) {
+  if (!state || typeof state !== 'object' || Array.isArray(state)) return {};
+  return Object.fromEntries(
+    Object.entries(state).map(([locationId, entry]) => {
+      const nextEntry =
+        Array.isArray(entry)
+          ? { revealedPoiIds: entry, updatedAt: null }
+          : entry && typeof entry === 'object'
+            ? entry
+            : { revealedPoiIds: [], updatedAt: null };
+      return [
+        String(locationId),
+        {
+          revealedPoiIds: normalizeStringArray(nextEntry.revealedPoiIds),
+          updatedAt: nextEntry.updatedAt || null,
+        },
+      ];
+    })
+  );
+}
+
 function normalizeSessionState(state = {}) {
   return {
     title: normalizeString(state.title),
@@ -159,6 +180,7 @@ function normalizeSessionState(state = {}) {
     objectives: normalizeArray(state.objectives).map((entry) => normalizeString(entry)).filter(Boolean),
     recentLoot: normalizeArray(state.recentLoot).map((entry) => normalizeString(entry)).filter(Boolean),
     currentLocationId: normalizeString(state.currentLocationId) || null,
+    sceneRevealState: normalizeSceneRevealState(state.sceneRevealState),
     updatedAt: state.updatedAt || null,
   };
 }
@@ -188,6 +210,7 @@ function normalizeWorkspace(workspace = {}, campaignId = '') {
     inventory: {
       items: normalizeArray(workspace.inventory?.items).map(normalizeInventoryItem),
     },
+    sceneRevealState: normalizeSceneRevealState(workspace.sceneRevealState || workspace.sessionState?.sceneRevealState),
     tableState: normalizeTableState(workspace.tableState),
     boardState: normalizeBoardState(workspace.boardState),
     sessionState: normalizeSessionState(workspace.sessionState),

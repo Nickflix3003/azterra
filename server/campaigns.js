@@ -11,6 +11,7 @@ import {
   readPlayerCharacters,
   writeCampaignWorkspaceIndex,
 } from './campaignWorkspaceStore.js';
+import { readLocationScene } from './locationSceneStore.js';
 
 const router = Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -235,6 +236,45 @@ function buildLocationOptions(catalog) {
     name: entry.title,
     type: entry.subtitle,
   }));
+}
+
+function getCampaignLocationInfo(locationOptions = [], locationId) {
+  return locationOptions.find((entry) => String(entry.id) === String(locationId)) || null;
+}
+
+function buildCampaignScenePayload(workspace, locationOptions, scene, viewerCanManage) {
+  const currentLocationId = workspace.sessionState?.currentLocationId || null;
+  const activeLocation = currentLocationId ? getCampaignLocationInfo(locationOptions, currentLocationId) : null;
+  const revealEntry = currentLocationId ? workspace.sceneRevealState?.[String(currentLocationId)] : null;
+  const revealedPoiIds = revealEntry?.revealedPoiIds || [];
+  const visiblePoiSet = new Set(revealedPoiIds.map((entry) => String(entry)));
+  const normalizedScene = scene || { imageUrl: '', assetPath: '', width: null, height: null, pois: [] };
+  const pois = viewerCanManage
+    ? normalizedScene.pois
+    : normalizedScene.pois
+        .filter((poi) => visiblePoiSet.has(String(poi.id)))
+        .map((poi) => ({
+          id: poi.id,
+          name: poi.name,
+          x: poi.x,
+          y: poi.y,
+          icon: poi.icon,
+        }));
+
+  return {
+    currentLocationId,
+    activeLocation,
+    canManage: viewerCanManage,
+    locationOptions,
+    revealedPoiIds,
+    scene: {
+      imageUrl: normalizedScene.imageUrl || normalizedScene.assetPath || '',
+      assetPath: normalizedScene.assetPath || '',
+      width: normalizedScene.width ?? null,
+      height: normalizedScene.height ?? null,
+      pois,
+    },
+  };
 }
 
 function defaultTableCard(characterId, index) {
@@ -1057,6 +1097,103 @@ router.post('/:id/inventory/move', authRequired, async (req, res) => {
   } catch (error) {
     console.error(error);
     return res.status(500).json({ error: 'Unable to move campaign item.' });
+  }
+});
+
+router.get('/:id/scene', authRequired, async (req, res) => {
+  try {
+    const campaignRow = await readCampaignRow(req.params.id);
+    if (!campaignRow) {
+      return res.status(404).json({ error: 'Campaign not found.' });
+    }
+
+    const [workspaceIndex, boardCatalog] = await Promise.all([
+      readCampaignWorkspaceIndex(),
+      buildBoardCatalog(),
+    ]);
+    const workspace = ensureCampaignWorkspace(workspaceIndex, campaignRow.id);
+    if (!canViewCampaignWorkspace(req.user, campaignRow, workspace)) {
+      return res.status(403).json({ error: 'You do not have access to this campaign scene.' });
+    }
+
+    const locationOptions = buildLocationOptions(boardCatalog);
+    const currentLocationId = workspace.sessionState?.currentLocationId || null;
+    const scene = currentLocationId ? await readLocationScene(currentLocationId) : null;
+    return res.json({
+      sceneState: buildCampaignScenePayload(
+        workspace,
+        locationOptions,
+        scene,
+        isCampaignManager(req.user, campaignRow, workspace)
+      ),
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to load campaign scene.' });
+  }
+});
+
+router.patch('/:id/scene', authRequired, async (req, res) => {
+  try {
+    const [campaignRow, workspaceIndex, boardCatalog] = await Promise.all([
+      readCampaignRow(req.params.id),
+      readCampaignWorkspaceIndex(),
+      buildBoardCatalog(),
+    ]);
+    if (!campaignRow) {
+      return res.status(404).json({ error: 'Campaign not found.' });
+    }
+
+    const workspace = ensureCampaignWorkspace(workspaceIndex, campaignRow.id);
+    if (!isCampaignManager(req.user, campaignRow, workspace)) {
+      return res.status(403).json({ error: 'Only campaign managers can update the campaign scene.' });
+    }
+
+    const locationOptions = buildLocationOptions(boardCatalog);
+    const nextCurrentLocationId = Object.prototype.hasOwnProperty.call(req.body || {}, 'currentLocationId')
+      ? (req.body.currentLocationId ? String(req.body.currentLocationId) : null)
+      : workspace.sessionState?.currentLocationId || null;
+
+    if (nextCurrentLocationId && !getCampaignLocationInfo(locationOptions, nextCurrentLocationId)) {
+      return res.status(400).json({ error: 'Current location is not valid for this campaign.' });
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'currentLocationId')) {
+      workspace.sessionState = {
+        ...workspace.sessionState,
+        currentLocationId: nextCurrentLocationId,
+        updatedAt: nowIso(),
+      };
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'revealedPoiIds')) {
+      const targetLocationId = String(req.body?.locationId || nextCurrentLocationId || '');
+      if (!targetLocationId) {
+        return res.status(400).json({ error: 'A locationId is required when updating scene reveals.' });
+      }
+
+      workspace.sceneRevealState = {
+        ...(workspace.sceneRevealState || {}),
+        [targetLocationId]: {
+          revealedPoiIds: Array.isArray(req.body.revealedPoiIds)
+            ? Array.from(new Set(req.body.revealedPoiIds.map((entry) => String(entry).trim()).filter(Boolean)))
+            : [],
+          updatedAt: nowIso(),
+        },
+      };
+    }
+
+    workspace.updatedAt = nowIso();
+    await writeCampaignWorkspaceIndex(workspaceIndex);
+    await touchCampaign(campaignRow.id);
+
+    const scene = nextCurrentLocationId ? await readLocationScene(nextCurrentLocationId) : null;
+    return res.json({
+      sceneState: buildCampaignScenePayload(workspace, locationOptions, scene, true),
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to update campaign scene.' });
   }
 });
 

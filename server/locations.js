@@ -8,6 +8,11 @@ import { authRequired, editorRequired, resolveRequestUser } from './utils.js';
 import { db, throwIfError } from './db.js';
 import { canAccessSecretItem, sanitizeSecretItems } from './secretAccess.js';
 import { canManageSecret, readSecretSettingsMap } from './secretStore.js';
+import {
+  normalizeLocationScene,
+  readLocationScene,
+  saveLocationScene,
+} from './locationSceneStore.js';
 
 const router = Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -270,6 +275,78 @@ router.post('/save', authRequired, editorRequired, async function(req, res) {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Unable to save locations.' });
+  }
+});
+
+// GET /api/locations/:id/scene
+router.get('/:id/scene', authRequired, editorRequired, async function(req, res) {
+  const { id } = req.params;
+  try {
+    const { data: existing, error } = await db().from('locations').select('id, name, type').eq('id', String(id)).single();
+    throwIfError(error, 'location scene fetch location');
+    if (!existing) return res.status(404).json({ error: 'Location not found.' });
+    const scene = await readLocationScene(id);
+    return res.json({
+      location: {
+        id: typeof existing.id === 'string' && /^-?\d+$/.test(existing.id) ? Number(existing.id) : existing.id,
+        name: existing.name || 'Unnamed location',
+        type: existing.type || '',
+      },
+      scene,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Unable to load location scene.' });
+  }
+});
+
+// PATCH /api/locations/:id/scene
+router.patch('/:id/scene', authRequired, editorRequired, async function(req, res) {
+  const { id } = req.params;
+  try {
+    const { data: existing, error } = await db().from('locations').select('id').eq('id', String(id)).single();
+    throwIfError(error, 'location scene patch location');
+    if (!existing) return res.status(404).json({ error: 'Location not found.' });
+
+    const current = await readLocationScene(id);
+    const next = normalizeLocationScene({
+      ...current,
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'imageUrl') ? { imageUrl: req.body.imageUrl } : {}),
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'assetPath') ? { assetPath: req.body.assetPath } : {}),
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'width') ? { width: req.body.width } : {}),
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'height') ? { height: req.body.height } : {}),
+      ...(Object.prototype.hasOwnProperty.call(req.body || {}, 'pois') ? { pois: req.body.pois } : {}),
+    });
+
+    const scene = await saveLocationScene(id, next);
+    return res.json({ scene });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Unable to save location scene.' });
+  }
+});
+
+// POST /api/locations/:id/scene/upload
+router.post('/:id/scene/upload', authRequired, editorRequired, uploadImage.single('image'), async function(req, res) {
+  const { id } = req.params;
+  if (!req.file) return res.status(400).json({ error: 'No image provided.' });
+  const url = '/api/locations/images/' + req.file.filename;
+
+  try {
+    const { data: existing, error } = await db().from('locations').select('id').eq('id', String(id)).single();
+    throwIfError(error, 'location scene upload location');
+    if (!existing) return res.status(404).json({ error: 'Location not found.' });
+
+    const current = await readLocationScene(id);
+    const scene = await saveLocationScene(id, {
+      ...current,
+      imageUrl: url,
+      assetPath: url,
+    });
+    return res.json({ scene, url });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Unable to upload location scene image.' });
   }
 });
 
