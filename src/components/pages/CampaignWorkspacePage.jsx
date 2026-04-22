@@ -9,6 +9,7 @@ import {
   calculatePassivePerception,
   mod,
 } from './CampaignShared';
+import CampaignNotesBoard from './CampaignNotesBoard';
 import SceneCanvas from '../scene/SceneCanvas';
 import './CampaignPage.css';
 import './CampaignWorkspacePage.css';
@@ -324,10 +325,11 @@ export default function CampaignWorkspacePage() {
   const [sheetState, setSheetState] = useState(null);
   const [editingCampaign, setEditingCampaign] = useState(null);
   const [savingAttachment, setSavingAttachment] = useState(false);
-  const [savingSession, setSavingSession] = useState(false);
   const [campaignScene, setCampaignScene] = useState(null);
   const [sceneLoading, setSceneLoading] = useState(true);
   const [sceneSaving, setSceneSaving] = useState(false);
+  const [notesBoard, setNotesBoard] = useState(null);
+  const [notesBoardLoading, setNotesBoardLoading] = useState(true);
   const [selectedScenePoiId, setSelectedScenePoiId] = useState(null);
   const [attachmentDraft, setAttachmentDraft] = useState({
     nickname: '',
@@ -336,14 +338,6 @@ export default function CampaignWorkspacePage() {
     status: 'active',
     tags: [],
     notes: '',
-  });
-  const [sessionDraft, setSessionDraft] = useState({
-    title: '',
-    summary: '',
-    notes: '',
-    objectives: [],
-    recentLoot: [],
-    currentLocationId: null,
   });
 
   const loadWorkspace = useCallback(async () => {
@@ -358,6 +352,7 @@ export default function CampaignWorkspacePage() {
       apiJson('/api/player-characters/me'),
     ]);
     setCampaign(campaignData.campaign || null);
+    setNotesBoard(campaignData.campaign?.notesBoardState || null);
     setPlayerCharacters(characterData.characters || []);
   }, [canUseCampaigns, id]);
 
@@ -392,6 +387,38 @@ export default function CampaignWorkspacePage() {
     [canUseCampaigns, id, toast]
   );
 
+  const loadNotesBoard = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!canUseCampaigns || !id) {
+        setNotesBoard(null);
+        setNotesBoardLoading(false);
+        return null;
+      }
+
+      if (!silent) {
+        setNotesBoardLoading(true);
+      }
+
+      try {
+        const boardData = await apiJson(`/api/campaigns/${id}/notes-board`);
+        const nextBoard = boardData.notesBoardState || null;
+        setNotesBoard(nextBoard);
+        setCampaign((prev) => (prev ? { ...prev, notesBoardState: nextBoard } : prev));
+        return nextBoard;
+      } catch (error) {
+        if (!silent) {
+          toast.error(error.message || 'Unable to load the campaign notes board.');
+        }
+        throw error;
+      } finally {
+        if (!silent) {
+          setNotesBoardLoading(false);
+        }
+      }
+    },
+    [canUseCampaigns, id, toast]
+  );
+
   useEffect(() => {
     let cancelled = false;
 
@@ -407,11 +434,14 @@ export default function CampaignWorkspacePage() {
           apiJson(`/api/campaigns/${id}/table`),
           apiJson('/api/player-characters/me'),
           loadScene({ silent: true }),
+          loadNotesBoard({ silent: true }),
         ]);
         if (cancelled) return;
         setCampaign(campaignData.campaign || null);
+        setNotesBoard(campaignData.campaign?.notesBoardState || null);
         setPlayerCharacters(characterData.characters || []);
         setSceneLoading(false);
+        setNotesBoardLoading(false);
       } catch (error) {
         if (!cancelled) {
           toast.error(error.message || 'Unable to load campaign workspace.');
@@ -426,7 +456,7 @@ export default function CampaignWorkspacePage() {
     return () => {
       cancelled = true;
     };
-  }, [canUseCampaigns, id, loadScene, navigate, toast]);
+  }, [canUseCampaigns, id, loadNotesBoard, loadScene, navigate, toast]);
 
   useEffect(() => {
     if (!canUseCampaigns || !id || campaign?.pendingOnly) return undefined;
@@ -439,6 +469,18 @@ export default function CampaignWorkspacePage() {
       window.clearInterval(intervalId);
     };
   }, [campaign?.pendingOnly, canUseCampaigns, id, loadScene]);
+
+  useEffect(() => {
+    if (!canUseCampaigns || !id || campaign?.pendingOnly) return undefined;
+
+    const intervalId = window.setInterval(() => {
+      loadNotesBoard({ silent: true }).catch(() => {});
+    }, 3000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [campaign?.pendingOnly, canUseCampaigns, id, loadNotesBoard]);
 
   useEffect(() => {
     const attachedCharacters = campaign?.attachedCharacters || [];
@@ -481,17 +523,6 @@ export default function CampaignWorkspacePage() {
   }, [selectedCharacter]);
 
   useEffect(() => {
-    setSessionDraft({
-      title: campaign?.sessionState?.title || '',
-      summary: campaign?.sessionState?.summary || '',
-      notes: campaign?.sessionState?.notes || '',
-      objectives: campaign?.sessionState?.objectives || [],
-      recentLoot: campaign?.sessionState?.recentLoot || [],
-      currentLocationId: campaign?.sessionState?.currentLocationId || null,
-    });
-  }, [campaign?.sessionState]);
-
-  useEffect(() => {
     const pois = campaignScene?.scene?.pois || [];
     if (pois.length === 0) {
       setSelectedScenePoiId(null);
@@ -521,7 +552,7 @@ export default function CampaignWorkspacePage() {
   }, [campaign?.inventory?.items, selectedCharacter]);
 
   const canManage = Boolean(campaign?.canManage);
-  const canEditNotes = Boolean(campaign?.canEditSession);
+  const canEditBoard = Boolean(campaign?.canEditSession);
   const revealedPoiIds = campaignScene?.revealedPoiIds || [];
   const revealedPoiSet = useMemo(() => new Set(revealedPoiIds.map((poiId) => String(poiId))), [revealedPoiIds]);
   const scenePois = campaignScene?.scene?.pois || [];
@@ -533,6 +564,22 @@ export default function CampaignWorkspacePage() {
     if (!canManage) return [];
     return scenePois.filter((poi) => !revealedPoiSet.has(String(poi.id))).map((poi) => poi.id);
   }, [canManage, revealedPoiSet, scenePois]);
+
+  const noteAuthors = useMemo(() => {
+    const authors = {};
+    if (campaign?.ownerId) {
+      authors[String(campaign.ownerId)] = campaign.ownerName || 'DM';
+    }
+    (campaign?.members || []).forEach((member) => {
+      if (member?.userId) {
+        authors[String(member.userId)] = member.name || member.username || member.email || 'Player';
+      }
+    });
+    if (user?.id) {
+      authors[String(user.id)] = user.name || user.username || user.email || 'You';
+    }
+    return authors;
+  }, [campaign?.members, campaign?.ownerId, campaign?.ownerName, user]);
 
   const refreshWorkspace = useCallback(async () => {
     try {
@@ -666,26 +713,24 @@ export default function CampaignWorkspacePage() {
     }
   };
 
-  const handleSaveSession = async () => {
-    if (!canEditNotes) return;
-    setSavingSession(true);
-    try {
-      await apiJson(`/api/campaigns/${campaign.id}/session`, {
+  const handlePersistNotesBoard = useCallback(
+    async (nextBoardState) => {
+      if (!campaign?.id || !canEditBoard) return nextBoardState;
+      const response = await apiJson(`/api/campaigns/${campaign.id}/notes-board`, {
         method: 'PATCH',
         body: JSON.stringify({
-          ...sessionDraft,
-          objectives: sessionDraft.objectives || [],
-          recentLoot: sessionDraft.recentLoot || [],
+          notes: nextBoardState?.notes || [],
+          strokes: nextBoardState?.strokes || [],
+          connectors: nextBoardState?.connectors || [],
         }),
       });
-      toast.success('Shared notes saved.');
-      await refreshWorkspace();
-    } catch (error) {
-      toast.error(error.message || 'Unable to save shared notes.');
-    } finally {
-      setSavingSession(false);
-    }
-  };
+      const nextBoard = response.notesBoardState || nextBoardState;
+      setNotesBoard(nextBoard);
+      setCampaign((prev) => (prev ? { ...prev, notesBoardState: nextBoard } : prev));
+      return nextBoard;
+    },
+    [campaign?.id, canEditBoard]
+  );
 
   const handleCreateItem = async (item, ownerType, ownerId = null) => {
     try {
@@ -1096,62 +1141,15 @@ export default function CampaignWorkspacePage() {
             )}
           </section>
 
-          <section className="cpt-panel cpt-notes-panel">
-            <div className="cpt-section-head">
-              <div>
-                <p className="cpt-card-eyebrow">Shared Notes</p>
-                <h3>Campaign Notes</h3>
-              </div>
-              {canEditNotes && (
-                <button type="button" className="cp-btn cp-btn--primary cp-btn--sm" onClick={handleSaveSession} disabled={savingSession}>
-                  {savingSession ? 'Saving...' : 'Save Notes'}
-                </button>
-              )}
-            </div>
-            <div className="cpt-form-grid">
-              <label>
-                <span>Session Title</span>
-                <input
-                  value={sessionDraft.title || ''}
-                  onChange={(event) => setSessionDraft((prev) => ({ ...prev, title: event.target.value }))}
-                  disabled={!canEditNotes}
-                />
-              </label>
-              <label>
-                <span>Summary</span>
-                <input
-                  value={sessionDraft.summary || ''}
-                  onChange={(event) => setSessionDraft((prev) => ({ ...prev, summary: event.target.value }))}
-                  disabled={!canEditNotes}
-                />
-              </label>
-            </div>
-            <div className="cpt-form-grid">
-              <label>
-                <span>Objectives</span>
-                <textarea
-                  rows={5}
-                  value={(sessionDraft.objectives || []).join('\n')}
-                  onChange={(event) =>
-                    setSessionDraft((prev) => ({
-                      ...prev,
-                      objectives: event.target.value.split('\n').map((entry) => entry.trim()).filter(Boolean),
-                    }))
-                  }
-                  disabled={!canEditNotes}
-                />
-              </label>
-              <label>
-                <span>Shared Notes</span>
-                <textarea
-                  rows={5}
-                  value={sessionDraft.notes || ''}
-                  onChange={(event) => setSessionDraft((prev) => ({ ...prev, notes: event.target.value }))}
-                  disabled={!canEditNotes}
-                />
-              </label>
-            </div>
-          </section>
+          <CampaignNotesBoard
+            boardState={notesBoard}
+            canEdit={canEditBoard}
+            canManage={canManage}
+            currentUser={user}
+            authorNames={noteAuthors}
+            loading={notesBoardLoading}
+            onPersist={handlePersistNotesBoard}
+          />
 
           <div className="cpt-main-grid">
             <section className="cpt-panel">

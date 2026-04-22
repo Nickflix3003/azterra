@@ -151,6 +151,135 @@ function normalizeTableState(state = {}) {
   };
 }
 
+function normalizeBoardPoint(point = {}) {
+  return {
+    x: normalizeNumber(point.x, 0) || 0,
+    y: normalizeNumber(point.y, 0) || 0,
+  };
+}
+
+function normalizeNotesBoardNote(note = {}) {
+  const now = nowIso();
+  return {
+    id: normalizeString(note.id) || randomUUID(),
+    text: normalizeString(note.text),
+    x: normalizeNumber(note.x, 120) || 120,
+    y: normalizeNumber(note.y, 120) || 120,
+    width: Math.max(180, normalizeNumber(note.width, 260) || 260),
+    height: Math.max(140, normalizeNumber(note.height, 220) || 220),
+    color: normalizeString(note.color, '#f2d67f') || '#f2d67f',
+    createdBy: normalizeString(note.createdBy) || null,
+    updatedBy: normalizeString(note.updatedBy) || null,
+    createdAt: note.createdAt || now,
+    updatedAt: note.updatedAt || now,
+  };
+}
+
+function normalizeNotesBoardStroke(stroke = {}) {
+  const now = nowIso();
+  return {
+    id: normalizeString(stroke.id) || randomUUID(),
+    points: normalizeArray(stroke.points).map(normalizeBoardPoint).filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y)),
+    color: normalizeString(stroke.color, '#cfaa68') || '#cfaa68',
+    width: Math.max(2, normalizeNumber(stroke.width, 4) || 4),
+    createdBy: normalizeString(stroke.createdBy) || null,
+    createdAt: stroke.createdAt || now,
+    updatedAt: stroke.updatedAt || now,
+  };
+}
+
+function normalizeNotesBoardConnector(connector = {}) {
+  const now = nowIso();
+  return {
+    id: normalizeString(connector.id) || randomUUID(),
+    fromNoteId: normalizeString(connector.fromNoteId) || null,
+    toNoteId: normalizeString(connector.toNoteId) || null,
+    label: normalizeString(connector.label),
+    color: normalizeString(connector.color, '#e7c98e') || '#e7c98e',
+    createdBy: normalizeString(connector.createdBy) || null,
+    createdAt: connector.createdAt || now,
+    updatedAt: connector.updatedAt || now,
+  };
+}
+
+function normalizeNotesBoardState(state = {}) {
+  return {
+    initialized: Boolean(state.initialized),
+    notes: normalizeArray(state.notes).map(normalizeNotesBoardNote),
+    strokes: normalizeArray(state.strokes)
+      .map(normalizeNotesBoardStroke)
+      .filter((stroke) => stroke.points.length > 1),
+    connectors: normalizeArray(state.connectors)
+      .map(normalizeNotesBoardConnector)
+      .filter((connector) => connector.fromNoteId && connector.toNoteId),
+    version: Math.max(1, normalizeNumber(state.version, 1) || 1),
+    updatedAt: state.updatedAt || null,
+    updatedBy: normalizeString(state.updatedBy) || null,
+  };
+}
+
+function createStarterSticky({ text, x, y, color, createdBy }) {
+  const now = nowIso();
+  return {
+    id: randomUUID(),
+    text,
+    x,
+    y,
+    width: 270,
+    height: 210,
+    color,
+    createdBy,
+    updatedBy: createdBy,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function buildStarterNotesFromSession(sessionState = {}, createdBy = null) {
+  const objectivesText = normalizeArray(sessionState.objectives)
+    .map((entry) => normalizeString(entry))
+    .filter(Boolean)
+    .map((entry) => `- ${entry}`)
+    .join('\n');
+
+  const candidates = [
+    sessionState.title
+      ? {
+          text: `Session Title\n${normalizeString(sessionState.title)}`,
+          x: 112,
+          y: 104,
+          color: '#f4cf73',
+        }
+      : null,
+    sessionState.summary
+      ? {
+          text: `Summary\n${normalizeString(sessionState.summary)}`,
+          x: 438,
+          y: 120,
+          color: '#d4e0a0',
+        }
+      : null,
+    objectivesText
+      ? {
+          text: `Objectives\n${objectivesText}`,
+          x: 784,
+          y: 144,
+          color: '#a9d6d3',
+        }
+      : null,
+    sessionState.notes
+      ? {
+          text: `Shared Notes\n${normalizeString(sessionState.notes)}`,
+          x: 260,
+          y: 388,
+          color: '#efbf98',
+        }
+      : null,
+  ].filter(Boolean);
+
+  return candidates.map((entry) => createStarterSticky({ ...entry, createdBy }));
+}
+
 function normalizeSceneRevealState(state = {}) {
   if (!state || typeof state !== 'object' || Array.isArray(state)) return {};
   return Object.fromEntries(
@@ -213,6 +342,7 @@ function normalizeWorkspace(workspace = {}, campaignId = '') {
     sceneRevealState: normalizeSceneRevealState(workspace.sceneRevealState || workspace.sessionState?.sceneRevealState),
     tableState: normalizeTableState(workspace.tableState),
     boardState: normalizeBoardState(workspace.boardState),
+    notesBoardState: normalizeNotesBoardState(workspace.notesBoardState),
     sessionState: normalizeSessionState(workspace.sessionState),
     createdAt: workspace.createdAt || now,
     updatedAt: workspace.updatedAt || now,
@@ -323,6 +453,29 @@ export function ensureCampaignWorkspace(index, campaignId) {
   const workspace = normalizeWorkspace({ campaignId }, campaignId);
   index.campaigns[String(campaignId)] = workspace;
   return workspace;
+}
+
+export function ensureNotesBoardState(workspace, updatedBy = 'system') {
+  const board = normalizeNotesBoardState(workspace?.notesBoardState || {});
+  if (board.initialized) {
+    workspace.notesBoardState = board;
+    return { notesBoardState: board, changed: false };
+  }
+
+  const nextUpdatedAt = nowIso();
+  const hasBoardContent = board.notes.length > 0 || board.strokes.length > 0 || board.connectors.length > 0;
+  const nextBoard = {
+    ...board,
+    initialized: true,
+    notes: hasBoardContent ? board.notes : buildStarterNotesFromSession(workspace?.sessionState || {}, null),
+    version: Math.max(1, board.version || 1),
+    updatedAt: board.updatedAt || nextUpdatedAt,
+    updatedBy: board.updatedBy || null,
+  };
+
+  workspace.notesBoardState = nextBoard;
+  workspace.updatedAt = nextBoard.updatedAt || nextUpdatedAt;
+  return { notesBoardState: nextBoard, changed: true };
 }
 
 export async function readPlayerCharacters() {

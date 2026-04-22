@@ -7,6 +7,7 @@ import { authRequired, profileToUser, readUsers, sanitizeUser } from './utils.js
 import { db, throwIfError } from './db.js';
 import {
   ensureCampaignWorkspace,
+  ensureNotesBoardState,
   readCampaignWorkspaceIndex,
   readPlayerCharacters,
   writeCampaignWorkspaceIndex,
@@ -319,6 +320,7 @@ function buildCampaignTableState(workspace, attachedCharacters = []) {
 }
 
 function buildCampaignPayload(campaignRow, workspace, viewer, usersById, playerCharacters, boardCatalog) {
+  const { notesBoardState } = ensureNotesBoardState(workspace, String(viewer?.id || 'system'));
   const attachedCharacters = buildAttachedCharacters(workspace, playerCharacters, usersById);
   const inventoryItems = sortInventoryItems(workspace.inventory?.items || []);
   const membership = getMembership(workspace, viewer?.id);
@@ -380,6 +382,7 @@ function buildCampaignPayload(campaignRow, workspace, viewer, usersById, playerC
         canManage: canManageInventoryItem(viewer, campaignRow, workspace, item, attachedCharacters),
       })),
     },
+    notesBoardState,
     tableState: buildCampaignTableState(workspace, attachedCharacters),
     boardState: canManage ? workspace.boardState : null,
     sessionState: workspace.sessionState,
@@ -504,6 +507,75 @@ router.get('/:id/table', authRequired, async (req, res) => {
   } catch (error) {
     console.error(error);
     return res.status(500).json({ error: 'Unable to load campaign tabletop.' });
+  }
+});
+
+router.get('/:id/notes-board', authRequired, async (req, res) => {
+  try {
+    const [campaignRow, workspaceIndex] = await Promise.all([
+      readCampaignRow(req.params.id),
+      readCampaignWorkspaceIndex(),
+    ]);
+    if (!campaignRow) {
+      return res.status(404).json({ error: 'Campaign not found.' });
+    }
+
+    const workspace = ensureCampaignWorkspace(workspaceIndex, campaignRow.id);
+    if (!canViewCampaignWorkspace(req.user, campaignRow, workspace)) {
+      return res.status(403).json({ error: 'You do not have access to this campaign notes board.' });
+    }
+
+    const { notesBoardState, changed } = ensureNotesBoardState(workspace, String(req.user.id));
+    if (changed) {
+      await writeCampaignWorkspaceIndex(workspaceIndex);
+    }
+
+    return res.json({
+      notesBoardState,
+      canEdit: canViewCampaignWorkspace(req.user, campaignRow, workspace),
+      canManage: isCampaignManager(req.user, campaignRow, workspace),
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to load campaign notes board.' });
+  }
+});
+
+router.patch('/:id/notes-board', authRequired, async (req, res) => {
+  try {
+    const [campaignRow, workspaceIndex] = await Promise.all([
+      readCampaignRow(req.params.id),
+      readCampaignWorkspaceIndex(),
+    ]);
+    if (!campaignRow) {
+      return res.status(404).json({ error: 'Campaign not found.' });
+    }
+
+    const workspace = ensureCampaignWorkspace(workspaceIndex, campaignRow.id);
+    if (!canViewCampaignWorkspace(req.user, campaignRow, workspace)) {
+      return res.status(403).json({ error: 'Only approved campaign members can edit the notes board.' });
+    }
+
+    const { notesBoardState: existing } = ensureNotesBoardState(workspace, String(req.user.id));
+    workspace.notesBoardState = {
+      ...existing,
+      ...(Array.isArray(req.body?.notes) ? { notes: req.body.notes } : {}),
+      ...(Array.isArray(req.body?.strokes) ? { strokes: req.body.strokes } : {}),
+      ...(Array.isArray(req.body?.connectors) ? { connectors: req.body.connectors } : {}),
+      initialized: true,
+      version: Math.max(1, Number(existing.version || 1) + 1),
+      updatedAt: nowIso(),
+      updatedBy: String(req.user.id),
+    };
+    workspace.updatedAt = workspace.notesBoardState.updatedAt;
+    await writeCampaignWorkspaceIndex(workspaceIndex);
+    await touchCampaign(campaignRow.id);
+
+    const { notesBoardState } = ensureNotesBoardState(workspace, String(req.user.id));
+    return res.json({ notesBoardState });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Unable to update campaign notes board.' });
   }
 });
 
