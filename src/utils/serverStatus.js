@@ -1,37 +1,111 @@
 /**
- * serverStatus — lightweight event bus for tracking Render cold-start warm-up state.
+ * serverStatus - lightweight event bus for backend availability state.
  *
- * When one or more API requests are retrying after a 503, `isWarming` is true.
- * React components subscribe via useServerWarming() (see hooks/useServerWarming.js).
+ * The app mostly cares about three states:
+ * - idle: backend is responding normally
+ * - warming: Render returned 503 and retry logic is waiting for the backend
+ * - offline: retries were exhausted or a hard network failure occurred
  */
 
 const listeners = new Set();
-let warmingCount = 0;
+
+let state = {
+  phase: 'idle',
+  warmingCount: 0,
+  startedAt: null,
+  lastError: '',
+  lastUpdatedAt: Date.now(),
+};
 
 function notify() {
-  const warming = warmingCount > 0;
-  listeners.forEach((fn) => fn(warming));
+  const snapshot = { ...state };
+  listeners.forEach((fn) => fn(snapshot));
 }
 
-/** Called by fetchWithRetry when a request starts its retry loop. */
+function setState(patch) {
+  state = {
+    ...state,
+    ...patch,
+    lastUpdatedAt: Date.now(),
+  };
+  notify();
+}
+
 export function markRetryStart() {
-  warmingCount++;
-  if (warmingCount === 1) notify();
+  const nextCount = state.warmingCount + 1;
+  setState({
+    phase: 'warming',
+    warmingCount: nextCount,
+    startedAt: state.phase === 'warming' && state.startedAt ? state.startedAt : Date.now(),
+    lastError: '',
+  });
 }
 
-/** Called by fetchWithRetry when a request finishes (success or final failure). */
-export function markRetryEnd() {
-  warmingCount = Math.max(0, warmingCount - 1);
-  if (warmingCount === 0) notify();
+export function markRetryEnd({ outcome = 'success', message = '' } = {}) {
+  const nextCount = Math.max(0, state.warmingCount - 1);
+  if (nextCount > 0) {
+    setState({
+      warmingCount: nextCount,
+      phase: 'warming',
+      lastError: outcome === 'failed' ? message || state.lastError : '',
+    });
+    return;
+  }
+
+  if (outcome === 'failed') {
+    setState({
+      phase: 'offline',
+      warmingCount: 0,
+      startedAt: null,
+      lastError: message || 'The backend is still unavailable.',
+    });
+    return;
+  }
+
+  setState({
+    phase: 'idle',
+    warmingCount: 0,
+    startedAt: null,
+    lastError: '',
+  });
 }
 
-/** Returns whether at least one request is currently retrying. */
+export function markServerFailure(message = 'Could not reach the backend.') {
+  setState({
+    phase: 'offline',
+    warmingCount: 0,
+    startedAt: null,
+    lastError: message,
+  });
+}
+
+export function markServerRecovered() {
+  if (state.phase === 'idle' && state.warmingCount === 0 && !state.lastError) {
+    return;
+  }
+  setState({
+    phase: 'idle',
+    warmingCount: 0,
+    startedAt: null,
+    lastError: '',
+  });
+}
+
+export function getServerStatus() {
+  return { ...state };
+}
+
 export function getIsWarming() {
-  return warmingCount > 0;
+  return state.phase === 'warming';
 }
 
-/** Subscribe to warming-state changes. Returns an unsubscribe function. */
-export function subscribeWarming(fn) {
+export function subscribeServerStatus(fn) {
   listeners.add(fn);
   return () => listeners.delete(fn);
+}
+
+export function subscribeWarming(fn) {
+  const listener = (snapshot) => fn(snapshot.phase === 'warming');
+  listeners.add(listener);
+  return () => listeners.delete(listener);
 }

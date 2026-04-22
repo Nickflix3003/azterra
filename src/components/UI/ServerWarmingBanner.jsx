@@ -1,89 +1,191 @@
-/**
- * ServerWarmingBanner — shown when the Render backend is cold-starting.
- *
- * Subscribes to serverStatus warming events and slides in from the bottom
- * of the screen when a 503-retry is in progress. Automatically disappears
- * once the server responds successfully.
- */
+import { useEffect, useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom';
+import { API_BASE_URL } from '../../utils/apiBase';
+import { fetchWithRetry } from '../../utils/fetchWithRetry';
+import { getServerStatus, subscribeServerStatus } from '../../utils/serverStatus';
+import './ServerWarmingBanner.css';
 
-import { useEffect, useState } from 'react';
-import { subscribeWarming, getIsWarming } from '../../utils/serverStatus';
+const OVERLAY_ROUTE_MATCHERS = [
+  (pathname) => pathname === '/',
+  (pathname) => pathname.startsWith('/campaign'),
+  (pathname) => pathname.startsWith('/atlas'),
+  (pathname) => pathname.startsWith('/secrets'),
+  (pathname) => pathname.startsWith('/people'),
+  (pathname) => pathname.startsWith('/magic'),
+  (pathname) => pathname.startsWith('/compendium'),
+];
+
+function getRouteCopy(pathname) {
+  if (pathname.startsWith('/campaign')) {
+    return {
+      eyebrow: 'Campaign',
+      title: 'Opening the campaign ledger',
+    };
+  }
+  if (pathname.startsWith('/secrets')) {
+    return {
+      eyebrow: 'Secrets',
+      title: 'Unlocking the archive',
+    };
+  }
+  if (pathname.startsWith('/atlas') || pathname === '/') {
+    return {
+      eyebrow: 'Map',
+      title: 'Loading the atlas',
+    };
+  }
+  if (pathname.startsWith('/magic')) {
+    return {
+      eyebrow: 'Magic',
+      title: 'Stirring the ley lines',
+    };
+  }
+  return {
+    eyebrow: 'Azterra',
+    title: 'Waking the world',
+  };
+}
+
+function formatElapsed(startedAt, nowMs) {
+  if (!startedAt) return null;
+  const seconds = Math.max(1, Math.round((nowMs - startedAt) / 1000));
+  return `${seconds}s`;
+}
 
 export default function ServerWarmingBanner() {
-  const [warming, setWarming] = useState(getIsWarming());
-  const [dots, setDots] = useState('');
+  const location = useLocation();
+  const [status, setStatus] = useState(getServerStatus());
+  const [nowMs, setNowMs] = useState(Date.now());
+  const [manualWake, setManualWake] = useState(false);
 
   useEffect(() => {
-    const unsub = subscribeWarming(setWarming);
-    return unsub;
+    const unsubscribe = subscribeServerStatus(setStatus);
+    return unsubscribe;
   }, []);
 
-  // Animated ellipsis while warming
   useEffect(() => {
-    if (!warming) return;
-    const id = setInterval(() => {
-      setDots((d) => (d.length >= 3 ? '' : d + '.'));
-    }, 500);
-    return () => clearInterval(id);
-  }, [warming]);
+    if (status.phase !== 'warming') return undefined;
+    const timer = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [status.phase]);
 
-  if (!warming) return null;
+  const routeCopy = useMemo(
+    () => getRouteCopy(location.pathname || '/'),
+    [location.pathname]
+  );
+
+  const showNotice = status.phase !== 'idle';
+  const elapsedLabel = formatElapsed(status.startedAt, nowMs);
+  const shouldUseOverlay =
+    showNotice &&
+    OVERLAY_ROUTE_MATCHERS.some((matcher) => matcher(location.pathname || '/')) &&
+    ((status.phase === 'warming' && status.startedAt && nowMs - status.startedAt >= 4500) ||
+      status.phase === 'offline');
+
+  const bodyText =
+    status.phase === 'warming'
+      ? 'Render put the backend to sleep. Give it about 30-50 seconds and this page will fill in automatically.'
+      : status.lastError || 'The backend is still unavailable. Try waking it again in a moment.';
+
+  const secondaryText =
+    status.phase === 'warming'
+      ? 'No refresh needed. Azterra will reconnect on its own.'
+      : 'If the server was sleeping, waking it again usually fixes it.';
+
+  async function handleWakeServer() {
+    setManualWake(true);
+    try {
+      await fetchWithRetry(`${API_BASE_URL}/auth/me`, {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+    } catch {
+      // The status bus will surface the current backend state.
+    } finally {
+      window.setTimeout(() => setManualWake(false), 350);
+    }
+  }
+
+  if (!showNotice) return null;
+
+  const actionLabel =
+    status.phase === 'warming' || manualWake ? 'Starting...' : 'Wake Server';
 
   return (
-    <div
-      role="status"
-      aria-live="polite"
-      style={{
-        position: 'fixed',
-        bottom: '1.5rem',
-        left: '50%',
-        transform: 'translateX(-50%)',
-        zIndex: 9999,
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.75rem',
-        padding: '0.65rem 1.25rem',
-        borderRadius: '9999px',
-        background: 'rgba(15, 15, 20, 0.92)',
-        backdropFilter: 'blur(8px)',
-        border: '1px solid rgba(255,255,255,0.12)',
-        boxShadow: '0 4px 24px rgba(0,0,0,0.45)',
-        color: '#e2d9c8',
-        fontSize: '0.875rem',
-        fontFamily: 'inherit',
-        whiteSpace: 'nowrap',
-        animation: 'azterra-banner-in 0.3s ease',
-      }}
-    >
-      {/* Pulsing orb */}
-      <span
-        style={{
-          display: 'inline-block',
-          width: '0.55rem',
-          height: '0.55rem',
-          borderRadius: '50%',
-          background: '#f4a442',
-          animation: 'azterra-pulse 1.2s ease-in-out infinite',
-          flexShrink: 0,
-        }}
-      />
-      <span>
-        Server waking up{dots}&nbsp;
-        <span style={{ opacity: 0.6, fontSize: '0.8rem' }}>
-          (free tier cold start — ~30–50s)
-        </span>
-      </span>
+    <>
+      {shouldUseOverlay && (
+        <div className="server-status-overlay" role="presentation">
+          <section
+            className="server-status-card server-status-card--overlay"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="server-status-card__halo" />
+            <div className="server-status-card__orb" aria-hidden="true" />
+            <div className="server-status-card__copy">
+              <p className="server-status-card__eyebrow">{routeCopy.eyebrow}</p>
+              <h2 className="server-status-card__title">{routeCopy.title}</h2>
+              <p className="server-status-card__body">{bodyText}</p>
+              <p className="server-status-card__sub">{secondaryText}</p>
+              <div className="server-status-card__meta">
+                <span className="server-status-chip">
+                  {status.phase === 'warming' ? 'Backend waking up' : 'Backend unavailable'}
+                </span>
+                {elapsedLabel && <span className="server-status-chip">About {elapsedLabel} so far</span>}
+              </div>
+            </div>
+            <div className="server-status-card__actions">
+              <button
+                type="button"
+                className="server-status-button"
+                onClick={handleWakeServer}
+                disabled={status.phase === 'warming' || manualWake}
+              >
+                {actionLabel}
+              </button>
+            </div>
+            <div className="server-status-progress" aria-hidden="true">
+              <span />
+            </div>
+          </section>
+        </div>
+      )}
 
-      <style>{`
-        @keyframes azterra-banner-in {
-          from { opacity: 0; transform: translateX(-50%) translateY(0.75rem); }
-          to   { opacity: 1; transform: translateX(-50%) translateY(0); }
-        }
-        @keyframes azterra-pulse {
-          0%, 100% { opacity: 1; transform: scale(1); }
-          50%       { opacity: 0.4; transform: scale(0.75); }
-        }
-      `}</style>
-    </div>
+      {!shouldUseOverlay && (
+        <section
+          className="server-status-card server-status-card--compact"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="server-status-card__orb" aria-hidden="true" />
+          <div className="server-status-card__copy">
+            <p className="server-status-card__eyebrow">Azterra</p>
+            <p className="server-status-card__compact-title">
+              {status.phase === 'warming'
+                ? 'Azterra is waking the world server'
+                : 'The backend is still unavailable'}
+            </p>
+            <p className="server-status-card__compact-body">
+              {status.phase === 'warming'
+                ? 'Wait about 30-50 seconds. No refresh needed.'
+                : 'Try waking it again or wait a moment.'}
+            </p>
+          </div>
+          <div className="server-status-card__side">
+            {elapsedLabel && <span className="server-status-card__elapsed">{elapsedLabel}</span>}
+            <button
+              type="button"
+              className="server-status-button server-status-button--compact"
+              onClick={handleWakeServer}
+              disabled={status.phase === 'warming' || manualWake}
+            >
+              {actionLabel}
+            </button>
+          </div>
+        </section>
+      )}
+    </>
   );
 }

@@ -15,7 +15,12 @@
  *   const response = await fetchWithRetry(url, options);  // same API as fetch()
  */
 
-import { markRetryStart, markRetryEnd } from './serverStatus';
+import {
+  markRetryEnd,
+  markRetryStart,
+  markServerFailure,
+  markServerRecovered,
+} from './serverStatus.js';
 
 const MAX_RETRIES = 4;
 // Cumulative wait: 8 + 12 + 15 + 20 = 55 seconds
@@ -34,24 +39,28 @@ export async function fetchWithRetry(url, options = {}) {
       try {
         response = await fetch(url, options);
       } catch (networkErr) {
-        // Hard network failure (offline, DNS, etc.) — don't retry, fail fast
         if (retrying) {
-          markRetryEnd();
+          markRetryEnd({
+            outcome: 'failed',
+            message: 'Could not reach the world server.',
+          });
           retrying = false;
+        } else {
+          markServerFailure('Could not reach the world server.');
         }
         throw networkErr;
       }
 
-      // Not a 503 — either success or a real error (401, 404, 500, etc.)
       if (response.status !== 503) {
         if (retrying) {
-          markRetryEnd();
+          markRetryEnd({ outcome: 'success' });
           retrying = false;
+        } else {
+          markServerRecovered();
         }
         return response;
       }
 
-      // 503 and we have retries left — enter warm-up mode
       if (attempt < MAX_RETRIES) {
         if (!retrying) {
           markRetryStart();
@@ -61,23 +70,27 @@ export async function fetchWithRetry(url, options = {}) {
         continue;
       }
 
-      // 503 and out of retries — give up, return the 503 to the caller
       if (retrying) {
-        markRetryEnd();
+        markRetryEnd({
+          outcome: 'failed',
+          message: 'The world server is still waking up. Please try again in a moment.',
+        });
         retrying = false;
       }
       return response;
     }
   } catch (err) {
     if (retrying) {
-      markRetryEnd();
+      markRetryEnd({
+        outcome: 'failed',
+        message: 'Could not reach the world server.',
+      });
       retrying = false;
     }
     throw err;
   }
 
-  // Should never reach here, but just in case
   if (retrying) {
-    markRetryEnd();
+    markRetryEnd({ outcome: 'success' });
   }
 }
