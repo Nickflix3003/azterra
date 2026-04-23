@@ -29,7 +29,21 @@ import { useRegions } from '../../context/RegionDataContext';
 import SecretScopeField from '../UI/SecretScopeField';
 import './LocationsAtlasPage.css';
 
-const API = '/api';
+const API_ROOT = '/api';
+
+function buildApiUrl(path = '') {
+  if (!path) return API_ROOT;
+  if (/^https?:\/\//i.test(path)) return path;
+  if (path.startsWith('/api/')) return path;
+  return `${API_ROOT}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
+function buildAssetUrl(path = '') {
+  if (!path) return '';
+  if (/^(https?:)?\/\//i.test(path) || path.startsWith('data:')) return path;
+  if (path.startsWith('/api/')) return path;
+  return `${API_ROOT}${path.startsWith('/') ? path : `/${path}`}`;
+}
 
 // --- Emblem catalogue ---
 const EMBLEMS = [
@@ -159,7 +173,7 @@ function BannerImageUploader({ currentUrl, onUploaded }) {
     try {
       const form = new FormData();
       form.append('image', file);
-      const res = await fetch(`${API}/api/regions/upload-image`, {
+      const res = await fetch(buildApiUrl('/regions/upload-image'), {
         method: 'POST',
         credentials: 'include',
         body: form,
@@ -180,7 +194,7 @@ function BannerImageUploader({ currentUrl, onUploaded }) {
       <p className="banner-uploader__label">Banner Image</p>
       {currentUrl && (
         <div className="banner-uploader__preview">
-          <img src={`${API}${currentUrl}`} alt="banner preview" />
+          <img src={buildAssetUrl(currentUrl)} alt="banner preview" />
           <button
             type="button"
             className="banner-uploader__remove"
@@ -226,7 +240,7 @@ function GalleryUploader({ locationId, onUploaded }) {
       for (const file of files) {
         const form = new FormData();
         form.append('image', file);
-        const res = await fetch(`${API}/api/locations/${locationId}/gallery`, {
+        const res = await fetch(buildApiUrl(`/locations/${locationId}/gallery`), {
           method: 'POST',
           credentials: 'include',
           body: form,
@@ -347,7 +361,7 @@ function LocationCard({
 
   const handleRemoveGalleryImage = async (idx) => {
     try {
-      const res = await fetch(`${API}/api/locations/${location.id}/gallery/${idx}`, {
+      const res = await fetch(buildApiUrl(`/locations/${location.id}/gallery/${idx}`), {
         method: 'DELETE',
         credentials: 'include',
       });
@@ -426,7 +440,7 @@ function LocationCard({
         >
           {/* Background image */}
           <div className="atlas-loc-card__hero-img">
-            <img src={`${API}${gallery[0]}`} alt={displayName} />
+            <img src={buildAssetUrl(gallery[0])} alt={displayName} />
           </div>
           {/* Gradient overlay + text */}
           <div className="atlas-loc-card__hero-overlay">
@@ -528,7 +542,7 @@ function LocationCard({
                         onClick={() => setLightbox(i)}
                         title="View full size"
                       >
-                        <img src={`${API}${url}`} alt={`${location.name} photo ${i + 1}`} />
+                        <img src={buildAssetUrl(url)} alt={`${location.name} photo ${i + 1}`} />
                       </button>
                     ))}
                   </div>
@@ -692,7 +706,7 @@ function LocationCard({
                 <div className="loc-gallery loc-gallery--editable">
                   {gallery.map((url, i) => (
                     <div key={url} className="loc-gallery__thumb loc-gallery__thumb--edit">
-                      <img src={`${API}${url}`} alt={`photo ${i + 1}`} />
+                      <img src={buildAssetUrl(url)} alt={`photo ${i + 1}`} />
                       <button
                         type="button"
                         className="loc-gallery__remove"
@@ -749,7 +763,7 @@ function LocationCard({
               >&#x2039;</button>
             )}
             <img
-              src={`${API}${gallery[lightbox]}`}
+              src={buildAssetUrl(gallery[lightbox])}
               alt={`${location.name} photo ${lightbox + 1}`}
               className="loc-lightbox__img"
             />
@@ -856,7 +870,7 @@ function RegionBanner({
         onClick={onToggle}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
         style={displayImg ? {
-          backgroundImage: `url(${API}${displayImg})`,
+          backgroundImage: `url(${buildAssetUrl(displayImg)})`,
           backgroundSize: 'cover',
           backgroundPosition: 'center',
         } : undefined}
@@ -1274,7 +1288,7 @@ export default function LocationsAtlasPage() {
 
   // Fetch NPCs once on mount
   useEffect(() => {
-    fetch(`${API}/api/entities/npcs`, { credentials: 'include' })
+    fetch(buildApiUrl('/entities/npcs'), { credentials: 'include' })
       .then((r) => r.ok ? r.json() : [])
       .then((data) => {
         const list = Array.isArray(data) ? data : (data.items || data.entities || data.npcs || []);
