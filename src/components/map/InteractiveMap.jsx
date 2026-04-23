@@ -315,6 +315,7 @@ function InteractiveMap({
   const [showMapLabels, setShowMapLabels] = useState(true);
   const [isPlacingLabel, setIsPlacingLabel] = useState(false);
   const [isEditorPanelOpen, setIsEditorPanelOpen] = useState(true);
+  const [cachedMapCenter, setCachedMapCenter] = useState(center);
 
   // Drag-and-drop state
   // Use a ref (not state) for the active marker ID so that setting it during
@@ -1369,6 +1370,29 @@ function InteractiveMap({
   }, [mapInstance]);
 
   useEffect(() => {
+    if (!mapInstance) return undefined;
+
+    const syncCenter = () => {
+      try {
+        if (!mapInstance._loaded || !mapInstance._panes) return;
+        const nextCenter = mapInstance.getCenter();
+        if (!nextCenter) return;
+        setCachedMapCenter({ lat: nextCenter.lat, lng: nextCenter.lng });
+      } catch {
+        // Leaflet can briefly be between pane states while remounting editor/view mode.
+      }
+    };
+
+    syncCenter();
+    mapInstance.on('moveend', syncCenter);
+    mapInstance.on('zoomend', syncCenter);
+    return () => {
+      mapInstance.off('moveend', syncCenter);
+      mapInstance.off('zoomend', syncCenter);
+    };
+  }, [mapInstance]);
+
+  useEffect(() => {
     // Guard: mapInstance must exist AND Leaflet's internal pane DOM must be ready.
     // The _panes object is only populated after the map has fully initialised its
     // container — calling invalidateSize() before that throws "_leaflet_pos" errors.
@@ -1619,7 +1643,7 @@ function InteractiveMap({
     <MovingUnitsPanel
       canAutoSave={canAutoSave}
       currentYear={currentYear}
-      defaultCoordinates={mapInstance?.getCenter?.() || center}
+      defaultCoordinates={cachedMapCenter}
     />
   ) : null;
 
