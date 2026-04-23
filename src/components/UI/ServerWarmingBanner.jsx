@@ -5,6 +5,8 @@ import { fetchWithRetry } from '../../utils/fetchWithRetry';
 import { getServerStatus, subscribeServerStatus } from '../../utils/serverStatus';
 import './ServerWarmingBanner.css';
 
+const ESTIMATED_WARMUP_MS = 30000;
+
 const OVERLAY_ROUTE_MATCHERS = [
   (pathname) => pathname === '/',
   (pathname) => pathname.startsWith('/campaign'),
@@ -64,6 +66,19 @@ function formatElapsed(startedAt, nowMs) {
   return `${seconds}s`;
 }
 
+function getWarmupProgress(startedAt, nowMs) {
+  if (!startedAt) return 0.08;
+  const elapsed = Math.max(0, nowMs - startedAt);
+  if (elapsed >= ESTIMATED_WARMUP_MS) {
+    return 0.96;
+  }
+  return Math.max(0.08, Math.min(0.94, elapsed / ESTIMATED_WARMUP_MS));
+}
+
+function formatEstimateLabel() {
+  return `Usually about ${Math.round(ESTIMATED_WARMUP_MS / 1000)}s`;
+}
+
 export default function ServerWarmingBanner() {
   const location = useLocation();
   const [status, setStatus] = useState(getServerStatus());
@@ -90,6 +105,8 @@ export default function ServerWarmingBanner() {
 
   const showNotice = status.phase !== 'idle';
   const elapsedLabel = formatElapsed(status.startedAt, nowMs);
+  const progressRatio = status.phase === 'warming' ? getWarmupProgress(status.startedAt, nowMs) : 1;
+  const progressLabel = `${Math.round(progressRatio * 100)}%`;
   const isAuthRoute = AUTH_ROUTE_MATCHERS.some((matcher) => matcher(location.pathname || '/'));
   const shouldUseOverlay =
     showNotice &&
@@ -141,7 +158,30 @@ export default function ServerWarmingBanner() {
             aria-live="polite"
           >
             <div className="server-status-card__halo" />
-            <div className="server-status-card__orb" aria-hidden="true" />
+            <div className="server-status-scene" aria-hidden="true">
+              <div className="server-status-card__orb" />
+              <div className="server-status-scene__sigil">
+                <span className="server-status-scene__ring server-status-scene__ring--outer" />
+                <span className="server-status-scene__ring server-status-scene__ring--middle" />
+                <span className="server-status-scene__ring server-status-scene__ring--inner" />
+                <span className="server-status-scene__core" />
+                <span className="server-status-scene__beam server-status-scene__beam--one" />
+                <span className="server-status-scene__beam server-status-scene__beam--two" />
+                <span className="server-status-scene__beam server-status-scene__beam--three" />
+              </div>
+              <div className="server-status-scene__motes">
+                {Array.from({ length: 7 }).map((_, index) => (
+                  <span
+                    key={index}
+                    className="server-status-scene__mote"
+                    style={{
+                      '--mote-delay': `${index * 0.5}s`,
+                      '--mote-angle': `${index * 51}deg`,
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
             <div className="server-status-card__copy">
               <p className="server-status-card__eyebrow">{routeCopy.eyebrow}</p>
               <h2 className="server-status-card__title">{routeCopy.title}</h2>
@@ -151,6 +191,7 @@ export default function ServerWarmingBanner() {
                 <span className="server-status-chip">
                   {status.phase === 'warming' ? 'Backend waking up' : 'Backend unavailable'}
                 </span>
+                {status.phase === 'warming' && <span className="server-status-chip">{formatEstimateLabel()}</span>}
                 {elapsedLabel && <span className="server-status-chip">About {elapsedLabel} so far</span>}
               </div>
             </div>
@@ -164,8 +205,14 @@ export default function ServerWarmingBanner() {
                 {actionLabel}
               </button>
             </div>
-            <div className="server-status-progress" aria-hidden="true">
-              <span />
+            <div className="server-status-progress-wrap">
+              <div className="server-status-progress-copy">
+                <span>{status.phase === 'warming' ? 'Warming the world server' : 'Awaiting backend'}</span>
+                {status.phase === 'warming' ? <span>{progressLabel}</span> : null}
+              </div>
+              <div className="server-status-progress" aria-hidden="true">
+                <span style={{ '--server-progress': progressRatio }} />
+              </div>
             </div>
           </section>
         </div>
