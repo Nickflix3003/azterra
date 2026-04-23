@@ -6,11 +6,13 @@ const MapEffectsContext = createContext({
   fogEnabled: false,
   vignetteEnabled: true,
   heatmapMode: 'none',
+  troopEffectsEnabled: false,
   intensities: { clouds: 0.5, fog: 0.3, vignette: 0.45 },
   setCloudsEnabled: () => {},
   setFogEnabled: () => {},
   setVignetteEnabled: () => {},
   setHeatmapMode: () => {},
+  setTroopEffectsEnabled: () => {},
   setIntensity: () => {},
 });
 
@@ -19,6 +21,7 @@ export function MapEffectsProvider({ children }) {
   const [fogEnabled, setFogEnabled] = useState(false);
   const [vignetteEnabled, setVignetteEnabled] = useState(true);
   const [heatmapMode, setHeatmapMode] = useState('none');
+  const [troopEffectsEnabled, setTroopEffectsEnabled] = useState(false);
   const [intensities, setIntensities] = useState({ clouds: 0.5, fog: 0.3, vignette: 0.45 });
 
   const setIntensity = (key, value) => {
@@ -31,14 +34,16 @@ export function MapEffectsProvider({ children }) {
       fogEnabled,
       vignetteEnabled,
       heatmapMode,
+      troopEffectsEnabled,
       intensities,
       setCloudsEnabled,
       setFogEnabled,
       setVignetteEnabled,
       setHeatmapMode,
+      setTroopEffectsEnabled,
       setIntensity,
     }),
-    [cloudsEnabled, fogEnabled, vignetteEnabled, heatmapMode, intensities]
+    [cloudsEnabled, fogEnabled, vignetteEnabled, heatmapMode, troopEffectsEnabled, intensities]
   );
 
   return <MapEffectsContext.Provider value={value}>{children}</MapEffectsContext.Provider>;

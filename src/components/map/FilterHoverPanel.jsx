@@ -54,10 +54,12 @@ function FilterHoverPanel({
     fogEnabled,
     vignetteEnabled,
     heatmapMode,
+    troopEffectsEnabled,
     setCloudsEnabled,
     setFogEnabled,
     setVignetteEnabled,
     setHeatmapMode,
+    setTroopEffectsEnabled,
   } = useMapEffects();
 
   const heatmapEnabled = heatmapMode !== 'none';
@@ -109,6 +111,11 @@ function FilterHoverPanel({
             onChange={(value) => setVignetteEnabled(value)}
           />
           <FilterToggle label="Heatmap" checked={heatmapEnabled} onChange={handleHeatmapToggle} />
+          <FilterToggle
+            label="Troops (High Cost)"
+            checked={troopEffectsEnabled}
+            onChange={(value) => setTroopEffectsEnabled(value)}
+          />
         </FilterSection>
       </div>
     </div>

@@ -236,7 +236,7 @@ function InteractiveMap({
   const PANEL_CLOSE_DURATION_MS = 220;
   const { role, user } = useAuth();
   const { toast } = useToast();
-  const { cloudsEnabled, fogEnabled, vignetteEnabled, heatmapMode, intensities, setIntensity } =
+  const { cloudsEnabled, fogEnabled, vignetteEnabled, heatmapMode, troopEffectsEnabled, intensities, setIntensity } =
     useMapEffects();
   const {
     locations,
@@ -342,7 +342,6 @@ function InteractiveMap({
   const [isViewPanelClosing, setIsViewPanelClosing] = useState(false);
   const [isEditorLocationClosing, setIsEditorLocationClosing] = useState(false);
   const [animatedMovingUnitPositions, setAnimatedMovingUnitPositions] = useState({});
-  const [formationPhase, setFormationPhase] = useState(0);
 
   const isAdmin = role === 'admin';
   const center  = MAP_CENTER;
@@ -442,13 +441,18 @@ function InteractiveMap({
   const visibleMovingUnits = useMemo(() => {
     if (!useTemporalPositions) return [];
     return movingUnits
+      .filter((unit) => (
+        isEditorMode ||
+        unit.kind !== 'troop' ||
+        troopEffectsEnabled
+      ))
       .filter((unit) => isEditorMode || isMovingUnitVisibleAtYear(unit, currentYear))
       .map((unit) => ({
         ...unit,
         targetLeader: resolveMovingUnitLeaderPosition(unit, currentYear, locationById),
       }))
       .filter((unit) => unit.targetLeader);
-  }, [currentYear, isEditorMode, locationById, movingUnits, useTemporalPositions]);
+  }, [currentYear, isEditorMode, locationById, movingUnits, troopEffectsEnabled, useTemporalPositions]);
 
   useEffect(() => {
     if (!visibleMovingUnits.length) {
@@ -505,14 +509,6 @@ function InteractiveMap({
     };
   }, [currentYear, useTemporalPositions, visibleMovingUnits]);
 
-  useEffect(() => {
-    if (!visibleMovingUnits.length) return undefined;
-    const intervalId = window.setInterval(() => {
-      setFormationPhase((prev) => prev + 0.16);
-    }, 120);
-    return () => window.clearInterval(intervalId);
-  }, [visibleMovingUnits.length]);
-
   const displayedMovingUnits = useMemo(() => {
     if (!visibleMovingUnits.length) return [];
     let remainingFollowers = 40;
@@ -555,7 +551,6 @@ function InteractiveMap({
 
       const followers = buildPlatoonOffsets(unit, allowedFollowers, {
         heading: animatedHeading,
-        phase: formationPhase + remainingUnits * 0.24,
       }).map((offset, index) => ({
         id: `${unit.id}-follower-${index + 1}`,
         lat: leader.lat + offset.lat,
@@ -572,7 +567,7 @@ function InteractiveMap({
         followers,
       };
     });
-  }, [animatedMovingUnitPositions, currentYear, formationPhase, locationById, visibleMovingUnits]);
+  }, [animatedMovingUnitPositions, currentYear, locationById, visibleMovingUnits]);
 
   const regionLabelsEnabled = filteredRegions.some((region) => region.labelEnabled !== false);
 
@@ -1789,6 +1784,7 @@ function InteractiveMap({
                 zoomLevel={mapZoom}
                 selectedUnitId={selectedMovingUnitId}
                 isEditorMode={isEditorMode}
+                troopEffectsEnabled={troopEffectsEnabled}
                 onSelectUnit={isEditorMode ? handleMovingUnitSelect : undefined}
                 onDragUnitEnd={isEditorMode ? handleMovingUnitPlacement : undefined}
               />
