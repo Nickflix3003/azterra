@@ -29,6 +29,17 @@ const DEFAULT_ADMIN_EMAIL = process.env.DEFAULT_ADMIN_EMAIL || 'admin@azterra.co
 const DEFAULT_ADMIN_PASSWORD = process.env.DEFAULT_ADMIN_PASSWORD || 'admin12345';
 const DEFAULT_ADMIN_NAME = process.env.DEFAULT_ADMIN_NAME || 'Azterra Admin';
 export const ALLOWED_ROLES = ['pending', 'player', 'editor', 'admin'];
+export const IMMUTABLE_ADMIN_EMAIL = DEFAULT_ADMIN_EMAIL.toLowerCase();
+
+export function isImmutableAdminEmail(email) {
+  return String(email || '').trim().toLowerCase() === IMMUTABLE_ADMIN_EMAIL;
+}
+
+export function normalizeEffectiveRole(role, email) {
+  if (isImmutableAdminEmail(email)) return 'admin';
+  if (role === 'admin') return 'editor';
+  return ALLOWED_ROLES.includes(role) ? role : 'pending';
+}
 
 // ── JWT helpers ───────────────────────────────────────────────────────────────
 
@@ -54,7 +65,7 @@ export function profileToUser(profile) {
     email: profile.email,
     name: profile.name || '',
     username: profile.username || '',
-    role: profile.role || 'guest',
+    role: normalizeEffectiveRole(profile.role || 'guest', profile.email),
     avatarUrl: profile.avatar_url || '',
     profilePicture: profile.profile_picture || '',
     bio: profile.bio || '',
@@ -144,6 +155,7 @@ export { applyFriendState };
 export function sanitizeUser(user) {
   if (!user) return null;
   const u = applyFriendState(user);
+  u.role = normalizeEffectiveRole(u.role, u.email);
   delete u.passwordHash;
   return u;
 }
@@ -173,25 +185,37 @@ export async function addUser(userData) {
 
 export async function ensureDefaultAdmin() {
   const users = await readUsers();
-  const hasAdmin = users.some(function(u) { return u.role === 'admin'; });
-  if (hasAdmin) return;
-
-  const passwordHash = await hashPassword(DEFAULT_ADMIN_PASSWORD);
-  const adminUser = applyFriendState({
-    id: 1,
-    email: DEFAULT_ADMIN_EMAIL.toLowerCase(),
-    passwordHash: passwordHash,
-    name: DEFAULT_ADMIN_NAME,
-    username: 'admin',
-    favorites: [],
-    featuredCharacter: null,
-    profilePicture: '',
-    profile: { bio: '', labelOne: '', labelTwo: '', documents: [], viewFavorites: [] },
-    unlockedSecrets: [],
-    role: 'admin',
-    createdAt: new Date().toISOString(),
+  const nextUsers = users.map((user) => {
+    if (isImmutableAdminEmail(user.email)) {
+      return applyFriendState({ ...user, role: 'admin' });
+    }
+    if (user.role === 'admin') {
+      return applyFriendState({ ...user, role: 'editor' });
+    }
+    return applyFriendState(user);
   });
-  await writeUsers([adminUser, ...users]);
+
+  if (!nextUsers.some((user) => isImmutableAdminEmail(user.email))) {
+    const passwordHash = await hashPassword(DEFAULT_ADMIN_PASSWORD);
+    nextUsers.unshift(applyFriendState({
+      id: 1,
+      email: IMMUTABLE_ADMIN_EMAIL,
+      passwordHash,
+      name: DEFAULT_ADMIN_NAME,
+      username: 'admin',
+      favorites: [],
+      featuredCharacter: null,
+      profilePicture: '',
+      profile: { bio: '', labelOne: '', labelTwo: '', documents: [], viewFavorites: [] },
+      unlockedSecrets: [],
+      role: 'admin',
+      createdAt: new Date().toISOString(),
+    }));
+  }
+
+  if (JSON.stringify(users) !== JSON.stringify(nextUsers)) {
+    await writeUsers(nextUsers);
+  }
 }
 
 export { COOKIE_NAME };

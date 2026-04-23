@@ -47,7 +47,7 @@
       "viewFavorites": []
     },
     "unlockedSecrets": [],
-    "role": "admin",
+    "role": "editor",
     "provider": "supabase",
     "supabaseId": "2dad5b5a-61e0-4564-aacc-69ebf577238f",
     "createdAt": "2026-04-17T01:59:06.915Z",

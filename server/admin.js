@@ -4,6 +4,8 @@ import {
   adminRequired,
   authRequired,
   hashPassword,
+  IMMUTABLE_ADMIN_EMAIL,
+  isImmutableAdminEmail,
   readUsers,
   sanitizeUser,
   updateUsers,
@@ -55,6 +57,20 @@ router.post('/updateRole', async (req, res) => {
 
   try {
     if (isUUID(userId)) {
+      const { data: existing, error: fetchError } = await db()
+        .from('profiles')
+        .select('*')
+        .eq('id', String(userId))
+        .single();
+      if (fetchError?.code === 'PGRST116') return res.status(404).json({ error: 'User not found.' });
+      throwIfError(fetchError, 'updateRole fetch');
+      const targetEmail = existing.email || '';
+      if (isImmutableAdminEmail(targetEmail) && newRole !== 'admin') {
+        return res.status(400).json({ error: 'The local admin account cannot be demoted.' });
+      }
+      if (!isImmutableAdminEmail(targetEmail) && newRole === 'admin') {
+        return res.status(400).json({ error: `Only ${IMMUTABLE_ADMIN_EMAIL} can be an admin.` });
+      }
       const { data, error } = await db()
         .from('profiles')
         .update({ role: newRole })
@@ -73,6 +89,12 @@ router.post('/updateRole', async (req, res) => {
     await updateUsers((users) => {
       const index = users.findIndex((u) => u.id === parsedId);
       if (index === -1) throw new Error('not_found');
+      if (isImmutableAdminEmail(users[index].email) && newRole !== 'admin') {
+        throw new Error('immutable_admin');
+      }
+      if (!isImmutableAdminEmail(users[index].email) && newRole === 'admin') {
+        throw new Error('admin_forbidden');
+      }
       const next = [...users];
       updatedUser = { ...users[index], role: newRole };
       next[index] = updatedUser;
@@ -81,6 +103,8 @@ router.post('/updateRole', async (req, res) => {
     return res.json({ user: sanitizeUser(updatedUser) });
   } catch (err) {
     if (err.message === 'not_found') return res.status(404).json({ error: 'User not found.' });
+    if (err.message === 'immutable_admin') return res.status(400).json({ error: 'The local admin account cannot be demoted.' });
+    if (err.message === 'admin_forbidden') return res.status(400).json({ error: `Only ${IMMUTABLE_ADMIN_EMAIL} can be an admin.` });
     console.error(err);
     return res.status(500).json({ error: 'Unable to update role.' });
   }
@@ -95,6 +119,12 @@ router.delete('/users/:id', async (req, res) => {
 
   try {
     if (isUUID(id)) {
+      const { data: existing, error: fetchError } = await db().from('profiles').select('email').eq('id', id).single();
+      if (fetchError?.code === 'PGRST116') return res.status(404).json({ error: 'User not found.' });
+      throwIfError(fetchError, 'admin delete user fetch');
+      if (isImmutableAdminEmail(existing?.email)) {
+        return res.status(400).json({ error: 'The local admin account cannot be deleted.' });
+      }
       const { error } = await db().from('profiles').delete().eq('id', id);
       throwIfError(error, 'admin delete user');
       return res.json({ success: true });
@@ -106,6 +136,9 @@ router.delete('/users/:id', async (req, res) => {
     await updateUsers((users) => {
       const index = users.findIndex((u) => u.id === parsedId);
       if (index === -1) return users;
+      if (isImmutableAdminEmail(users[index].email)) {
+        throw new Error('immutable_admin');
+      }
       const next = [...users];
       next.splice(index, 1);
       deleted = true;
@@ -114,6 +147,7 @@ router.delete('/users/:id', async (req, res) => {
     if (!deleted) return res.status(404).json({ error: 'User not found.' });
     return res.json({ success: true });
   } catch (err) {
+    if (err.message === 'immutable_admin') return res.status(400).json({ error: 'The local admin account cannot be deleted.' });
     console.error(err);
     return res.status(500).json({ error: 'Unable to delete user.' });
   }
@@ -197,6 +231,9 @@ router.post('/users/create', async (req, res) => {
   const { email, name, username, password, role = 'pending' } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required.' });
   if (!ALLOWED_ROLES.includes(role)) return res.status(400).json({ error: `Invalid role.` });
+  if (role === 'admin' && !isImmutableAdminEmail(email)) {
+    return res.status(400).json({ error: `Only ${IMMUTABLE_ADMIN_EMAIL} can be an admin.` });
+  }
   if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' });
 
   const users = await readUsers();

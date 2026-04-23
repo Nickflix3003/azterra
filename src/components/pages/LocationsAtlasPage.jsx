@@ -1238,7 +1238,7 @@ export default function LocationsAtlasPage() {
     flushPendingLocationSaves,
     getLocationSaveState,
   } = useLocationData();
-  const { regions = [], setRegions }   = useRegions();
+  const { regions = [], updateRegion } = useRegions();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const canEdit = ['player', 'editor', 'admin'].includes(role);
@@ -1315,21 +1315,8 @@ export default function LocationsAtlasPage() {
   }, [regionNameMap]);
 
   const handleSaveRegion = useCallback(async (id, updates) => {
-    const res = await fetch(`${API}/api/regions/${id}`, {
-      method: 'PATCH',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updates),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Save failed');
-    }
-    const { region: saved } = await res.json();
-    setRegions((prev) =>
-      prev.map((r) => String(r.id) === String(id) ? { ...r, ...saved } : r)
-    );
-  }, [setRegions]);
+    await updateRegion(id, updates, { mode: 'immediate', successMode: 'none' });
+  }, [updateRegion]);
 
   const handleLocationChange = useCallback((id, updates, options = {}) => {
     updateLocation(id, updates, options);

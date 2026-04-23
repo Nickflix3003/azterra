@@ -94,7 +94,6 @@ import { isVisibleInYear, toOptionalYear } from '../../utils/eraUtils';
 // ─── Region constants ─────────────────────────────────────────────────────────
 import {
   DEFAULT_REGION_CATEGORY,
-  normalizeRegionEntry,
 } from '../../constants/regionConstants';
 
 // ─── Content diagnostics ──────────────────────────────────────────────────────
@@ -239,6 +238,10 @@ function InteractiveMap({
     setRegions,
     selectedRegionId: activeRegionId,
     selectRegion,
+    updateRegion,
+    createRegion,
+    deleteRegion: deleteRegionEntry,
+    flushPendingRegionSaves,
   } = useRegions();
   const {
     labels,
@@ -302,11 +305,6 @@ function InteractiveMap({
   // which can sometimes be 0 or stale on certain browsers.
   const lastMousePosRef = useRef({ x: 0, y: 0 });
 
-  const saveTimeoutRef          = useRef(null);
-  const lastSavedSnapshotRef    = useRef('[]');
-  const skipNextAutoSaveRef     = useRef(false);
-  const regionSaveTimeoutRef    = useRef(null);
-  const lastRegionSnapshotRef   = useRef('[]');
   const mapContainerRef         = useRef(null);
   const iconCheckQueueRef       = useRef(new Set());
 
@@ -319,11 +317,20 @@ function InteractiveMap({
   const center  = MAP_CENTER;
   const zoom    = INTERACTIVE_MIN_ZOOM_LEVEL;
 
-  const serializedLocations = lastSavedSnapshotRef.current;
-  const serializedRegions   = useMemo(() => JSON.stringify(regions), [regions]);
   const canAutoSave         = ['player', 'editor', 'admin'].includes(role);
   const hoveredLocationId = hoveredEntity?.type === 'location' ? hoveredEntity.id : null;
   const hoveredRegionId = hoveredEntity?.type === 'region' ? hoveredEntity.id : null;
+  const buildEditorDraft = useCallback((location) => ({
+    name: location?.name || '',
+    type: location?.type || '',
+    lore: location?.lore || '',
+    description: location?.description || '',
+    secretId: location?.secretId ?? null,
+    pinned: location?.pinned ?? false,
+    timeStart: location?.timeStart,
+    timeEnd: location?.timeEnd,
+    regionId: location?.regionId ?? null,
+  }), []);
 
   const filteredLocations = useMemo(
     () =>
@@ -515,17 +522,7 @@ function InteractiveMap({
     if (isEditorMode) {
       setEditorSelection({
         id:    location.id,
-        draft: {
-          name:        location.name        || '',
-          type:        location.type        || '',
-          lore:        location.lore        || '',
-          description: location.description || '',
-          secretId:    location.secretId    ?? null,
-          pinned:      location.pinned      ?? false,
-          timeStart:   location.timeStart,
-          timeEnd:     location.timeEnd,
-          regionId:    location.regionId    ?? null,
-        },
+        draft: buildEditorDraft(location),
       });
     }
     // In view mode, selectLocation() triggers the SidePanel to open on the right.
@@ -637,23 +634,15 @@ function InteractiveMap({
     mapInstance.fitBounds(L.latLngBounds(latLngs).pad(0.2));
   };
 
-  const updateRegionField = (regionId, field, value) => {
-    setRegions((prev) =>
-      prev.map((region) =>
-        region.id === regionId
-          ? {
-              ...region,
-              [field]:
-                field === 'opacity'
-                  ? Math.min(Math.max(Number(value) || 0, 0), 1)
-                  : field === 'labelEnabled'
-                    ? Boolean(value)
-                    : value,
-            }
-          : region
-      )
-    );
-  };
+  const updateRegionField = useCallback((regionId, field, value, options = {}) => {
+    const normalizedValue =
+      field === 'opacity'
+        ? Math.min(Math.max(Number(value) || 0, 0), 1)
+        : field === 'labelEnabled'
+          ? Boolean(value)
+          : value;
+    return updateRegion(regionId, { [field]: normalizedValue }, options);
+  }, [updateRegion]);
 
   const handleRegionPointAdd = (latlng) => {
     setRegionDraftPoints((prev) => [...prev, [latlng.lng, latlng.lat]]);
@@ -663,18 +652,19 @@ function InteractiveMap({
     setRegionDraftPoints((prevPoints) => {
       if (prevPoints.length < 3) return prevPoints;
       if (regionDraftTargetId) {
-        setRegions((existing) =>
-          existing.map((region) => {
-            if (region.id !== regionDraftTargetId) return region;
-            const polygons  = getRegionPolygons(region);
-            const [first, ...rest] = polygons;
-            return {
-              ...region,
+        const targetRegion = regions.find((region) => region.id === regionDraftTargetId);
+        if (targetRegion) {
+          const polygons = getRegionPolygons(targetRegion);
+          const [first, ...rest] = polygons;
+          updateRegion(
+            regionDraftTargetId,
+            {
               points: first || prevPoints,
-              parts:  first ? [...rest, prevPoints] : [...rest],
-            };
-          })
-        );
+              parts: first ? [...rest, prevPoints] : [...rest],
+            },
+            { mode: 'immediate', successMode: 'none' }
+          ).catch(() => null);
+        }
         return [];
       }
       const regionId = crypto.randomUUID ? crypto.randomUUID() : `region-${Date.now()}`;
@@ -689,7 +679,7 @@ function InteractiveMap({
         points:       prevPoints.map(([x, y]) => [x, y]),
         parts:        [],
       };
-      setRegions((existing) => [...existing, newRegion]);
+      createRegion(newRegion, { mode: 'immediate', successMode: 'none' }).catch(() => null);
       selectRegion(regionId);
       return [];
     });
@@ -737,7 +727,8 @@ function InteractiveMap({
 
   const handleRegionFieldChange = (field, value, regionId = activeRegionId) => {
     if (!regionId) return;
-    updateRegionField(regionId, field, value);
+    const mode = field === 'labelEnabled' ? 'immediate' : 'debounced';
+    updateRegionField(regionId, field, value, { mode, successMode: 'none' }).catch(() => null);
   };
 
   const handleDeleteRegion = (targetId = activeRegionId) => {
@@ -746,8 +737,11 @@ function InteractiveMap({
     setPendingConfirm({
       title:   'Delete Region',
       message: `Delete "${target?.name || 'this region'}"? All polygon data will be lost.`,
-      onConfirm: () => {
-        setRegions((prev) => prev.filter((region) => region.id !== targetId));
+      onConfirm: async () => {
+        await deleteRegionEntry(targetId, {
+          mode: 'immediate',
+          successMode: 'none',
+        }).catch(() => null);
         if (activeRegionId === targetId) selectRegion(null);
         setPendingConfirm(null);
       },
@@ -768,19 +762,21 @@ function InteractiveMap({
 
   const handleMergeRegions = (targetId, sourceId) => {
     if (!targetId || !sourceId || targetId === sourceId) return;
-    setRegions((prev) => {
-      const target = prev.find((r) => r.id === targetId);
-      const source = prev.find((r) => r.id === sourceId);
-      if (!target || !source) return prev;
-      const mergedPolygons = [...getRegionPolygons(target), ...getRegionPolygons(source)];
-      if (!mergedPolygons.length) return prev.filter((r) => r.id !== sourceId);
-      const [first, ...rest] = mergedPolygons;
-      return prev
-        .filter((region) => region.id !== sourceId)
-        .map((region) =>
-          region.id === targetId ? { ...region, points: first, parts: rest } : region
-        );
-    });
+    const target = regions.find((region) => region.id === targetId);
+    const source = regions.find((region) => region.id === sourceId);
+    if (!target || !source) return;
+    const mergedPolygons = [...getRegionPolygons(target), ...getRegionPolygons(source)];
+    const nextRegions = !mergedPolygons.length
+      ? regions.filter((region) => region.id !== sourceId)
+      : regions
+          .filter((region) => region.id !== sourceId)
+          .map((region) =>
+            region.id === targetId
+              ? { ...region, points: mergedPolygons[0], parts: mergedPolygons.slice(1) }
+              : region
+          );
+    setRegions(nextRegions);
+    flushPendingRegionSaves({ successMode: 'none' }).catch(() => null);
     selectRegion(targetId);
     setRegionDraftTargetId(null);
     setRegionDraftPoints([]);
@@ -893,19 +889,9 @@ function InteractiveMap({
     selectLocation(location.id);
     setEditorSelection({
       id: location.id,
-      draft: {
-        name: location.name || '',
-        type: location.type || '',
-        lore: location.lore || '',
-        description: location.description || '',
-        secretId: location.secretId ?? null,
-        pinned: location.pinned ?? false,
-        timeStart: location.timeStart,
-        timeEnd: location.timeEnd,
-        regionId: location.regionId ?? null,
-      },
+      draft: buildEditorDraft(location),
     });
-  }, [selectLocation]);
+  }, [buildEditorDraft, selectLocation]);
 
   const handlePlaceMarker = async (latlng) => {
     const placementConfig = getPlacementConfig({
@@ -1046,76 +1032,6 @@ function InteractiveMap({
     }
   };
 
-  // ── Server save handlers ─────────────────────────────────────────────────────
-
-  const handleServerSave = useCallback(
-    async (nextLocations) => {
-      if (!user) {
-        setSaveWarning('Please sign in again to save changes.');
-        toast.warn('Please sign in again to save changes.');
-        return;
-      }
-      try {
-        const response = await fetch(`${API_BASE_URL}/locations/save`, {
-          method:      'POST',
-          headers:     { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body:        JSON.stringify({ locations: nextLocations }),
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Failed to save locations.');
-        skipNextAutoSaveRef.current  = true;
-        const normalized             = normalizeLocations(data.locations);
-        setLocations(normalized);
-        lastSavedSnapshotRef.current = JSON.stringify(normalized);
-        setSaveWarning('');
-        toast.success(`Map saved — ${normalized.length} locations.`);
-      } catch (error) {
-        console.error('Unable to save locations', error);
-        const msg = error.message || 'Unable to save locations right now.';
-        setSaveWarning(msg);
-        toast.error(msg);
-      }
-    },
-    [user, toast]
-  );
-
-  const handleRegionSave = useCallback(
-    async (nextRegions) => {
-      if (!user) return;
-      try {
-        const response = await fetch(`${API_BASE_URL}/regions/save`, {
-          method:      'POST',
-          headers:     { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body:        JSON.stringify({ regions: nextRegions }),
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Failed to save regions.');
-        const normalized = Array.isArray(data.regions)
-          ? data.regions.map(normalizeRegionEntry)
-          : [];
-        setRegions(normalized);
-        lastRegionSnapshotRef.current = JSON.stringify(normalized);
-      } catch (error) {
-        console.error('Unable to save regions', error);
-        toast.error(error.message || 'Unable to save regions right now.');
-      }
-    },
-    [user, setRegions, toast]
-  );
-
-  const flushRegionSave = useCallback(() => {
-    if (regionSaveTimeoutRef.current) {
-      clearTimeout(regionSaveTimeoutRef.current);
-      regionSaveTimeoutRef.current = null;
-    }
-    if (!canAutoSave || !user || serializedRegions === lastRegionSnapshotRef.current) {
-      return Promise.resolve();
-    }
-    return handleRegionSave(regions);
-  }, [canAutoSave, handleRegionSave, regions, serializedRegions, user]);
-
   // ── Editor mode side-effects ─────────────────────────────────────────────────
 
   useEffect(() => {
@@ -1133,9 +1049,9 @@ function InteractiveMap({
       selectRegion(null);
       setSaveWarning('');
       flushPendingLabelSaves().catch(() => null);
-      flushRegionSave().catch(() => null);
+      flushPendingRegionSaves({ successMode: 'none' }).catch(() => null);
     }
-  }, [editorSelection?.id, flushPendingLabelSaves, flushPendingLocationSaves, flushRegionSave, isEditorMode, selectLocation, selectRegion]);
+  }, [editorSelection?.id, flushPendingLabelSaves, flushPendingLocationSaves, flushPendingRegionSaves, isEditorMode, selectLocation, selectRegion]);
 
   useEffect(() => {
     if (!isEditorMode) return;
@@ -1158,89 +1074,14 @@ function InteractiveMap({
 
   // ── Auto-save: locations ─────────────────────────────────────────────────────
 
-  useEffect(() => {
-    if (!isEditorMode) {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-        saveTimeoutRef.current = null;
-      }
-      lastSavedSnapshotRef.current = serializedLocations;
-      setSaveWarning('');
-      return;
-    }
-
-    if (!canAutoSave) {
-      if (serializedLocations !== lastSavedSnapshotRef.current) {
-        setSaveWarning('Only approved editors can save changes to the shared map.');
-        lastSavedSnapshotRef.current = serializedLocations;
-      }
-      return;
-    }
-
-    if (!user) {
-      setSaveWarning('Please sign in again to save changes.');
-      return;
-    }
-
-    setSaveWarning('');
-
-    if (skipNextAutoSaveRef.current) {
-      skipNextAutoSaveRef.current  = false;
-      lastSavedSnapshotRef.current = serializedLocations;
-      return;
-    }
-
-    if (serializedLocations === lastSavedSnapshotRef.current) return;
-
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(() => {
-      saveTimeoutRef.current = null;
-      handleServerSave(locations);
-    }, 400);
-
-    return () => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-        saveTimeoutRef.current = null;
-      }
-    };
-  }, [serializedLocations, isEditorMode, canAutoSave, handleServerSave, locations, user]);
-
   // ── Auto-save: regions ───────────────────────────────────────────────────────
-
-  useEffect(() => {
-    if (!canAutoSave || !user) return;
-    if (!isEditorMode) {
-      if (regionSaveTimeoutRef.current) {
-        clearTimeout(regionSaveTimeoutRef.current);
-        regionSaveTimeoutRef.current = null;
-      }
-      lastRegionSnapshotRef.current = serializedRegions;
-      return;
-    }
-    if (serializedRegions === lastRegionSnapshotRef.current) return;
-
-    if (regionSaveTimeoutRef.current) clearTimeout(regionSaveTimeoutRef.current);
-    regionSaveTimeoutRef.current = setTimeout(() => {
-      regionSaveTimeoutRef.current = null;
-      handleRegionSave(regions);
-    }, 500);
-
-    return () => {
-      if (regionSaveTimeoutRef.current) {
-        clearTimeout(regionSaveTimeoutRef.current);
-        regionSaveTimeoutRef.current = null;
-      }
-    };
-  }, [serializedRegions, canAutoSave, handleRegionSave, isEditorMode, regions, user]);
 
   // Cleanup timeouts on unmount
   useEffect(() => () => {
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     flushPendingLocationSaves(undefined, { successMode: 'none' }).catch(() => null);
     flushPendingLabelSaves().catch(() => null);
-    flushRegionSave().catch(() => null);
-  }, [flushPendingLabelSaves, flushPendingLocationSaves, flushRegionSave]);
+    flushPendingRegionSaves({ successMode: 'none' }).catch(() => null);
+  }, [flushPendingLabelSaves, flushPendingLocationSaves, flushPendingRegionSaves]);
 
   // ── Map interaction side-effects ─────────────────────────────────────────────
 
@@ -1373,6 +1214,21 @@ function InteractiveMap({
     [locations, selectedRegion]
   );
 
+  useEffect(() => {
+    if (!isEditorMode || !editorSelection?.id || !selectedLocation) return;
+    if (String(editorSelection.id) !== String(selectedLocation.id)) return;
+    const nextDraft = buildEditorDraft(selectedLocation);
+    const currentDraft = editorSelection.draft || {};
+    const fields = ['name', 'type', 'lore', 'description', 'secretId', 'pinned', 'timeStart', 'timeEnd', 'regionId'];
+    const changed = fields.some((field) => currentDraft[field] !== nextDraft[field]);
+    if (!changed) return;
+    setEditorSelection((prev) => (
+      prev && String(prev.id) === String(selectedLocation.id)
+        ? { ...prev, draft: nextDraft }
+        : prev
+    ));
+  }, [buildEditorDraft, editorSelection, isEditorMode, selectedLocation]);
+
   const handleEditorFieldChange = useCallback((field, value) => {
     if (!editorSelection) return;
 
@@ -1396,67 +1252,6 @@ function InteractiveMap({
       setSaveWarning(error.message || 'Unable to save location.');
     });
   }, [canAutoSave, editorSelection, updateLocation]);
-
-  const legacyHandleEditorSave = () => {
-    if (!editorSelection) return;
-
-    // Build the updated locations array immediately so we can both update
-    // state and pass the same object directly to handleServerSave — no
-    // debounce, no race condition.
-    const updated = locations.map((location) =>
-      location.id === editorSelection.id
-        ? normalizeLocationEntry({ ...location, ...editorSelection.draft })
-        : location
-    );
-
-    // Cancel any pending debounce save so it doesn't double-fire.
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-      saveTimeoutRef.current = null;
-    }
-
-    // Pre-set the snapshot so the auto-save effect sees no diff and skips.
-    lastSavedSnapshotRef.current = JSON.stringify(updated);
-
-    setLocations(updated);
-    setEditorSelection(null);
-
-    if (canAutoSave) {
-      // Save directly — don't rely on the debounce.
-      handleServerSave(updated);
-    } else {
-      setSaveWarning('Only approved editors can save changes to the shared map.');
-    }
-  };
-
-  const legacyHandleEditorCancel = () => setEditorSelection(null);
-
-  const legacyHandleDeleteLocation = () => {
-    if (!editorSelection) return;
-    if (!canAutoSave) {
-      setSaveWarning('Only approved editors can save changes to the shared map.');
-      return;
-    }
-    const target = locations.find((loc) => loc.id === editorSelection.id);
-    setPendingConfirm({
-      title:   'Delete Location',
-      message: `Delete "${target?.name || 'this location'}" from the map? This cannot be undone.`,
-      onConfirm: () => {
-        const targetId = editorSelection.id;
-        const updated = locations.filter((location) => location.id !== targetId);
-        if (saveTimeoutRef.current) {
-          clearTimeout(saveTimeoutRef.current);
-          saveTimeoutRef.current = null;
-        }
-        lastSavedSnapshotRef.current = JSON.stringify(updated);
-        setLocations(updated);
-        setEditorSelection(null);
-        if (selectedLocationId === targetId) selectLocation(null);
-        setPendingConfirm(null);
-        handleServerSave(updated);
-      },
-    });
-  };
 
   // ── Rendered slot components ─────────────────────────────────────────────────
 
