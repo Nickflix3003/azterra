@@ -2,6 +2,19 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Marker, Tooltip } from 'react-leaflet';
 import L from 'leaflet';
 
+const DEFAULT_BOID_CONFIG = Object.freeze({
+  separationWeight: 1.4,
+  alignmentWeight: 0.72,
+  cohesionWeight: 0.38,
+  anchorPullWeight: 0.82,
+  arrivalWeight: 0.66,
+  maxSpeed: 0.055,
+  maxForce: 0.018,
+  neighborRadius: 0.74,
+  separationRadius: 0.24,
+  idleOrbitRadius: 0.48,
+});
+
 function getKindLabel(kind) {
   switch (kind) {
     case 'fleet':
@@ -56,63 +69,94 @@ function limitVector(x, y, maxMagnitude) {
   return { x: x * scale, y: y * scale };
 }
 
-function buildInitialTroopState(unit) {
-  return (unit.followers || []).map((follower, index) => ({
-    id: follower.id || `${unit.id}-follower-${index + 1}`,
-    lat: follower.lat,
-    lng: follower.lng,
-    heading: follower.heading ?? unit.heading ?? 0,
-    vx: 0,
-    vy: 0,
-  }));
+function hashIndex(seed, index) {
+  const source = `${seed}:${index}`;
+  let hash = 2166136261;
+  for (let cursor = 0; cursor < source.length; cursor += 1) {
+    hash ^= source.charCodeAt(cursor);
+    hash = Math.imul(hash, 16777619);
+  }
+  return Math.abs(hash >>> 0);
 }
 
-function flockTroopFollowers(unit, previousFollowers, deltaScale) {
-  const desiredFollowers = unit.followers || [];
-  if (!desiredFollowers.length) return [];
+function headingFromVelocity(vx, vy, fallback = 0) {
+  return Math.hypot(vx, vy) > 0.000001
+    ? (Math.atan2(vy, vx) * 180) / Math.PI + 90
+    : fallback;
+}
 
-  const maxSpeed = 0.048 * deltaScale;
-  const maxForce = 0.022 * deltaScale;
-  const separationDistance = 0.24;
-  const slotPull = 0.48 * deltaScale;
-  const leaderPull = 0.16 * deltaScale;
-  const cohesionPull = 0.085 * deltaScale;
-  const alignmentPull = 0.11 * deltaScale;
-  const separationPush = 0.44 * deltaScale;
+function buildInitialTroopBoids(unit) {
+  const renderCount = Math.max(0, Math.round(Number(unit.renderCount) || 0));
+  const config = { ...DEFAULT_BOID_CONFIG, ...(unit.boidConfig || {}) };
+  const orbitRadius = Math.max(0.18, config.idleOrbitRadius * 0.82);
 
-  return desiredFollowers.map((desired, index) => {
-    const current = previousFollowers[index] || {
-      id: desired.id,
-      lat: desired.lat,
-      lng: desired.lng,
-      heading: desired.heading ?? unit.heading ?? 0,
-      vx: 0,
-      vy: 0,
+  return Array.from({ length: renderCount }, (_, index) => {
+    const hash = hashIndex(unit.id, index);
+    const angle = ((index / Math.max(renderCount, 1)) * Math.PI * 2) + ((hash % 360) * Math.PI) / 180;
+    const radius = orbitRadius * (0.5 + ((hash % 100) / 100) * 0.55);
+    const tangentialSpeed = 0.006 + ((hash % 25) / 25) * 0.008;
+    const lat = unit.lat + Math.sin(angle) * radius;
+    const lng = unit.lng + Math.cos(angle) * radius;
+    const vx = -Math.sin(angle) * tangentialSpeed;
+    const vy = Math.cos(angle) * tangentialSpeed;
+
+    return {
+      id: `${unit.id}-boid-${index + 1}`,
+      lat,
+      lng,
+      vx,
+      vy,
+      heading: headingFromVelocity(vx, vy, unit.heading ?? 0),
+      orbitDirection: hash % 2 === 0 ? 1 : -1,
+      orbitSeed: (hash % 1000) / 1000,
     };
+  });
+}
 
-    let alignX = 0;
-    let alignY = 0;
-    let cohesionX = 0;
-    let cohesionY = 0;
+function simulateTroopBoids(unit, previousBoids, deltaScale, elapsedMs) {
+  const config = { ...DEFAULT_BOID_CONFIG, ...(unit.boidConfig || {}) };
+  const anchor = { lat: unit.lat, lng: unit.lng };
+  const routeTarget = {
+    lat: unit.routeTargetLat ?? unit.lat,
+    lng: unit.routeTargetLng ?? unit.lng,
+  };
+  const anchorMoving = Boolean(unit.anchorMoving);
+  const maxSpeed = Math.max(0.005, config.maxSpeed) * deltaScale;
+  const maxForce = Math.max(0.002, config.maxForce) * deltaScale;
+  const neighborRadius = Math.max(0.1, config.neighborRadius);
+  const separationRadius = Math.max(0.05, config.separationRadius);
+  const idleOrbitRadius = Math.max(0.14, config.idleOrbitRadius);
+  const anchorPullWeight = config.anchorPullWeight * deltaScale;
+  const separationWeight = config.separationWeight * deltaScale;
+  const alignmentWeight = config.alignmentWeight * deltaScale;
+  const cohesionWeight = config.cohesionWeight * deltaScale;
+  const arrivalWeight = config.arrivalWeight * deltaScale;
+  const orbitWave = Math.sin(elapsedMs / 1200);
+
+  return previousBoids.map((boid, index) => {
     let separationX = 0;
     let separationY = 0;
+    let alignmentX = 0;
+    let alignmentY = 0;
+    let cohesionX = 0;
+    let cohesionY = 0;
     let neighborCount = 0;
 
-    previousFollowers.forEach((neighbor, neighborIndex) => {
+    previousBoids.forEach((neighbor, neighborIndex) => {
       if (neighborIndex === index) return;
-      const dx = current.lng - neighbor.lng;
-      const dy = current.lat - neighbor.lat;
+      const dx = boid.lng - neighbor.lng;
+      const dy = boid.lat - neighbor.lat;
       const distance = Math.hypot(dx, dy);
-      if (distance <= 0.00001) return;
+      if (distance <= 0.000001) return;
 
-      if (distance < separationDistance) {
+      if (distance < separationRadius) {
         separationX += dx / distance;
         separationY += dy / distance;
       }
 
-      if (distance < 0.62) {
-        alignX += neighbor.vx || 0;
-        alignY += neighbor.vy || 0;
+      if (distance < neighborRadius) {
+        alignmentX += neighbor.vx || 0;
+        alignmentY += neighbor.vy || 0;
         cohesionX += neighbor.lng;
         cohesionY += neighbor.lat;
         neighborCount += 1;
@@ -122,45 +166,58 @@ function flockTroopFollowers(unit, previousFollowers, deltaScale) {
     let steerX = 0;
     let steerY = 0;
 
-    steerX += (desired.lng - current.lng) * slotPull;
-    steerY += (desired.lat - current.lat) * slotPull;
-
-    steerX += (unit.lng - current.lng) * leaderPull;
-    steerY += (unit.lat - current.lat) * leaderPull;
+    steerX += (anchor.lng - boid.lng) * anchorPullWeight;
+    steerY += (anchor.lat - boid.lat) * anchorPullWeight;
 
     if (neighborCount > 0) {
-      alignX /= neighborCount;
-      alignY /= neighborCount;
-      cohesionX = cohesionX / neighborCount - current.lng;
-      cohesionY = cohesionY / neighborCount - current.lat;
+      alignmentX /= neighborCount;
+      alignmentY /= neighborCount;
+      cohesionX = cohesionX / neighborCount - boid.lng;
+      cohesionY = cohesionY / neighborCount - boid.lat;
 
-      steerX += alignX * alignmentPull + cohesionX * cohesionPull;
-      steerY += alignY * alignmentPull + cohesionY * cohesionPull;
+      steerX += alignmentX * alignmentWeight;
+      steerY += alignmentY * alignmentWeight;
+      steerX += cohesionX * cohesionWeight;
+      steerY += cohesionY * cohesionWeight;
     }
 
-    steerX += separationX * separationPush;
-    steerY += separationY * separationPush;
+    steerX += separationX * separationWeight;
+    steerY += separationY * separationWeight;
+
+    if (anchorMoving) {
+      steerX += (routeTarget.lng - boid.lng) * arrivalWeight * 0.4;
+      steerY += (routeTarget.lat - boid.lat) * arrivalWeight * 0.4;
+    } else {
+      const dx = boid.lng - anchor.lng;
+      const dy = boid.lat - anchor.lat;
+      const distance = Math.max(0.00001, Math.hypot(dx, dy));
+      const tangentX = (-dy / distance) * boid.orbitDirection;
+      const tangentY = (dx / distance) * boid.orbitDirection;
+      const desiredRadius = idleOrbitRadius * (0.68 + boid.orbitSeed * 0.5 + orbitWave * 0.04);
+      const radialError = desiredRadius - distance;
+
+      steerX += tangentX * arrivalWeight * 0.32;
+      steerY += tangentY * arrivalWeight * 0.32;
+      steerX += (dx / distance) * radialError * 0.12;
+      steerY += (dy / distance) * radialError * 0.12;
+    }
 
     const limitedForce = limitVector(steerX, steerY, maxForce);
     const nextVelocity = limitVector(
-      (current.vx || 0) * 0.78 + limitedForce.x,
-      (current.vy || 0) * 0.78 + limitedForce.y,
+      (boid.vx || 0) * 0.91 + limitedForce.x,
+      (boid.vy || 0) * 0.91 + limitedForce.y,
       maxSpeed
     );
-
-    const nextLat = current.lat + nextVelocity.y;
-    const nextLng = current.lng + nextVelocity.x;
-    const movementHeading = Math.hypot(nextVelocity.x, nextVelocity.y) > 0.0005
-      ? (Math.atan2(nextVelocity.y, nextVelocity.x) * 180) / Math.PI + 90
-      : desired.heading ?? current.heading ?? unit.heading ?? 0;
+    const nextLat = boid.lat + nextVelocity.y;
+    const nextLng = boid.lng + nextVelocity.x;
 
     return {
-      id: current.id,
+      ...boid,
       lat: nextLat,
       lng: nextLng,
-      heading: movementHeading,
       vx: nextVelocity.x,
       vy: nextVelocity.y,
+      heading: headingFromVelocity(nextVelocity.x, nextVelocity.y, boid.heading ?? unit.heading ?? 0),
     };
   });
 }
@@ -174,62 +231,87 @@ export default function MovingUnitLayer({
   onSelectUnit,
   onDragUnitEnd,
 }) {
-  const [troopFollowerState, setTroopFollowerState] = useState({});
-  const troopFollowerStateRef = useRef({});
+  const [troopBoidState, setTroopBoidState] = useState({});
+  const troopBoidStateRef = useRef({});
   const troopUnitsRef = useRef([]);
+  const elapsedMsRef = useRef(0);
 
   const troopUnits = useMemo(
-    () => units.filter((unit) => unit.kind === 'troop' && (unit.followers || []).length),
+    () => units.filter(
+      (unit) =>
+        unit.kind === 'troop' &&
+        (unit.simulationMode || 'boids') === 'boids' &&
+        (Number(unit.renderCount) || 0) > 0
+    ),
     [units]
   );
   const troopUnitsSignature = useMemo(
-    () => troopUnits.map((unit) => `${unit.id}:${unit.followers?.length || 0}`).join('|'),
+    () =>
+      troopUnits
+        .map((unit) => [
+          unit.id,
+          unit.renderCount,
+          unit.lat.toFixed(3),
+          unit.lng.toFixed(3),
+          (unit.routeTargetLat ?? unit.lat).toFixed(3),
+          (unit.routeTargetLng ?? unit.lng).toFixed(3),
+          unit.anchorMoving ? 1 : 0,
+        ].join(':'))
+        .join('|'),
     [troopUnits]
   );
+  const simulationEnabled = troopEffectsEnabled || isEditorMode;
 
   useEffect(() => {
     troopUnitsRef.current = troopUnits;
   }, [troopUnits]);
 
   useEffect(() => {
-    if (!troopEffectsEnabled) {
-      troopFollowerStateRef.current = {};
-      setTroopFollowerState({});
+    if (!simulationEnabled) {
+      troopBoidStateRef.current = {};
+      setTroopBoidState({});
       return;
     }
 
     const nextState = Object.fromEntries(
       troopUnits.map((unit) => {
-        const previous = troopFollowerStateRef.current[String(unit.id)];
-        if (previous?.length === unit.followers.length) {
+        const previous = troopBoidStateRef.current[String(unit.id)];
+        if (previous?.length === unit.renderCount) {
           return [String(unit.id), previous];
         }
-        return [String(unit.id), buildInitialTroopState(unit)];
+        return [String(unit.id), buildInitialTroopBoids(unit)];
       })
     );
-    troopFollowerStateRef.current = nextState;
-    setTroopFollowerState(nextState);
-  }, [troopEffectsEnabled, troopUnits, troopUnitsSignature]);
+    troopBoidStateRef.current = nextState;
+    setTroopBoidState(nextState);
+  }, [simulationEnabled, troopUnits, troopUnitsSignature]);
 
   useEffect(() => {
-    if (!troopEffectsEnabled || !troopUnitsRef.current.length) return undefined;
+    if (!simulationEnabled || !troopUnitsRef.current.length) return undefined;
 
     let frameId = 0;
     let lastFrame = performance.now();
 
     const step = (timestamp) => {
       const deltaMs = Math.min(42, timestamp - lastFrame || 16);
-      lastFrame = timestamp;
       const deltaScale = deltaMs / 16;
+      lastFrame = timestamp;
+      elapsedMsRef.current += deltaMs;
 
-      setTroopFollowerState((previousState) => {
+      setTroopBoidState((previousState) => {
         const nextState = Object.fromEntries(
           troopUnitsRef.current.map((unit) => {
-            const previousFollowers = previousState[String(unit.id)] || buildInitialTroopState(unit);
-            return [String(unit.id), flockTroopFollowers(unit, previousFollowers, deltaScale)];
+            const previousBoids =
+              previousState[String(unit.id)]?.length === unit.renderCount
+                ? previousState[String(unit.id)]
+                : buildInitialTroopBoids(unit);
+            return [
+              String(unit.id),
+              simulateTroopBoids(unit, previousBoids, deltaScale, elapsedMsRef.current),
+            ];
           })
         );
-        troopFollowerStateRef.current = nextState;
+        troopBoidStateRef.current = nextState;
         return nextState;
       });
 
@@ -242,7 +324,7 @@ export default function MovingUnitLayer({
         window.cancelAnimationFrame(frameId);
       }
     };
-  }, [troopEffectsEnabled, troopUnitsSignature]);
+  }, [simulationEnabled, troopUnitsSignature]);
 
   return (
     <>
@@ -250,10 +332,15 @@ export default function MovingUnitLayer({
         const isSelected = String(unit.id) === String(selectedUnitId);
         const leaderColor = unit.color || '#f8d86a';
         const heading = unit.heading ?? 0;
-        const renderedFollowers =
-          troopEffectsEnabled && unit.kind === 'troop'
-            ? troopFollowerState[String(unit.id)] || buildInitialTroopState(unit)
-            : unit.followers || [];
+        const isBoidTroop = unit.kind === 'troop' && (unit.simulationMode || 'boids') === 'boids';
+        const renderedFollowers = isBoidTroop
+          ? troopBoidState[String(unit.id)] || buildInitialTroopBoids(unit)
+          : unit.followers || [];
+        const troopTooltip = isBoidTroop
+          ? unit.renderSampled
+            ? `${unit.troopCount} troops · showing ${unit.renderCount}`
+            : `${unit.troopCount} troops`
+          : getKindLabel(unit.kind);
 
         return (
           <React.Fragment key={unit.id}>
@@ -295,7 +382,7 @@ export default function MovingUnitLayer({
             >
               <Tooltip direction="top" offset={[0, -10]}>
                 <strong>{unit.name}</strong>
-                <div>{getKindLabel(unit.kind)}</div>
+                <div>{troopTooltip}</div>
               </Tooltip>
             </Marker>
           </React.Fragment>

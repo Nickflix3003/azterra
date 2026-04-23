@@ -2503,6 +2503,7 @@ html, body, #root {
 .moving-units-panel__card-copy {
   display: grid;
   gap: 0.18rem;
+  min-width: 0;
 }
 
 .moving-units-panel__card-copy small,
@@ -2513,6 +2514,29 @@ html, body, #root {
 .moving-units-panel__editor {
   display: grid;
   gap: 0.8rem;
+}
+
+.moving-units-panel__advanced {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.75rem 0.85rem 0.85rem;
+  border-radius: 0.95rem;
+  border: 1px solid rgba(244, 219, 169, 0.1);
+  background: rgba(255, 248, 231, 0.035);
+}
+
+.moving-units-panel__advanced summary {
+  cursor: pointer;
+  color: #fde68a;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.moving-units-panel__advanced-grid {
+  display: grid;
+  gap: 0.7rem;
 }
 
 .moving-units-panel__timeline-header {

@@ -18,6 +18,31 @@ const UNIT_ICON_OPTIONS = [
   { id: 'horse', label: 'Horse' },
   { id: 'camp', label: 'Camp' },
 ];
+const DEFAULT_TROOP_COUNT = 24;
+const DEFAULT_BOID_CONFIG = Object.freeze({
+  separationWeight: 1.4,
+  alignmentWeight: 0.72,
+  cohesionWeight: 0.38,
+  anchorPullWeight: 0.82,
+  arrivalWeight: 0.66,
+  maxSpeed: 0.055,
+  maxForce: 0.018,
+  neighborRadius: 0.74,
+  separationRadius: 0.24,
+  idleOrbitRadius: 0.48,
+});
+const BOID_FIELDS = [
+  { key: 'separationWeight', label: 'Separation', min: 0, max: 4, step: 0.02 },
+  { key: 'alignmentWeight', label: 'Alignment', min: 0, max: 3, step: 0.02 },
+  { key: 'cohesionWeight', label: 'Cohesion', min: 0, max: 3, step: 0.02 },
+  { key: 'anchorPullWeight', label: 'Anchor Pull', min: 0, max: 3, step: 0.02 },
+  { key: 'arrivalWeight', label: 'Arrival', min: 0, max: 3, step: 0.02 },
+  { key: 'maxSpeed', label: 'Max Speed', min: 0.005, max: 0.18, step: 0.001 },
+  { key: 'maxForce', label: 'Max Force', min: 0.002, max: 0.08, step: 0.001 },
+  { key: 'neighborRadius', label: 'Neighbor Radius', min: 0.1, max: 2, step: 0.01 },
+  { key: 'separationRadius', label: 'Separation Radius', min: 0.05, max: 1, step: 0.01 },
+  { key: 'idleOrbitRadius', label: 'Idle Orbit', min: 0.1, max: 2, step: 0.01 },
+];
 
 function buildDefaultWaypoint(currentYear = 500, defaultCoordinates = { lat: 0, lng: 0 }) {
   return {
@@ -34,6 +59,15 @@ function cloneTimeline(unit, currentYear, defaultCoordinates) {
   return Array.isArray(unit?.movementTimeline) && unit.movementTimeline.length
     ? unit.movementTimeline
     : [buildDefaultWaypoint(currentYear, defaultCoordinates)];
+}
+
+function getUnitSummary(unit) {
+  if (unit.kind === 'troop') {
+    const count = Number(unit.troopCount) || DEFAULT_TROOP_COUNT;
+    return `Troop · ${count} troop${count === 1 ? '' : 's'}`;
+  }
+  const label = UNIT_KIND_OPTIONS.find((option) => option.id === unit.kind)?.label || 'Unit';
+  return label;
 }
 
 export default function MovingUnitsPanel({
@@ -67,6 +101,9 @@ export default function MovingUnitsPanel({
       color: '#f8d86a',
       lat: defaultCoordinates.lat ?? 0,
       lng: defaultCoordinates.lng ?? 0,
+      troopCount: DEFAULT_TROOP_COUNT,
+      simulationMode: 'boids',
+      boidConfig: DEFAULT_BOID_CONFIG,
       movementTimeline: [buildDefaultWaypoint(currentYear, defaultCoordinates)],
       platoonStyle: { followers: 5, spread: 0.34 },
     }).catch(() => null);
@@ -79,6 +116,28 @@ export default function MovingUnitsPanel({
     if (!selectedUnit || !canAutoSave) return;
     updateMovingUnit(selectedUnit.id, updates, options).catch(() => null);
   };
+
+  const handleKindChange = (nextKind) => {
+    if (!selectedUnit) return;
+    updateSelectedUnit({
+      kind: nextKind,
+      icon:
+        nextKind === 'fleet'
+          ? 'ship'
+          : nextKind === 'caravan'
+            ? 'cart'
+            : selectedUnit.icon || 'banner',
+      troopCount: nextKind === 'troop'
+        ? Math.max(1, Number(selectedUnit.troopCount) || DEFAULT_TROOP_COUNT)
+        : 1,
+      simulationMode: nextKind === 'troop' ? 'boids' : 'formation',
+      boidConfig: nextKind === 'troop'
+        ? { ...DEFAULT_BOID_CONFIG, ...(selectedUnit.boidConfig || {}) }
+        : { ...(selectedUnit.boidConfig || DEFAULT_BOID_CONFIG) },
+    }, { mode: 'immediate', successMode: 'none' });
+  };
+
+  const isTroop = selectedUnit?.kind === 'troop';
 
   const updateWaypoint = (stopId, patch) => {
     if (!selectedUnit) return;
@@ -160,7 +219,7 @@ export default function MovingUnitsPanel({
                   />
                   <span className="moving-units-panel__card-copy">
                     <strong>{unit.name || 'Unnamed Unit'}</strong>
-                    <small>{unit.kind || 'troop'}</small>
+                    <small>{getUnitSummary(unit)}</small>
                   </span>
                 </button>
               ))}
@@ -185,7 +244,7 @@ export default function MovingUnitsPanel({
                 <select
                   className="editor-info-panel__select"
                   value={selectedUnit.kind ?? 'troop'}
-                  onChange={(event) => updateSelectedUnit({ kind: event.target.value }, { mode: 'immediate', successMode: 'none' })}
+                  onChange={(event) => handleKindChange(event.target.value)}
                 >
                   {UNIT_KIND_OPTIONS.map((option) => (
                     <option key={option.id} value={option.id}>
@@ -221,43 +280,92 @@ export default function MovingUnitsPanel({
                 />
               </label>
 
-              <label className="editor-info-panel__field">
-                <span>Followers</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={8}
-                  value={selectedUnit.platoonStyle?.followers ?? 5}
-                  onChange={(event) =>
-                    updateSelectedUnit({
-                      platoonStyle: {
-                        ...(selectedUnit.platoonStyle || {}),
-                        followers: Number(event.target.value),
-                      },
-                    }, { mode: 'immediate', successMode: 'none' })
-                  }
-                />
-              </label>
+              {isTroop ? (
+                <label className="editor-info-panel__field">
+                  <span>Troop Count</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={999}
+                    value={selectedUnit.troopCount ?? DEFAULT_TROOP_COUNT}
+                    onChange={(event) =>
+                      updateSelectedUnit({
+                        troopCount: Math.max(1, Number(event.target.value) || DEFAULT_TROOP_COUNT),
+                        simulationMode: 'boids',
+                      }, { mode: 'immediate', successMode: 'none' })
+                    }
+                  />
+                </label>
+              ) : (
+                <>
+                  <label className="editor-info-panel__field">
+                    <span>Followers</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={8}
+                      value={selectedUnit.platoonStyle?.followers ?? 5}
+                      onChange={(event) =>
+                        updateSelectedUnit({
+                          platoonStyle: {
+                            ...(selectedUnit.platoonStyle || {}),
+                            followers: Number(event.target.value),
+                          },
+                        }, { mode: 'immediate', successMode: 'none' })
+                      }
+                    />
+                  </label>
 
-              <label className="editor-info-panel__field">
-                <span>Spread</span>
-                <input
-                  type="number"
-                  min={0.16}
-                  max={0.72}
-                  step={0.02}
-                  value={selectedUnit.platoonStyle?.spread ?? 0.34}
-                  onChange={(event) =>
-                    updateSelectedUnit({
-                      platoonStyle: {
-                        ...(selectedUnit.platoonStyle || {}),
-                        spread: Number(event.target.value),
-                      },
-                    }, { mode: 'immediate', successMode: 'none' })
-                  }
-                />
-              </label>
+                  <label className="editor-info-panel__field">
+                    <span>Spread</span>
+                    <input
+                      type="number"
+                      min={0.16}
+                      max={0.72}
+                      step={0.02}
+                      value={selectedUnit.platoonStyle?.spread ?? 0.34}
+                      onChange={(event) =>
+                        updateSelectedUnit({
+                          platoonStyle: {
+                            ...(selectedUnit.platoonStyle || {}),
+                            spread: Number(event.target.value),
+                          },
+                        }, { mode: 'immediate', successMode: 'none' })
+                      }
+                    />
+                  </label>
+                </>
+              )}
             </div>
+
+            {isTroop ? (
+              <details className="moving-units-panel__advanced">
+                <summary>Advanced flocking</summary>
+                <div className="moving-units-panel__advanced-grid">
+                  {BOID_FIELDS.map((field) => (
+                    <label key={field.key} className="editor-info-panel__field">
+                      <span>{field.label}</span>
+                      <input
+                        type="number"
+                        min={field.min}
+                        max={field.max}
+                        step={field.step}
+                        value={selectedUnit.boidConfig?.[field.key] ?? DEFAULT_BOID_CONFIG[field.key]}
+                        onChange={(event) =>
+                          updateSelectedUnit({
+                            boidConfig: {
+                              ...(selectedUnit.boidConfig || DEFAULT_BOID_CONFIG),
+                              [field.key]: Number(event.target.value),
+                            },
+                            simulationMode: 'boids',
+                          }, { mode: 'immediate', successMode: 'none' })
+                        }
+                      />
+                    </label>
+                  ))}
+                </div>
+              </details>
+            ) : null}
 
             <div className="moving-units-panel__timeline">
               <div className="moving-units-panel__timeline-header">

@@ -139,6 +139,68 @@ const getFallbackLocations = () => {
 
 /** Tracks whether the intro has already been shown in this browser session. */
 let introShownThisSession = false;
+const TROOP_RENDER_CAP_PER_UNIT = 120;
+const TROOP_RENDER_CAP_TOTAL = 400;
+
+function allocateTroopRenderCounts(units) {
+  const troopUnits = units.filter(
+    (unit) => unit.kind === 'troop' && (unit.simulationMode || 'boids') === 'boids'
+  );
+  if (!troopUnits.length) return {};
+
+  const desiredEntries = troopUnits.map((unit) => ({
+    id: String(unit.id),
+    desired: Math.max(
+      1,
+      Math.min(TROOP_RENDER_CAP_PER_UNIT, Math.round(Number(unit.troopCount) || 1))
+    ),
+  }));
+
+  if (desiredEntries.length >= TROOP_RENDER_CAP_TOTAL) {
+    return Object.fromEntries(
+      desiredEntries.map((entry, index) => [entry.id, index < TROOP_RENDER_CAP_TOTAL ? 1 : 0])
+    );
+  }
+
+  const totalDesired = desiredEntries.reduce((sum, entry) => sum + entry.desired, 0);
+  if (totalDesired <= TROOP_RENDER_CAP_TOTAL) {
+    return Object.fromEntries(desiredEntries.map((entry) => [entry.id, entry.desired]));
+  }
+
+  const scale = TROOP_RENDER_CAP_TOTAL / totalDesired;
+  const provisional = desiredEntries.map((entry) => ({
+    ...entry,
+    scaled: entry.desired * scale,
+  }));
+  const allocations = Object.fromEntries(
+    provisional.map((entry) => [entry.id, Math.max(1, Math.floor(entry.scaled))])
+  );
+  let allocated = Object.values(allocations).reduce((sum, value) => sum + value, 0);
+
+  if (allocated > TROOP_RENDER_CAP_TOTAL) {
+    const descending = [...provisional].sort((left, right) => allocations[right.id] - allocations[left.id]);
+    for (const entry of descending) {
+      if (allocated <= TROOP_RENDER_CAP_TOTAL) break;
+      if (allocations[entry.id] <= 1) continue;
+      allocations[entry.id] -= 1;
+      allocated -= 1;
+    }
+  } else if (allocated < TROOP_RENDER_CAP_TOTAL) {
+    const byFraction = [...provisional].sort((left, right) => {
+      const leftFraction = left.scaled - Math.floor(left.scaled);
+      const rightFraction = right.scaled - Math.floor(right.scaled);
+      return rightFraction - leftFraction;
+    });
+    for (const entry of byFraction) {
+      if (allocated >= TROOP_RENDER_CAP_TOTAL) break;
+      if (allocations[entry.id] >= entry.desired) continue;
+      allocations[entry.id] += 1;
+      allocated += 1;
+    }
+  }
+
+  return allocations;
+}
 
 // ─── EditorToolbox ────────────────────────────────────────────────────────────
 /**
@@ -511,40 +573,62 @@ function InteractiveMap({
 
   const displayedMovingUnits = useMemo(() => {
     if (!visibleMovingUnits.length) return [];
+    const troopRenderCounts = allocateTroopRenderCounts(visibleMovingUnits);
     let remainingFollowers = 40;
-    let remainingUnits = visibleMovingUnits.length;
+    let remainingUnits = visibleMovingUnits.filter(
+      (unit) => unit.kind !== 'troop' || (unit.simulationMode || 'boids') !== 'boids'
+    ).length;
 
     return visibleMovingUnits.map((unit) => {
       const leader = animatedMovingUnitPositions[String(unit.id)] || unit.targetLeader;
+      const fallbackHeading = resolveMovingUnitHeading(unit, currentYear, locationById);
+      const targetDeltaLat = (unit.targetLeader?.lat ?? leader.lat) - leader.lat;
+      const targetDeltaLng = (unit.targetLeader?.lng ?? leader.lng) - leader.lng;
+      const anchorMoving = Math.abs(targetDeltaLat) > 0.00001 || Math.abs(targetDeltaLng) > 0.00001;
+      const animatedHeading = anchorMoving
+        ? resolveMovingUnitHeading({
+            ...unit,
+            movementTimeline: [
+              {
+                id: `${unit.id}-current`,
+                startYear: currentYear,
+                endYear: null,
+                lat: leader.lat,
+                lng: leader.lng,
+              },
+              {
+                id: `${unit.id}-target`,
+                startYear: currentYear + 1,
+                endYear: null,
+                lat: unit.targetLeader?.lat,
+                lng: unit.targetLeader?.lng,
+              },
+            ],
+          }, currentYear, locationById)
+        : fallbackHeading;
+
+      if (unit.kind === 'troop' && (unit.simulationMode || 'boids') === 'boids') {
+        const troopCount = Math.max(1, Math.round(Number(unit.troopCount) || 1));
+        const renderCount = Math.max(0, troopRenderCounts[String(unit.id)] ?? 0);
+        return {
+          ...unit,
+          lat: leader.lat,
+          lng: leader.lng,
+          heading: animatedHeading,
+          routeTargetLat: unit.targetLeader?.lat ?? leader.lat,
+          routeTargetLng: unit.targetLeader?.lng ?? leader.lng,
+          anchorMoving,
+          renderCount,
+          renderSampled: renderCount < troopCount,
+          followers: [],
+        };
+      }
+
       const desiredFollowers = unit.platoonStyle?.followers ?? 5;
       const perUnitBudget = remainingUnits > 0 ? Math.floor(remainingFollowers / remainingUnits) : 0;
       const allowedFollowers = remainingFollowers <= 0
         ? 0
         : Math.max(0, Math.min(desiredFollowers, Math.max(perUnitBudget, 1), 8));
-      const fallbackHeading = resolveMovingUnitHeading(unit, currentYear, locationById);
-      const animatedHeading =
-        Math.abs((unit.targetLeader?.lat ?? leader.lat) - leader.lat) > 0.00001 ||
-        Math.abs((unit.targetLeader?.lng ?? leader.lng) - leader.lng) > 0.00001
-          ? resolveMovingUnitHeading({
-              ...unit,
-              movementTimeline: [
-                {
-                  id: `${unit.id}-current`,
-                  startYear: currentYear,
-                  endYear: null,
-                  lat: leader.lat,
-                  lng: leader.lng,
-                },
-                {
-                  id: `${unit.id}-target`,
-                  startYear: currentYear + 1,
-                  endYear: null,
-                  lat: unit.targetLeader?.lat,
-                  lng: unit.targetLeader?.lng,
-                },
-              ],
-            }, currentYear, locationById)
-          : fallbackHeading;
 
       remainingFollowers -= allowedFollowers;
       remainingUnits -= 1;
