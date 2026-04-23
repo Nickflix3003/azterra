@@ -47,6 +47,17 @@ export const LOCATION_FILTER_OPTIONS = [
   { id: GENERIC_MARKER_TYPE.id, label: GENERIC_MARKER_TYPE.label },
 ];
 
+export const MARKER_PALETTE_CATEGORIES = [
+  { id: 'city', label: 'City' },
+  { id: 'town', label: 'Town' },
+  { id: 'building', label: 'Building' },
+  { id: 'dungeon', label: 'Dungeon' },
+  { id: 'landmark', label: 'Landmark' },
+  { id: 'nature', label: 'Nature' },
+  { id: 'icon', label: 'Icon' },
+  { id: 'other', label: 'Other' },
+];
+
 // ─── Icon options ────────────────────────────────────────────────────────────
 export const DEFAULT_TYPE_ICON = {
   city:     'city-gold',
@@ -60,26 +71,26 @@ export const DEFAULT_TYPE_ICON = {
 };
 
 export const MARKER_ICON_OPTIONS = [
-  { iconKey: 'city-gold',       label: 'Gilded City',    type: 'city'     },
-  { iconKey: 'city-blue',       label: 'Azure City',     type: 'city'     },
-  { iconKey: 'city-crimson',    label: 'Crimson City',   type: 'city'     },
-  { iconKey: 'city-emerald',    label: 'Emerald City',   type: 'city'     },
-  { iconKey: 'town-oak',        label: 'Oak Town',       type: 'town'     },
-  { iconKey: 'town-harbor',     label: 'Harbor Town',    type: 'town'     },
-  { iconKey: 'town-river',      label: 'River Town',     type: 'town'     },
-  { iconKey: 'dungeon-abyss',   label: 'Abyss Dungeon',  type: 'dungeon'  },
-  { iconKey: 'dungeon-ember',   label: 'Ember Dungeon',  type: 'dungeon'  },
-  { iconKey: 'landmark-spire',  label: 'Sun Spire',      type: 'landmark' },
-  { iconKey: 'landmark-obelisk',label: 'Obelisk',        type: 'landmark' },
-  { iconKey: 'port-azure',      label: 'Azure Port',     type: 'city'     },
-  { iconKey: 'port-sunset',     label: 'Sunset Port',    type: 'city'     },
-  { iconKey: 'citadel-iron',    label: 'Iron Citadel',   type: 'city'     },
-  { iconKey: 'citadel-sun',     label: 'Sun Citadel',    type: 'city'     },
-  { iconKey: 'village-meadow',  label: 'Meadow Village', type: 'town'     },
-  { iconKey: 'village-sand',    label: 'Sand Village',   type: 'town'     },
-  { iconKey: 'camp-northern',   label: 'Northern Camp',  type: 'landmark' },
-  { iconKey: 'camp-jungle',     label: 'Jungle Camp',    type: 'landmark' },
-  { iconKey: 'academy-star',    label: 'Star Academy',   type: 'landmark' },
+  { iconKey: 'city-blue',        label: '', type: 'city',      group: 'city' },
+  { iconKey: 'city-crimson',     label: '', type: 'city',      group: 'city' },
+  { iconKey: 'city-emerald',     label: '', type: 'city',      group: 'city' },
+  { iconKey: 'citadel-iron',     label: '', type: 'city',      group: 'city' },
+  { iconKey: 'citadel-sun',      label: '', type: 'city',      group: 'city' },
+  { iconKey: 'village-sand',     label: '', type: 'town',      group: 'city' },
+  { iconKey: 'town-oak',         label: '', type: 'town',      group: 'town' },
+  { iconKey: 'village-meadow',   label: '', type: 'town',      group: 'town' },
+  { iconKey: 'dungeon-abyss',    label: '', type: 'dungeon',   group: 'dungeon' },
+  { iconKey: 'dungeon-ember',    label: '', type: 'dungeon',   group: 'dungeon' },
+  { iconKey: 'landmark-spire',   label: '', type: 'dungeon',   group: 'dungeon' },
+  { iconKey: 'town-harbor',      label: '', type: 'town',      group: 'building' },
+  { iconKey: 'town-river',       label: '', type: 'town',      group: 'building' },
+  { iconKey: 'landmark-obelisk', label: '', type: 'landmark',  group: 'landmark' },
+  { iconKey: 'camp-northern',    label: '', type: 'landmark',  group: 'icon' },
+  { iconKey: 'camp-jungle',      label: '', type: 'landmark',  group: 'icon' },
+  { iconKey: 'academy-star',     label: '', type: 'institute', group: 'icon' },
+  { iconKey: 'city-gold',        label: '', type: 'city',      group: 'icon' },
+  { iconKey: 'port-azure',       label: '', type: 'city',      group: 'other' },
+  { iconKey: 'port-sunset',      label: '', type: 'city',      group: 'other' },
 ];
 
 // ─── Region filter options ───────────────────────────────────────────────────

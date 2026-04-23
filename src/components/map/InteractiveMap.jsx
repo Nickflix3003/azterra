@@ -60,6 +60,7 @@ import {
 import {
   API_BASE_URL,
   MARKER_TYPES,
+  MARKER_PALETTE_CATEGORIES,
   MARKER_ICON_OPTIONS,
   DEFAULT_TYPE_ICON,
   TILE_SIZE,
@@ -1329,7 +1330,7 @@ function InteractiveMap({
       options={MARKER_ICON_OPTIONS}
       selectedOption={selectedPaletteItem}
       onSelect={handleSelectPaletteItem}
-      categoryOptions={MARKER_TYPES}
+      categoryOptions={MARKER_PALETTE_CATEGORIES}
       groupByCategory
     />
   );
