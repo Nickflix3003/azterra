@@ -25,7 +25,7 @@ app.use(cookieParser(process.env.COOKIE_SECRET || ''));
 app.get('/', (req, res) => res.send('API up 🟢'));
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', usersSeeded: true });
+  res.json({ ok: true, status: 'ok', usersSeeded: true });
 });
 
 app.get('/api/hello', authRequired, (req, res) => {

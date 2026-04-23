@@ -97,7 +97,7 @@ export default function ServerWarmingBanner() {
   async function handleWakeServer() {
     setManualWake(true);
     try {
-      await fetchWithRetry(`${API_BASE_URL}/auth/me`, {
+      await fetchWithRetry(`${API_BASE_URL}/health`, {
         credentials: 'include',
         cache: 'no-store',
       });

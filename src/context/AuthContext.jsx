@@ -106,6 +106,19 @@ async function request({ path, method = 'GET', body, headers = {} }) {
   return data;
 }
 
+async function ensureBackendReady() {
+  const response = await fetchWithRetry(`${API_BASE_URL}/health`, {
+    credentials: 'include',
+    cache: 'no-store',
+  });
+  const contentType = response.headers.get('content-type') || '';
+  const data = contentType.includes('application/json') ? await response.json().catch(() => ({})) : {};
+  if (!response.ok) {
+    throw new Error(data.error || 'The world server is still unavailable. Please try again in a moment.');
+  }
+  return data;
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(null);
@@ -141,7 +154,9 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
-  const startOAuth = useCallback(({ provider } = {}) => {
+  const startOAuth = useCallback(async ({ provider } = {}) => {
+    setError(null);
+    await ensureBackendReady();
     const params = new URLSearchParams();
     if (provider) params.set('provider', provider);
     const redirectTo = getSupabaseRedirectUrl();
@@ -173,6 +188,7 @@ export function AuthProvider({ children }) {
         throw new Error('Email is required.');
       }
       setError(null);
+      await ensureBackendReady();
       return request({
         path: '/auth/login/email',
         method: 'POST',
