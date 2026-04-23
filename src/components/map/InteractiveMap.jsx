@@ -54,6 +54,7 @@ import {
   EditorPlacementHandler,
   RegionDrawingHandler,
   LabelPlacementHandler,
+  ViewSelectionCloseHandler,
 } from './MapControls';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -1440,6 +1441,10 @@ function InteractiveMap({
               <LabelPlacementHandler
                 isActive={isEditorMode && isPlacingLabel}
                 onPlace={handlePlaceLabel}
+              />
+              <ViewSelectionCloseHandler
+                isEnabled={!isEditorMode && Boolean(selectedLocation)}
+                onClose={handleClosePanel}
               />
               <KeyboardControls />
               <ZoomControls />

@@ -257,3 +257,21 @@ export function LabelPlacementHandler({ isActive, onPlace }) {
   });
   return null;
 }
+
+export function ViewSelectionCloseHandler({ isEnabled, onClose }) {
+  useMapEvent('click', (event) => {
+    if (!isEnabled) return;
+
+    const target = event.originalEvent?.target;
+    if (
+      target instanceof HTMLElement &&
+      target.closest('.leaflet-marker-icon, .leaflet-interactive, .leaflet-popup, .leaflet-control')
+    ) {
+      return;
+    }
+
+    onClose?.();
+  });
+
+  return null;
+}
