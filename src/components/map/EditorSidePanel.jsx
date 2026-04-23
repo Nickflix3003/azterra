@@ -18,6 +18,7 @@ import RegionInfoPanel from './RegionInfoPanel';
 const PANEL_VIEWS = {
   HOME:    'home',
   MARKERS: 'markers',
+  UNITS:   'units',
   REGIONS: 'regions',
   LABELS:  'labels',
   ADMIN:   'admin',
@@ -69,6 +70,8 @@ const IconSettings = () => (
 function EditorSidePanel({
   isEditorMode,
   markerPalette,
+  movingUnitsPanel = null,
+  selectedMovingUnitId = null,
   diagnosticsPanel = null,
   regions = [],
   activeRegionId,
@@ -109,6 +112,12 @@ function EditorSidePanel({
   useEffect(() => {
     if (!isEditorMode) setView(PANEL_VIEWS.HOME);
   }, [isEditorMode]);
+
+  useEffect(() => {
+    if (selectedMovingUnitId) {
+      setView(PANEL_VIEWS.UNITS);
+    }
+  }, [selectedMovingUnitId]);
 
   useEffect(() => {
     if (view !== PANEL_VIEWS.REGIONS && isRegionMode) {
@@ -154,12 +163,23 @@ function EditorSidePanel({
       <button
         type="button"
         className="editor-side-panel__home-card"
-        onClick={() => { setView(PANEL_VIEWS.MARKERS); setMarkerView('palette'); }}
+        onClick={() => setView(PANEL_VIEWS.MARKERS)}
       >
         <span className="editor-side-panel__home-icon"><IconPin /></span>
         <span className="editor-side-panel__home-eyebrow">Tools</span>
         <strong>Markers</strong>
         <p>Drop, edit, and manage icons on the map.</p>
+      </button>
+
+      <button
+        type="button"
+        className="editor-side-panel__home-card"
+        onClick={() => setView(PANEL_VIEWS.UNITS)}
+      >
+        <span className="editor-side-panel__home-icon"><IconPin /></span>
+        <span className="editor-side-panel__home-eyebrow">Tools</span>
+        <strong>Units</strong>
+        <p>Author troop, fleet, caravan, and patrol movement.</p>
       </button>
 
       <button
@@ -209,6 +229,16 @@ function EditorSidePanel({
         {markerPalette}
       </div>
     </div>
+  );
+
+  const renderUnits = () => (
+    movingUnitsPanel ?? (
+      <div className="editor-side-panel__section">
+        <div className="editor-side-panel__empty-state">
+          <p>No moving-unit panel available.</p>
+        </div>
+      </div>
+    )
   );
 
   const renderRegions = () => {
@@ -612,6 +642,7 @@ function EditorSidePanel({
 
   const renderContent = () => {
     if (view === PANEL_VIEWS.MARKERS) return renderMarkers();
+    if (view === PANEL_VIEWS.UNITS)   return renderUnits();
     if (view === PANEL_VIEWS.REGIONS) return renderRegions();
     if (view === PANEL_VIEWS.LABELS)  return renderLabels();
     if (view === PANEL_VIEWS.ADMIN)   return renderAdmin();
@@ -643,6 +674,7 @@ function EditorSidePanel({
           {[
             { key: PANEL_VIEWS.HOME,    label: 'Home' },
             { key: PANEL_VIEWS.MARKERS, label: 'Markers' },
+            { key: PANEL_VIEWS.UNITS,   label: 'Units' },
             { key: PANEL_VIEWS.REGIONS, label: 'Regions' },
             { key: PANEL_VIEWS.LABELS,  label: 'Labels' },
             ...(diagnosticsPanel ? [{ key: PANEL_VIEWS.ADMIN, label: 'Admin' }] : []),

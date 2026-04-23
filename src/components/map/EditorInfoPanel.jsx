@@ -85,6 +85,13 @@ function EditorInfoPanel({
     () => [...regions].sort((left, right) => (left.name || '').localeCompare(right.name || '')),
     [regions]
   );
+  const selectableLocations = useMemo(
+    () =>
+      [...locations]
+        .filter((location) => String(location.id) !== String(currentLocation?.id))
+        .sort((left, right) => (left.name || '').localeCompare(right.name || '')),
+    [currentLocation?.id, locations]
+  );
 
   if (!isOpen || !draft) return null;
 
@@ -189,6 +196,37 @@ function EditorInfoPanel({
             : 'Saved'
           : '';
   const currentType = LOCATION_EDITOR_TYPE_OPTIONS.find((option) => option.id === draft.type) || LOCATION_EDITOR_TYPE_OPTIONS[0];
+  const positionTimeline = Array.isArray(draft.positionTimeline) ? draft.positionTimeline : [];
+
+  const updatePositionTimeline = (nextTimeline) => {
+    onFieldChange('positionTimeline', nextTimeline);
+  };
+
+  const handleAddTimelineStop = () => {
+    updatePositionTimeline([
+      ...positionTimeline,
+      {
+        id: `position-stop-${Date.now()}`,
+        startYear: timeStart ?? 0,
+        endYear: null,
+        targetLocationId: null,
+        lat: currentLocation?.lat ?? 0,
+        lng: currentLocation?.lng ?? 0,
+      },
+    ]);
+  };
+
+  const handlePositionStopChange = (stopId, patch) => {
+    updatePositionTimeline(
+      positionTimeline.map((stop) => (
+        String(stop.id) === String(stopId) ? { ...stop, ...patch } : stop
+      ))
+    );
+  };
+
+  const handleRemoveTimelineStop = (stopId) => {
+    updatePositionTimeline(positionTimeline.filter((stop) => String(stop.id) !== String(stopId)));
+  };
 
   return (
     <aside
@@ -270,6 +308,137 @@ function EditorInfoPanel({
           >
             {draft.pinned ? '🔒 Position Locked' : '📍 Unlocked — click to lock'}
           </button>
+        </div>
+
+        <div className="editor-info-panel__field editor-info-panel__field--timeline">
+          <div className="editor-info-panel__field-header">
+            <div>
+              <span>Position Through Time</span>
+              <small>Optional dated stops for migrations, relocations, and historical shifts.</small>
+            </div>
+            <button
+              type="button"
+              className="panel-button panel-button--ghost panel-button--sm"
+              onClick={handleAddTimelineStop}
+            >
+              Add Stop
+            </button>
+          </div>
+
+          {positionTimeline.length ? (
+            <div className="position-timeline-editor">
+              {positionTimeline.map((stop) => {
+                const isLinkedLocation = Boolean(stop.targetLocationId);
+                return (
+                  <div key={stop.id} className="position-timeline-editor__stop">
+                    <div className="position-timeline-editor__row">
+                      <label className="editor-info-panel__field">
+                        <span>Start</span>
+                        <input
+                          type="number"
+                          value={stop.startYear ?? 0}
+                          onChange={(event) => handlePositionStopChange(stop.id, { startYear: Number(event.target.value) })}
+                          onBlur={handleFieldBlur}
+                          onKeyDown={handleSingleLineKeyDown}
+                        />
+                      </label>
+
+                      <label className="editor-info-panel__field">
+                        <span>End</span>
+                        <input
+                          type="number"
+                          value={stop.endYear ?? ''}
+                          placeholder="optional"
+                          onChange={(event) => handlePositionStopChange(stop.id, { endYear: event.target.value === '' ? null : Number(event.target.value) })}
+                          onBlur={handleFieldBlur}
+                          onKeyDown={handleSingleLineKeyDown}
+                        />
+                      </label>
+                    </div>
+
+                    <label className="editor-info-panel__field">
+                      <span>Stop Type</span>
+                      <select
+                        className="editor-info-panel__select"
+                        value={isLinkedLocation ? 'location' : 'coords'}
+                        onChange={(event) => {
+                          if (event.target.value === 'location') {
+                            handlePositionStopChange(stop.id, {
+                              targetLocationId: selectableLocations[0]?.id ?? null,
+                              lat: null,
+                              lng: null,
+                            });
+                          } else {
+                            handlePositionStopChange(stop.id, {
+                              targetLocationId: null,
+                              lat: stop.lat ?? currentLocation?.lat ?? 0,
+                              lng: stop.lng ?? currentLocation?.lng ?? 0,
+                            });
+                          }
+                        }}
+                        onBlur={handleFieldBlur}
+                      >
+                        <option value="coords">Coordinates</option>
+                        <option value="location">Linked Location</option>
+                      </select>
+                    </label>
+
+                    {isLinkedLocation ? (
+                      <label className="editor-info-panel__field">
+                        <span>Linked Location</span>
+                        <select
+                          className="editor-info-panel__select"
+                          value={stop.targetLocationId ?? ''}
+                          onChange={(event) => handlePositionStopChange(stop.id, { targetLocationId: event.target.value || null })}
+                          onBlur={handleFieldBlur}
+                        >
+                          <option value="">Select location</option>
+                          {selectableLocations.map((location) => (
+                            <option key={location.id} value={location.id}>
+                              {location.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : (
+                      <div className="position-timeline-editor__row">
+                        <label className="editor-info-panel__field">
+                          <span>Latitude</span>
+                          <input
+                            type="number"
+                            value={stop.lat ?? 0}
+                            onChange={(event) => handlePositionStopChange(stop.id, { lat: Number(event.target.value) })}
+                            onBlur={handleFieldBlur}
+                            onKeyDown={handleSingleLineKeyDown}
+                          />
+                        </label>
+                        <label className="editor-info-panel__field">
+                          <span>Longitude</span>
+                          <input
+                            type="number"
+                            value={stop.lng ?? 0}
+                            onChange={(event) => handlePositionStopChange(stop.id, { lng: Number(event.target.value) })}
+                            onBlur={handleFieldBlur}
+                            onKeyDown={handleSingleLineKeyDown}
+                          />
+                        </label>
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      className="panel-button panel-button--ghost panel-button--sm position-timeline-editor__remove"
+                      onClick={() => handleRemoveTimelineStop(stop.id)}
+                    >
+                      Remove Stop
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="editor-info-panel__hint">No dated position stops yet. This location will stay at its main map coordinates.</p>
+          )}
         </div>
 
         <div className="editor-info-panel__field editor-info-panel__field--image">

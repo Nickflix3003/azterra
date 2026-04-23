@@ -2347,6 +2347,46 @@ html, body, #root {
   box-shadow: 0 10px 20px rgba(0, 0, 0, 0.22);
 }
 
+.editor-info-panel__field-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.editor-info-panel__field-header small,
+.editor-info-panel__hint {
+  color: rgba(241, 245, 249, 0.62);
+  font-size: 0.74rem;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.position-timeline-editor {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.position-timeline-editor__stop {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.8rem;
+  border-radius: 0.95rem;
+  border: 1px solid rgba(244, 219, 169, 0.1);
+  background: rgba(255, 248, 231, 0.04);
+}
+
+.position-timeline-editor__row,
+.moving-units-panel__field-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.position-timeline-editor__remove {
+  justify-self: flex-start;
+}
+
 .era-toggle {
   display: inline-flex;
   align-items: center;
@@ -2421,6 +2461,109 @@ html, body, #root {
 .panel-button--sm {
   padding: 0.42rem 0.8rem;
   font-size: 0.72rem;
+}
+
+.moving-units-panel {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.moving-units-panel__cards,
+.moving-units-panel__timeline {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.moving-units-panel__card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: 0.95rem;
+  border: 1px solid rgba(244, 219, 169, 0.12);
+  background: rgba(8, 7, 5, 0.36);
+  color: #f8f2e2;
+  cursor: pointer;
+  text-align: left;
+}
+
+.moving-units-panel__card.is-active {
+  border-color: rgba(250, 204, 21, 0.46);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.18);
+}
+
+.moving-units-panel__swatch {
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.moving-units-panel__card-copy {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.moving-units-panel__card-copy small,
+.moving-units-panel__timeline-header p {
+  color: rgba(241, 245, 249, 0.62);
+}
+
+.moving-units-panel__editor {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.moving-units-panel__timeline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.moving-units-panel__timeline-header h4 {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #fde68a;
+}
+
+.moving-units-panel__stop {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.8rem;
+  border-radius: 0.95rem;
+  border: 1px solid rgba(244, 219, 169, 0.1);
+  background: rgba(255, 248, 231, 0.04);
+}
+
+.moving-units-panel__remove-stop {
+  justify-self: flex-start;
+}
+
+.moving-unit-marker {
+  background: transparent;
+  border: 0;
+}
+
+.moving-unit-marker__body {
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: radial-gradient(circle at 35% 30%, rgba(255, 248, 213, 0.9), rgba(250, 204, 21, 0.18));
+  border: 1px solid rgba(250, 204, 21, 0.55);
+  color: var(--unit-color);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.35);
+}
+
+.moving-unit-marker__glyph {
+  font-size: 0.92rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.moving-unit-marker--selected .moving-unit-marker__body {
+  box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.44), 0 12px 26px rgba(0, 0, 0, 0.42);
 }
 
 .editor-info-panel__field--scene {

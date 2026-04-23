@@ -8,6 +8,7 @@ import entitiesRoutes from '../entities.js';
 import filesRoutes from '../files.js';
 import locationsRoutes from '../locations.js';
 import mapLabelsRoutes from '../mapLabels.js';
+import movingUnitsRoutes from '../movingUnits.js';
 import portraitsRoutes from '../portraits.js';
 import playerCharactersRoutes from '../playerCharacters.js';
 import regionsRoutes from '../regions.js';
@@ -21,6 +22,7 @@ const routes = [
   { path: '/api/admin', router: adminRoutes },
   { path: '/api/locations', router: locationsRoutes },
   { path: '/api/map-labels', router: mapLabelsRoutes },
+  { path: '/api/moving-units', router: movingUnitsRoutes },
   { path: '/api/regions', router: regionsRoutes },
   { path: '/api/secrets', router: secretsRoutes },
   { path: '/api/timeline', router: timelineRoutes },

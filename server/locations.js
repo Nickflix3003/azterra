@@ -26,6 +26,12 @@ import {
   saveLocationDisplay,
   writeLocationDisplayMap,
 } from './locationDisplayStore.js';
+import {
+  readLocationPositionTimeline,
+  readLocationPositionTimelineMap,
+  saveLocationPositionTimeline,
+  writeLocationPositionTimelineMap,
+} from './locationPositionStore.js';
 
 const router = Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -115,7 +121,7 @@ router.use('/images', express.static(LOCATION_IMAGES_DIR));
 
 // ── DB helpers ────────────────────────────────────────────────────────────────
 
-function rowToLocation(row, secrets = {}, locationMap = null, locationDisplay = null) {
+function rowToLocation(row, secrets = {}, locationMap = null, locationDisplay = null, positionTimeline = []) {
   const numericId =
     typeof row.id === 'string' && /^-?\d+$/.test(row.id)
       ? Number(row.id)
@@ -140,6 +146,7 @@ function rowToLocation(row, secrets = {}, locationMap = null, locationDisplay = 
     gallery,
     imageUrl: typeof gallery[0] === 'string' ? gallery[0] : '',
     imageDisplayMode: locationDisplay?.imageMode || 'cover',
+    positionTimeline: Array.isArray(positionTimeline) ? positionTimeline : [],
     pinned: row.pinned === true,
     timeStart: row.time_start != null ? row.time_start : null,
     timeEnd: row.time_end != null ? row.time_end : null,
@@ -202,10 +209,11 @@ function locationToRow(loc) {
 router.get('/', async function(req, res) {
   try {
     const viewer = await resolveRequestUser(req);
-    const [secretMap, locationMapIndex, locationDisplayMap, result] = await Promise.all([
+    const [secretMap, locationMapIndex, locationDisplayMap, locationPositionTimelineMap, result] = await Promise.all([
       readLocationSecretMap(),
       readLocationMapMap(),
       readLocationDisplayMap(),
+      readLocationPositionTimelineMap(),
       db().from('locations').select('*').order('id'),
     ]);
     const { data, error } = result;
@@ -214,7 +222,8 @@ router.get('/', async function(req, res) {
       row,
       secretMap,
       locationMapIndex[String(row.id)],
-      locationDisplayMap[String(row.id)]
+      locationDisplayMap[String(row.id)],
+      locationPositionTimelineMap[String(row.id)]
     ));
     return res.json({ locations: sanitizeSecretItems(locations, viewer) });
   } catch (err) {
@@ -245,8 +254,14 @@ router.post('/', authRequired, editorRequired, async function(req, res) {
       secretMap = setLocationSecret(secretMap, data.id, req.body?.secretId);
       await writeLocationSecretMap(secretMap);
     }
+    let positionTimeline = [];
+    if (req.body?.positionTimeline !== undefined) {
+      positionTimeline = await saveLocationPositionTimeline(data.id, req.body.positionTimeline);
+    } else {
+      positionTimeline = await readLocationPositionTimeline(data.id);
+    }
     const locationDisplay = await readLocationDisplay(data.id);
-    return res.status(201).json({ location: rowToLocation(data, secretMap, null, locationDisplay) });
+    return res.status(201).json({ location: rowToLocation(data, secretMap, null, locationDisplay, positionTimeline) });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Unable to create location.' });
@@ -262,9 +277,16 @@ router.post('/save', authRequired, editorRequired, async function(req, res) {
   try {
     const currentSecretMap = await readLocationSecretMap();
     const secretSettings = await readSecretSettingsMap();
+    const currentPositionTimelineMap = await readLocationPositionTimelineMap();
     const { data: existingRows, error: existingErr } = await db().from('locations').select('*').order('id');
     throwIfError(existingErr, 'locations save existing fetch');
-    const existingLocations = (existingRows || []).map((row) => rowToLocation(row, currentSecretMap));
+    const existingLocations = (existingRows || []).map((row) => rowToLocation(
+      row,
+      currentSecretMap,
+      null,
+      null,
+      currentPositionTimelineMap[String(row.id)]
+    ));
     const preservedExisting = req.user?.role === 'admin'
       ? []
       : existingLocations.filter(
@@ -308,12 +330,18 @@ router.post('/save', authRequired, editorRequired, async function(req, res) {
       return acc;
     }, {});
     await writeLocationSecretMap(nextSecretMap);
+    const nextPositionTimelineMap = combinedPayload.reduce((acc, location) => {
+      acc[String(location.id)] = Array.isArray(location.positionTimeline) ? location.positionTimeline : [];
+      return acc;
+    }, {});
+    await writeLocationPositionTimelineMap(nextPositionTimelineMap);
     return res.json({
       locations: (data || []).map((row) => rowToLocation(
         row,
         nextSecretMap,
         locationMapIndex[String(row.id)],
-        locationDisplayMap[String(row.id)]
+        locationDisplayMap[String(row.id)],
+        nextPositionTimelineMap[String(row.id)]
       )),
     });
   } catch (err) {
@@ -327,15 +355,16 @@ router.get('/:id/map', async function(req, res) {
   const { id } = req.params;
   try {
     const viewer = await resolveRequestUser(req);
-    const [secretMap, locationMap, existingResult] = await Promise.all([
+    const [secretMap, locationMap, locationPositionTimeline, existingResult] = await Promise.all([
       readLocationSecretMap(),
       readLocationMap(id),
+      readLocationPositionTimeline(id),
       db().from('locations').select('*').eq('id', String(id)).single(),
     ]);
     throwIfError(existingResult.error, 'location map fetch location');
     if (!existingResult.data) return res.status(404).json({ error: 'Location not found.' });
 
-    const location = rowToLocation(existingResult.data, secretMap, locationMap);
+    const location = rowToLocation(existingResult.data, secretMap, locationMap, null, locationPositionTimeline);
     if (!canAccessSecretItem(viewer, location)) {
       return res.status(404).json({ error: 'Location not found.' });
     }
@@ -346,12 +375,15 @@ router.get('/:id/map', async function(req, res) {
     let resolvedById = new Map();
 
     if (linkedIds.length > 0) {
-      const relatedMapIndex = await readLocationMapMap();
+      const [relatedMapIndex, relatedPositionTimelineMap] = await Promise.all([
+        readLocationMapMap(),
+        readLocationPositionTimelineMap(),
+      ]);
       const relatedResult = await db().from('locations').select('*').in('id', linkedIds);
       throwIfError(relatedResult.error, 'location map linked locations');
       resolvedById = new Map(
         (relatedResult.data || [])
-          .map((row) => rowToLocation(row, secretMap, relatedMapIndex[String(row.id)]))
+          .map((row) => rowToLocation(row, secretMap, relatedMapIndex[String(row.id)], null, relatedPositionTimelineMap[String(row.id)]))
           .filter((entry) => canAccessSecretItem(viewer, entry))
           .map((entry) => [String(entry.id), entry])
       );
@@ -525,7 +557,7 @@ router.post('/:id/scene/upload', authRequired, editorRequired, uploadImage.singl
 // PATCH /api/locations/:id
 router.patch('/:id', authRequired, editorRequired, async function(req, res) {
   const { id } = req.params;
-  const allowed = ['name', 'description', 'lore', 'type', 'category', 'regionId', 'tags', 'gallery', 'imageUrl', 'imageDisplayMode', 'glowColor', 'iconKey', 'pinned', 'timeStart', 'timeEnd', 'lat', 'lng'];
+  const allowed = ['name', 'description', 'lore', 'type', 'category', 'regionId', 'tags', 'gallery', 'imageUrl', 'imageDisplayMode', 'glowColor', 'iconKey', 'pinned', 'timeStart', 'timeEnd', 'lat', 'lng', 'positionTimeline'];
   const updates = {};
   allowed.forEach(function(key) { if (key in req.body) updates[key] = req.body[key]; });
 
@@ -533,9 +565,10 @@ router.patch('/:id', authRequired, editorRequired, async function(req, res) {
     const fetchResult = await db().from('locations').select('*').eq('id', String(id)).single();
     throwIfError(fetchResult.error, 'locations PATCH fetch');
     if (!fetchResult.data) return res.status(404).json({ error: 'Location not found.' });
-    const [currentSecretMap, currentDisplay] = await Promise.all([
+    const [currentSecretMap, currentDisplay, currentPositionTimeline] = await Promise.all([
       readLocationSecretMap(),
       readLocationDisplay(id),
+      readLocationPositionTimeline(id),
     ]);
     const secretSettings = await readSecretSettingsMap();
     const currentSecretId =
@@ -593,13 +626,16 @@ router.patch('/:id', authRequired, editorRequired, async function(req, res) {
         imageMode: updates.imageDisplayMode,
       });
     }
+    const nextPositionTimeline = updates.positionTimeline !== undefined
+      ? await saveLocationPositionTimeline(id, updates.positionTimeline)
+      : currentPositionTimeline;
     let secretMap = currentSecretMap;
     if (req.body?.secretId !== undefined) {
       secretMap = setLocationSecret(secretMap, id, req.body.secretId);
       await writeLocationSecretMap(secretMap);
     }
     const locationMap = await readLocationMap(id);
-    return res.json({ location: rowToLocation(data, secretMap, locationMap, nextDisplay) });
+    return res.json({ location: rowToLocation(data, secretMap, locationMap, nextDisplay, nextPositionTimeline) });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Unable to update location.' });
@@ -612,10 +648,11 @@ router.post('/:id/image', authRequired, editorRequired, uploadImage.single('imag
   const { id } = req.params;
   const url = '/api/locations/images/' + req.file.filename;
   try {
-    const [secretMap, locationMapIndex, locationDisplayMap, fetchResult] = await Promise.all([
+    const [secretMap, locationMapIndex, locationDisplayMap, locationPositionTimelineMap, fetchResult] = await Promise.all([
       readLocationSecretMap(),
       readLocationMapMap(),
       readLocationDisplayMap(),
+      readLocationPositionTimelineMap(),
       db().from('locations').select('*').eq('id', String(id)).single(),
     ]);
     throwIfError(fetchResult.error, 'location image upload fetch');
@@ -642,7 +679,8 @@ router.post('/:id/image', authRequired, editorRequired, uploadImage.single('imag
         updateResult.data,
         secretMap,
         locationMapIndex[String(updateResult.data.id)],
-        locationDisplayMap[String(updateResult.data.id)]
+        locationDisplayMap[String(updateResult.data.id)],
+        locationPositionTimelineMap[String(updateResult.data.id)]
       ),
     });
   } catch (err) {
@@ -666,6 +704,11 @@ router.delete('/:id', authRequired, editorRequired, async function(req, res) {
     if (displayMap[String(id)]) {
       delete displayMap[String(id)];
       await writeLocationDisplayMap(displayMap);
+    }
+    const positionTimelineMap = await readLocationPositionTimelineMap();
+    if (positionTimelineMap[String(id)]) {
+      delete positionTimelineMap[String(id)];
+      await writeLocationPositionTimelineMap(positionTimelineMap);
     }
     return res.json({ success: true, id: typeof existing.id === 'string' && /^-?\d+$/.test(existing.id) ? Number(existing.id) : existing.id });
   } catch (err) {

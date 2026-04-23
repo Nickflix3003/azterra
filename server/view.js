@@ -18,6 +18,7 @@ import {
 import { db, throwIfError } from './db.js';
 import { sanitizeSecretItems } from './secretAccess.js';
 import { readLocationDisplayMap } from './locationDisplayStore.js';
+import { readLocationPositionTimelineMap } from './locationPositionStore.js';
 import { hasLocationMapImage, readLocationMapMap } from './locationMapStore.js';
 
 const router = express.Router();
@@ -94,7 +95,7 @@ function rowToNpc(row) {
   };
 }
 
-function rowToLocation(row, secrets = {}, locationMap = null, locationDisplay = null) {
+function rowToLocation(row, secrets = {}, locationMap = null, locationDisplay = null, positionTimeline = []) {
   const numericId =
     typeof row.id === 'string' && /^-?\d+$/.test(row.id)
       ? Number(row.id)
@@ -120,6 +121,7 @@ function rowToLocation(row, secrets = {}, locationMap = null, locationDisplay = 
     lore: row.lore || '',
     imageUrl: typeof gallery[0] === 'string' ? gallery[0] : '',
     imageDisplayMode: locationDisplay?.imageMode || 'cover',
+    positionTimeline: Array.isArray(positionTimeline) ? positionTimeline : [],
     hasLocalMap: hasLocationMapImage(locationMap),
     ...(normalizeSecretId(secret.secretId) && { secretId: normalizeSecretId(secret.secretId) }),
   };
@@ -163,10 +165,11 @@ async function getNpcs() {
 
 async function getLocations() {
   try {
-    const [secretMap, locationMapIndex, locationDisplayMap, result] = await Promise.all([
+    const [secretMap, locationMapIndex, locationDisplayMap, locationPositionTimelineMap, result] = await Promise.all([
       readSecretMap('location-secrets.json'),
       readLocationMapMap(),
       readLocationDisplayMap(),
+      readLocationPositionTimelineMap(),
       db().from('locations').select('*').order('id'),
     ]);
     throwIfError(result.error, 'view locations');
@@ -175,7 +178,8 @@ async function getLocations() {
         row,
         secretMap,
         locationMapIndex[String(row.id)],
-        locationDisplayMap[String(row.id)]
+        locationDisplayMap[String(row.id)],
+        locationPositionTimelineMap[String(row.id)]
       )
     );
   } catch {

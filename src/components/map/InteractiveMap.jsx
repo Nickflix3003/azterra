@@ -21,6 +21,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useMapEffects } from '../../context/MapEffectsContext';
 import { useLocationData } from '../../context/LocationDataContext';
+import { useMovingUnits } from '../../context/MovingUnitDataContext';
 import { useContent } from '../../context/ContentContext';
 import { useLabels } from '../../context/LabelDataContext';
 import { useRegions } from '../../context/RegionDataContext';
@@ -38,6 +39,8 @@ import LabelLayer from './layers/LabelLayer';
 import ParallaxLayer from './layers/ParallaxLayer';
 import DiagnosticsPanel from './DiagnosticsPanel';
 import MarkerPalette from './MarkerPalette';
+import MovingUnitLayer from './MovingUnitLayer';
+import MovingUnitsPanel from './MovingUnitsPanel';
 import ConfirmModal from './ConfirmModal';
 import EditorSidePanel from './EditorSidePanel';
 import FilterHoverPanel from './FilterHoverPanel';
@@ -91,6 +94,14 @@ import {
   getPlaceholderMarkerSrc,
   getPlacementConfig,
 } from '../../utils/markerUtils';
+import {
+  applyWaypointCoordinateUpdate,
+  buildPlatoonOffsets,
+  normalizePositionTimeline,
+  resolveLocationPosition,
+  resolveMovingUnitLeaderPosition,
+  isMovingUnitVisibleAtYear,
+} from '../../utils/timePositionUtils';
 import { isVisibleInYear, toOptionalYear } from '../../utils/eraUtils';
 import { findContainingRegionId, getRegionPolygons } from '../../utils/regionGeometry';
 
@@ -238,6 +249,12 @@ function InteractiveMap({
     getLocationSaveState,
   } = useLocationData();
   const {
+    movingUnits,
+    selectedMovingUnitId,
+    selectMovingUnit,
+    flushPendingMovingUnitSaves,
+  } = useMovingUnits();
+  const {
     regions,
     setRegions,
     selectedRegionId: activeRegionId,
@@ -313,6 +330,7 @@ function InteractiveMap({
   const iconCheckQueueRef       = useRef(new Set());
   const viewPanelCloseTimeoutRef = useRef(null);
   const editorPanelCloseTimeoutRef = useRef(null);
+  const animatedMovingUnitPositionsRef = useRef({});
 
   const [saveWarning, setSaveWarning]     = useState('');
   const [diagnostics, setDiagnostics]     = useState({});
@@ -320,6 +338,7 @@ function InteractiveMap({
   const [iconStatuses, setIconStatuses]   = useState({});
   const [isViewPanelClosing, setIsViewPanelClosing] = useState(false);
   const [isEditorLocationClosing, setIsEditorLocationClosing] = useState(false);
+  const [animatedMovingUnitPositions, setAnimatedMovingUnitPositions] = useState({});
 
   const isAdmin = role === 'admin';
   const center  = MAP_CENTER;
@@ -341,6 +360,7 @@ function InteractiveMap({
     timeStart: location?.timeStart,
     timeEnd: location?.timeEnd,
     regionId: location?.regionId ?? null,
+    positionTimeline: normalizePositionTimeline(location?.positionTimeline),
   }), []);
 
   useEffect(() => {
@@ -370,6 +390,27 @@ function InteractiveMap({
     [locations, markerFilters, showMarkers, hoveredLocationId, timelineActive, currentYear, isEditorMode]
   );
 
+  const useTemporalPositions = timelineActive || isEditorMode;
+  const locationById = useMemo(
+    () => new Map(locations.map((location) => [String(location.id), location])),
+    [locations]
+  );
+
+  const displayedLocations = useMemo(
+    () =>
+      filteredLocations.map((location) => {
+        if (!useTemporalPositions) return location;
+        const resolvedPoint = resolveLocationPosition(location, currentYear, locationById);
+        if (!resolvedPoint) return location;
+        return {
+          ...location,
+          lat: resolvedPoint.lat,
+          lng: resolvedPoint.lng,
+        };
+      }),
+    [filteredLocations, useTemporalPositions, currentYear, locationById]
+  );
+
   const filteredRegions = useMemo(
     () =>
       !showRegionsLayer && !isRegionMode
@@ -392,6 +433,104 @@ function InteractiveMap({
     if (!showMapLabels) return [];
     return labels.filter((label) => isVisibleInYear(label, currentYear, timelineActive, false));
   }, [labels, showMapLabels, currentYear, timelineActive, isEditorMode]);
+
+  const visibleMovingUnits = useMemo(() => {
+    if (!useTemporalPositions) return [];
+    return movingUnits
+      .filter((unit) => isEditorMode || isMovingUnitVisibleAtYear(unit, currentYear))
+      .map((unit) => ({
+        ...unit,
+        targetLeader: resolveMovingUnitLeaderPosition(unit, currentYear, locationById),
+      }))
+      .filter((unit) => unit.targetLeader);
+  }, [currentYear, isEditorMode, locationById, movingUnits, useTemporalPositions]);
+
+  useEffect(() => {
+    if (!visibleMovingUnits.length) {
+      animatedMovingUnitPositionsRef.current = {};
+      setAnimatedMovingUnitPositions({});
+      return undefined;
+    }
+
+    const targets = Object.fromEntries(
+      visibleMovingUnits.map((unit) => [String(unit.id), unit.targetLeader])
+    );
+    const starts = Object.fromEntries(
+      visibleMovingUnits.map((unit) => [
+        String(unit.id),
+        animatedMovingUnitPositionsRef.current[String(unit.id)] || unit.targetLeader,
+      ])
+    );
+
+    if (!useTemporalPositions) {
+      animatedMovingUnitPositionsRef.current = targets;
+      setAnimatedMovingUnitPositions(targets);
+      return undefined;
+    }
+
+    const durationMs = 720;
+    const rafHandle = { id: 0 };
+    const startTime = performance.now();
+
+    const step = (timestamp) => {
+      const progress = Math.min(1, (timestamp - startTime) / durationMs);
+      const nextPositions = Object.fromEntries(
+        visibleMovingUnits.map((unit) => {
+          const key = String(unit.id);
+          const from = starts[key] || unit.targetLeader;
+          const to = targets[key] || unit.targetLeader;
+          return [key, {
+            lat: from.lat + (to.lat - from.lat) * progress,
+            lng: from.lng + (to.lng - from.lng) * progress,
+          }];
+        })
+      );
+      animatedMovingUnitPositionsRef.current = nextPositions;
+      setAnimatedMovingUnitPositions(nextPositions);
+      if (progress < 1) {
+        rafHandle.id = window.requestAnimationFrame(step);
+      }
+    };
+
+    rafHandle.id = window.requestAnimationFrame(step);
+    return () => {
+      if (rafHandle.id) {
+        window.cancelAnimationFrame(rafHandle.id);
+      }
+    };
+  }, [currentYear, useTemporalPositions, visibleMovingUnits]);
+
+  const displayedMovingUnits = useMemo(() => {
+    if (!visibleMovingUnits.length) return [];
+    let remainingFollowers = 40;
+    let remainingUnits = visibleMovingUnits.length;
+
+    return visibleMovingUnits.map((unit) => {
+      const leader = animatedMovingUnitPositions[String(unit.id)] || unit.targetLeader;
+      const desiredFollowers = unit.platoonStyle?.followers ?? 5;
+      const perUnitBudget = remainingUnits > 0 ? Math.floor(remainingFollowers / remainingUnits) : 0;
+      const allowedFollowers = remainingFollowers <= 0
+        ? 0
+        : Math.max(0, Math.min(desiredFollowers, Math.max(perUnitBudget, 1), 8));
+
+      remainingFollowers -= allowedFollowers;
+      remainingUnits -= 1;
+
+      const followers = buildPlatoonOffsets(unit, allowedFollowers).map((offset, index) => ({
+        id: `${unit.id}-follower-${index + 1}`,
+        lat: leader.lat + offset.lat,
+        lng: leader.lng + offset.lng,
+        scale: offset.scale,
+      }));
+
+      return {
+        ...unit,
+        lat: leader.lat,
+        lng: leader.lng,
+        followers,
+      };
+    });
+  }, [animatedMovingUnitPositions, visibleMovingUnits]);
 
   const regionLabelsEnabled = filteredRegions.some((region) => region.labelEnabled !== false);
 
@@ -550,6 +689,7 @@ function InteractiveMap({
     if (editorSelection?.id && editorSelection.id !== location.id) {
       flushPendingLocationSaves([editorSelection.id], { successMode: 'none' }).catch(() => null);
     }
+    selectMovingUnit(null);
     selectRegion(null);
     selectLocation(location.id);
     if (isEditorMode) {
@@ -574,6 +714,16 @@ function InteractiveMap({
       viewPanelCloseTimeoutRef.current = null;
     }, PANEL_CLOSE_DURATION_MS);
   };
+
+  const handleMovingUnitSelect = useCallback((unitId) => {
+    if (editorSelection?.id) {
+      flushPendingLocationSaves([editorSelection.id], { successMode: 'none' }).catch(() => null);
+    }
+    setEditorSelection(null);
+    selectLocation(null);
+    selectRegion(null);
+    selectMovingUnit(unitId);
+  }, [editorSelection?.id, flushPendingLocationSaves, selectLocation, selectMovingUnit, selectRegion]);
 
   const handleMarkerDragStart = useCallback((id) => {
     // Store ID and original position in refs — zero re-renders, so the Leaflet
@@ -653,12 +803,25 @@ function InteractiveMap({
 
     // Normal reposition.
     const nextRegionId = inferRegionIdForCoords(coords.lat, coords.lng);
+    const targetLocation = locations.find((loc) => String(loc.id) === String(id));
+    if (!targetLocation) return;
+    const nextUpdates =
+      useTemporalPositions && Array.isArray(targetLocation.positionTimeline) && targetLocation.positionTimeline.length
+        ? {
+            positionTimeline: applyWaypointCoordinateUpdate(targetLocation.positionTimeline, currentYear, coords),
+            regionId: nextRegionId,
+          }
+        : {
+            lat: coords.lat,
+            lng: coords.lng,
+            regionId: nextRegionId,
+          };
     updateLocation(
       id,
-      { lat: coords.lat, lng: coords.lng, regionId: nextRegionId },
+      nextUpdates,
       { mode: 'immediate', successMode: 'none' }
     );
-  }, [deleteLocation, editorSelection, inferRegionIdForCoords, locations, updateLocation, updateLocationLocal]);
+  }, [currentYear, deleteLocation, editorSelection, inferRegionIdForCoords, locations, updateLocation, updateLocationLocal, useTemporalPositions]);
 
   // ── Region helpers ───────────────────────────────────────────────────────────
 
@@ -1086,7 +1249,9 @@ function InteractiveMap({
       if (editorSelection?.id) {
         flushPendingLocationSaves([editorSelection.id], { successMode: 'none' }).catch(() => null);
       }
+      flushPendingMovingUnitSaves(undefined, { successMode: 'none' }).catch(() => null);
       setEditorSelection(null);
+      selectMovingUnit(null);
       setActivePlacementTypeId(null);
       setIsRegionMode(false);
       setIsPlacingLabel(false);
@@ -1095,7 +1260,7 @@ function InteractiveMap({
       flushPendingLabelSaves().catch(() => null);
       flushPendingRegionSaves({ successMode: 'none' }).catch(() => null);
     }
-  }, [editorSelection?.id, flushPendingLabelSaves, flushPendingLocationSaves, flushPendingRegionSaves, isEditorMode, selectLocation, selectRegion]);
+  }, [editorSelection?.id, flushPendingLabelSaves, flushPendingLocationSaves, flushPendingMovingUnitSaves, flushPendingRegionSaves, isEditorMode, selectLocation, selectMovingUnit, selectRegion]);
 
   useEffect(() => {
     if (!isEditorMode) return;
@@ -1223,7 +1388,8 @@ function InteractiveMap({
     const nextDraft = buildEditorDraft(selectedLocation);
     const currentDraft = editorSelection.draft || {};
     const fields = ['name', 'type', 'category', 'lore', 'description', 'secretId', 'imageUrl', 'imageDisplayMode', 'pinned', 'timeStart', 'timeEnd', 'regionId'];
-    const changed = fields.some((field) => currentDraft[field] !== nextDraft[field]);
+    const changed = fields.some((field) => currentDraft[field] !== nextDraft[field])
+      || JSON.stringify(currentDraft.positionTimeline || []) !== JSON.stringify(nextDraft.positionTimeline || []);
     if (!changed) return;
     setEditorSelection((prev) => (
       prev && String(prev.id) === String(selectedLocation.id)
@@ -1387,6 +1553,13 @@ function InteractiveMap({
     />
   ) : null;
 
+  const movingUnitsPanelNode = isEditorMode ? (
+    <MovingUnitsPanel
+      canAutoSave={canAutoSave}
+      currentYear={currentYear}
+    />
+  ) : null;
+
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
@@ -1462,16 +1635,21 @@ function InteractiveMap({
                 isEnabled={
                   (!isEditorMode && Boolean(selectedLocation)) ||
                   (isEditorMode &&
-                    Boolean(editorSelection) &&
+                    (Boolean(editorSelection) || Boolean(selectedMovingUnitId)) &&
                     !isRegionMode &&
                     !isPlacingLabel)
                 }
-                onClose={isEditorMode ? handleEditorCancel : handleClosePanel}
+                onClose={isEditorMode
+                  ? () => {
+                      if (editorSelection) handleEditorCancel();
+                      else selectMovingUnit(null);
+                    }
+                  : handleClosePanel}
               />
               <KeyboardControls />
               <ZoomControls />
 
-              {filteredLocations.map((location) => (
+              {displayedLocations.map((location) => (
                 <LocationMarker
                   key={location.id}
                   location={location}
@@ -1530,13 +1708,19 @@ function InteractiveMap({
               onDiagnostics={reportDiagnostics}
             />
 
-            <HeatmapLayer
-              enabled={heatmapMode !== 'none'}
-              map={mapInstance}
-              locations={filteredLocations}
-              heatmapMode={heatmapMode}
-              onDiagnostics={reportDiagnostics}
-            />
+              <HeatmapLayer
+                enabled={heatmapMode !== 'none'}
+                map={mapInstance}
+                locations={displayedLocations}
+                heatmapMode={heatmapMode}
+                onDiagnostics={reportDiagnostics}
+              />
+              <MovingUnitLayer
+                units={displayedMovingUnits}
+                zoomLevel={mapZoom}
+                selectedUnitId={selectedMovingUnitId}
+                onSelectUnit={isEditorMode ? handleMovingUnitSelect : undefined}
+              />
             <ParallaxLayer
               enabled
               map={mapInstance}
@@ -1551,6 +1735,8 @@ function InteractiveMap({
               <EditorSidePanel
                 isEditorMode={isEditorMode}
                 markerPalette={markerPaletteNode}
+                movingUnitsPanel={movingUnitsPanelNode}
+                selectedMovingUnitId={selectedMovingUnitId}
                 markerToolbox={markerToolboxNode}
                 locationEditor={locationEditorNode}
                 regions={regions}

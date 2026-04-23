@@ -17,6 +17,7 @@ import {
   buildIconSrc,
 } from '../constants/mapConstants';
 import { toOptionalYear } from './eraUtils';
+import { normalizePositionTimeline } from './timePositionUtils';
 
 // ─── SVG placeholder markers ─────────────────────────────────────────────────
 
@@ -80,6 +81,7 @@ export const normalizeLocationEntry = (location) => {
     ...(location.secretId  != null && { secretId:  location.secretId }),
     ...(location.imageUrl  != null && { imageUrl:  location.imageUrl }),
     ...(location.imageDisplayMode != null && { imageDisplayMode: location.imageDisplayMode }),
+    ...(location.positionTimeline != null && { positionTimeline: normalizePositionTimeline(location.positionTimeline) }),
     ...(location.createdBy != null && { createdBy: location.createdBy }),
     ...(location.createdAt != null && { createdAt: location.createdAt }),
     ...(location.updatedBy != null && { updatedBy: location.updatedBy }),
