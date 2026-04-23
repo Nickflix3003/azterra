@@ -220,6 +220,7 @@ function InteractiveMap({
   onLocationHoverChange,
   onRegionHoverChange,
 }) {
+  const PANEL_CLOSE_DURATION_MS = 220;
   const { role, user } = useAuth();
   const { toast } = useToast();
   const { cloudsEnabled, fogEnabled, vignetteEnabled, heatmapMode, intensities, setIntensity } =
@@ -310,11 +311,15 @@ function InteractiveMap({
 
   const mapContainerRef         = useRef(null);
   const iconCheckQueueRef       = useRef(new Set());
+  const viewPanelCloseTimeoutRef = useRef(null);
+  const editorPanelCloseTimeoutRef = useRef(null);
 
   const [saveWarning, setSaveWarning]     = useState('');
   const [diagnostics, setDiagnostics]     = useState({});
   const [diagRefreshToken, setDiagRefreshToken] = useState(0);
   const [iconStatuses, setIconStatuses]   = useState({});
+  const [isViewPanelClosing, setIsViewPanelClosing] = useState(false);
+  const [isEditorLocationClosing, setIsEditorLocationClosing] = useState(false);
 
   const isAdmin = role === 'admin';
   const center  = MAP_CENTER;
@@ -337,6 +342,17 @@ function InteractiveMap({
     timeEnd: location?.timeEnd,
     regionId: location?.regionId ?? null,
   }), []);
+
+  useEffect(() => {
+    return () => {
+      if (viewPanelCloseTimeoutRef.current) {
+        clearTimeout(viewPanelCloseTimeoutRef.current);
+      }
+      if (editorPanelCloseTimeoutRef.current) {
+        clearTimeout(editorPanelCloseTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const filteredLocations = useMemo(
     () =>
@@ -520,6 +536,17 @@ function InteractiveMap({
   // ── Location handlers ────────────────────────────────────────────────────────
 
   const handleLocationClick = (location) => {
+    if (viewPanelCloseTimeoutRef.current) {
+      clearTimeout(viewPanelCloseTimeoutRef.current);
+      viewPanelCloseTimeoutRef.current = null;
+    }
+    if (editorPanelCloseTimeoutRef.current) {
+      clearTimeout(editorPanelCloseTimeoutRef.current);
+      editorPanelCloseTimeoutRef.current = null;
+    }
+    setIsViewPanelClosing(false);
+    setIsEditorLocationClosing(false);
+
     if (editorSelection?.id && editorSelection.id !== location.id) {
       flushPendingLocationSaves([editorSelection.id], { successMode: 'none' }).catch(() => null);
     }
@@ -535,12 +562,17 @@ function InteractiveMap({
   };
 
   const handleClosePanel = () => {
-    if (editorSelection?.id) {
-      flushPendingLocationSaves([editorSelection.id], { successMode: 'none' }).catch(() => null);
+    if (!selectedLocation && !selectedRegion) return;
+    if (viewPanelCloseTimeoutRef.current) {
+      clearTimeout(viewPanelCloseTimeoutRef.current);
     }
-    selectLocation(null);
-    selectRegion(null);
-    setEditorSelection(null);
+    setIsViewPanelClosing(true);
+    viewPanelCloseTimeoutRef.current = setTimeout(() => {
+      selectLocation(null);
+      selectRegion(null);
+      setIsViewPanelClosing(false);
+      viewPanelCloseTimeoutRef.current = null;
+    }, PANEL_CLOSE_DURATION_MS);
   };
 
   const handleMarkerDragStart = useCallback((id) => {
@@ -755,6 +787,12 @@ function InteractiveMap({
   };
 
   const handleRegionClick = (regionId) => {
+    if (viewPanelCloseTimeoutRef.current) {
+      clearTimeout(viewPanelCloseTimeoutRef.current);
+      viewPanelCloseTimeoutRef.current = null;
+    }
+    setIsViewPanelClosing(false);
+
     if (isEditorMode) {
       selectRegion(regionId);
       setRegionDraftPoints([]);
@@ -1292,11 +1330,29 @@ function InteractiveMap({
   }, [handleEditorCommit]);
 
   const handleEditorCancel = useCallback(() => {
-    if (editorSelection?.id && canAutoSave) {
-      flushPendingLocationSaves([editorSelection.id], { successMode: 'none' }).catch(() => null);
+    if (!editorSelection?.id) {
+      setEditorSelection(null);
+      selectLocation(null);
+      return;
     }
-    setEditorSelection(null);
-    selectLocation(null);
+
+    if (editorPanelCloseTimeoutRef.current) {
+      clearTimeout(editorPanelCloseTimeoutRef.current);
+    }
+
+    const closingLocationId = editorSelection.id;
+    setIsEditorLocationClosing(true);
+    editorPanelCloseTimeoutRef.current = setTimeout(() => {
+      if (canAutoSave) {
+        flushPendingLocationSaves([closingLocationId], { successMode: 'none' }).catch(() => null);
+      }
+      setEditorSelection((prev) => (
+        prev && String(prev.id) === String(closingLocationId) ? null : prev
+      ));
+      selectLocation(null);
+      setIsEditorLocationClosing(false);
+      editorPanelCloseTimeoutRef.current = null;
+    }, PANEL_CLOSE_DURATION_MS);
   }, [canAutoSave, editorSelection?.id, flushPendingLocationSaves, selectLocation]);
 
   const handleDeleteLocation = useCallback(() => {
@@ -1357,6 +1413,7 @@ function InteractiveMap({
   const locationEditorNode = isEditorMode && editorSelection ? (
     <EditorInfoPanel
       isOpen
+      isClosing={isEditorLocationClosing}
       draft={editorDraft}
       onFieldChange={handleEditorFieldChange}
       onFieldBlur={handleEditorBlur}
@@ -1443,8 +1500,14 @@ function InteractiveMap({
                 onPlace={handlePlaceLabel}
               />
               <ViewSelectionCloseHandler
-                isEnabled={!isEditorMode && Boolean(selectedLocation)}
-                onClose={handleClosePanel}
+                isEnabled={
+                  (!isEditorMode && Boolean(selectedLocation)) ||
+                  (isEditorMode &&
+                    Boolean(editorSelection) &&
+                    !isRegionMode &&
+                    !isPlacingLabel)
+                }
+                onClose={isEditorMode ? handleEditorCancel : handleClosePanel}
               />
               <KeyboardControls />
               <ZoomControls />
@@ -1578,6 +1641,7 @@ function InteractiveMap({
         <SidePanel
           location={selectedLocation}
           onClose={handleClosePanel}
+          isClosing={isViewPanelClosing}
         />
       )}
       {!isEditorMode && !selectedLocation && selectedRegion && (
@@ -1586,6 +1650,7 @@ function InteractiveMap({
           regionLocations={selectedRegionLocations}
           onClose={handleClosePanel}
           onSelectLocation={handleLocationClick}
+          isClosing={isViewPanelClosing}
         />
       )}
       {/* In editor mode, render the edit form as a fixed overlay on the right */}

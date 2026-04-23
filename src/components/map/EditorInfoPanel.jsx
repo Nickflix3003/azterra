@@ -60,6 +60,7 @@ function DualRangeSlider({ min = 0, max = 1000, startVal, endVal, onChangeStart,
 
 function EditorInfoPanel({
   isOpen,
+  isClosing = false,
   draft,
   onFieldChange,
   onFieldBlur,
@@ -190,7 +191,10 @@ function EditorInfoPanel({
   const currentType = LOCATION_EDITOR_TYPE_OPTIONS.find((option) => option.id === draft.type) || LOCATION_EDITOR_TYPE_OPTIONS[0];
 
   return (
-    <aside className="editor-info-panel" aria-label="Edit location">
+    <aside
+      className={`editor-info-panel ${isClosing ? 'editor-info-panel--closing' : ''}`}
+      aria-label="Edit location"
+    >
       <div className="editor-info-panel__header">
         <div>
           <h2>Edit Location</h2>

@@ -369,6 +369,11 @@ html, body, #root {
   animation: slideIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+.editor-info-panel--closing {
+  animation: slideOut 0.22s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  pointer-events: none;
+}
+
 .editor-info-panel__header {
   display: flex;
   justify-content: space-between;

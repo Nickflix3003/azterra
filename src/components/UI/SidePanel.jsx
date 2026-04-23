@@ -3,7 +3,14 @@ import { Link } from 'react-router-dom';
 import { useRegions } from '../../context/RegionDataContext';
 import './UI.css';
 
-function SidePanel({ location, region, regionLocations = [], onClose, onSelectLocation }) {
+function SidePanel({
+  location,
+  region,
+  regionLocations = [],
+  onClose,
+  onSelectLocation,
+  isClosing = false,
+}) {
   const { regions } = useRegions();
   if (!location && !region) return null;
   const imageDisplayMode = location?.imageDisplayMode || 'cover';
@@ -34,7 +41,7 @@ function SidePanel({ location, region, regionLocations = [], onClose, onSelectLo
 
   if (region && !location) {
     return (
-      <div className="side-panel custom-scrollbar">
+      <div className={`side-panel custom-scrollbar ${isClosing ? 'side-panel--closing' : ''}`}>
         <div className="side-panel-header">
           <div>
             {region.category && <p className="side-panel-type">{region.category}</p>}
@@ -99,7 +106,7 @@ function SidePanel({ location, region, regionLocations = [], onClose, onSelectLo
   }
 
   return (
-    <div className="side-panel custom-scrollbar">
+    <div className={`side-panel custom-scrollbar ${isClosing ? 'side-panel--closing' : ''}`}>
       <div className="side-panel-header">
         <div>
           {location.type && <p className="side-panel-type">{location.type}</p>}
