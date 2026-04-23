@@ -1,6 +1,7 @@
 const DEFAULT_PLATOON_FOLLOWERS = 5;
 const MAX_PLATOON_FOLLOWERS = 8;
 const DEFAULT_PLATOON_SPREAD = 0.34;
+const DEFAULT_PLATOON_COLUMNS = 3;
 
 function toFiniteNumber(value, fallback = null) {
   const numeric = Number(value);
@@ -72,6 +73,34 @@ function lerpPoint(start, end, progress) {
   };
 }
 
+function buildWaypointId(year) {
+  return `waypoint-${year}-${Date.now()}`;
+}
+
+function normalizeHeading(angle) {
+  if (!Number.isFinite(angle)) return 0;
+  const normalized = angle % 360;
+  return normalized < 0 ? normalized + 360 : normalized;
+}
+
+function headingFromPoints(from, to) {
+  if (!from || !to) return 0;
+  const dx = to.lng - from.lng;
+  const dy = to.lat - from.lat;
+  if (Math.abs(dx) < 0.000001 && Math.abs(dy) < 0.000001) return 0;
+  return normalizeHeading((Math.atan2(dy, dx) * 180) / Math.PI + 90);
+}
+
+function rotateOffset(forward, lateral, heading) {
+  const radians = ((heading ?? 90) - 90) * (Math.PI / 180);
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  return {
+    lat: forward * sin + lateral * cos,
+    lng: forward * cos - lateral * sin,
+  };
+}
+
 function resolveWaypointPoint(stop, year, locationById, resolveLocationPosition, visited) {
   if (hasCoordinate(stop)) {
     return { lat: stop.lat, lng: stop.lng };
@@ -120,6 +149,45 @@ function resolveTimelinePoint(stops, year, locationById, resolveLocationPosition
 
   const last = resolvedStops[resolvedStops.length - 1];
   return last.point;
+}
+
+function resolveTimelineHeading(stops, year, locationById, resolveLocationPosition, fallbackPoint, visited) {
+  const normalized = normalizeTimelineWaypoints(stops);
+  if (!normalized.length) return 0;
+
+  const resolvedStops = normalized
+    .map((stop) => ({
+      ...stop,
+      point: resolveWaypointPoint(stop, year, locationById, resolveLocationPosition, visited),
+    }))
+    .filter((stop) => stop.point);
+
+  if (resolvedStops.length <= 1) {
+    const fallback = resolvedStops[0]?.point || fallbackPoint;
+    return headingFromPoints(fallback, fallback);
+  }
+
+  if (year <= resolvedStops[0].startYear) {
+    return headingFromPoints(resolvedStops[0].point, resolvedStops[1].point);
+  }
+
+  for (let index = 0; index < resolvedStops.length - 1; index += 1) {
+    const current = resolvedStops[index];
+    const next = resolvedStops[index + 1];
+
+    if (current.endYear != null && year >= current.startYear && year <= current.endYear) {
+      const previous = resolvedStops[index - 1];
+      return headingFromPoints(previous?.point || current.point, current.point);
+    }
+
+    if (year >= current.startYear && year < next.startYear) {
+      return headingFromPoints(current.point, next.point);
+    }
+  }
+
+  const last = resolvedStops[resolvedStops.length - 1];
+  const previous = resolvedStops[resolvedStops.length - 2];
+  return headingFromPoints(previous?.point || last.point, last.point);
 }
 
 export function getActiveTimelineWaypointIndex(stops, year) {
@@ -173,6 +241,18 @@ export function resolveMovingUnitLeaderPosition(unit, year, locationById) {
   );
 }
 
+export function resolveMovingUnitHeading(unit, year, locationById) {
+  if (!unit) return 0;
+  return resolveTimelineHeading(
+    unit.movementTimeline,
+    year,
+    locationById,
+    resolveLocationPosition,
+    getFallbackPoint(unit),
+    new Set([`unit:${unit.id}`])
+  );
+}
+
 export function isMovingUnitVisibleAtYear(unit, year) {
   const stops = normalizeTimelineWaypoints(unit?.movementTimeline);
   if (!stops.length) return false;
@@ -191,25 +271,39 @@ function stringSeed(value) {
   return Math.abs(hash);
 }
 
-export function buildPlatoonOffsets(unit, overrideFollowers) {
+export function buildPlatoonOffsets(unit, overrideFollowers, options = {}) {
   const style = normalizePlatoonStyle(unit?.platoonStyle);
-  const followerCount = clamp(
-    overrideFollowers ?? style.followers ?? DEFAULT_PLATOON_FOLLOWERS,
-    1,
-    MAX_PLATOON_FOLLOWERS
+  const requestedFollowers = Math.max(
+    0,
+    Math.round(overrideFollowers ?? style.followers ?? DEFAULT_PLATOON_FOLLOWERS)
   );
+  const followerCount = clamp(requestedFollowers, 0, MAX_PLATOON_FOLLOWERS);
+  if (followerCount <= 0) return [];
   const spread = style.spread ?? DEFAULT_PLATOON_SPREAD;
   const seed = stringSeed(unit?.id);
-  const directionBias = seed % 2 === 0 ? 1 : -1;
+  const heading = normalizeHeading(options.heading ?? 0);
+  const phase = options.phase ?? 0;
+  const columns = clamp(options.columns ?? DEFAULT_PLATOON_COLUMNS, 2, 4);
   const offsets = [];
 
   for (let index = 0; index < followerCount; index += 1) {
-    const row = Math.floor(index / 2) + 1;
-    const side = index % 2 === 0 ? -1 : 1;
-    const angleJitter = ((seed + index * 17) % 9) / 100;
+    const row = Math.floor(index / columns) + 1;
+    const column = index % columns;
+    const lateralIndex = column - (columns - 1) / 2;
+    const rowSpacing = spread * (0.84 + row * 0.08);
+    const lateralSpacing = spread * 0.9;
+    const baseForward = row * rowSpacing;
+    const baseLateral = lateralIndex * lateralSpacing;
+    const animationSeed = (seed % 360) * (Math.PI / 180);
+    const pulse = Math.sin(phase * 0.8 + animationSeed + index * 0.9);
+    const sway = Math.cos(phase * 1.12 + animationSeed * 0.5 + row * 0.55 + column * 0.4);
+    const forward = baseForward + pulse * spread * 0.1;
+    const lateral = baseLateral + sway * spread * 0.09;
+    const rotated = rotateOffset(forward, lateral, heading);
+
     offsets.push({
-      lat: row * spread * (0.92 + angleJitter),
-      lng: side * spread * row * 0.8 * directionBias,
+      lat: rotated.lat,
+      lng: rotated.lng,
       scale: clamp(1 - row * 0.08, 0.68, 1),
     });
   }
@@ -219,16 +313,41 @@ export function buildPlatoonOffsets(unit, overrideFollowers) {
 
 export function applyWaypointCoordinateUpdate(stops, year, coords) {
   const normalized = normalizeTimelineWaypoints(stops);
-  const targetIndex = getActiveTimelineWaypointIndex(normalized, year);
-  if (targetIndex === -1) return normalized;
-  const next = normalized.slice();
-  const target = next[targetIndex];
-  next[targetIndex] = {
-    ...target,
+  const exactIndex = normalized.findIndex((stop) => stop.startYear === year);
+  if (exactIndex >= 0) {
+    const next = normalized.slice();
+    next[exactIndex] = {
+      ...next[exactIndex],
+      targetLocationId: null,
+      lat: coords.lat,
+      lng: coords.lng,
+    };
+    return next;
+  }
+
+  const next = normalized.map((stop) => ({ ...stop }));
+  const previousIndex = next.reduce((match, stop, index) => (
+    stop.startYear < year ? index : match
+  ), -1);
+
+  if (previousIndex >= 0) {
+    const previous = next[previousIndex];
+    if (previous.endYear != null && previous.endYear >= year) {
+      next[previousIndex] = {
+        ...previous,
+        endYear: Math.max(previous.startYear, year - 1),
+      };
+    }
+  }
+
+  next.push({
+    id: buildWaypointId(year),
+    startYear: year,
+    endYear: null,
     targetLocationId: null,
     lat: coords.lat,
     lng: coords.lng,
-  };
-  return next;
-}
+  });
 
+  return next.sort((left, right) => left.startYear - right.startYear);
+}

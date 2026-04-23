@@ -57,6 +57,7 @@ import {
   EditorPlacementHandler,
   RegionDrawingHandler,
   LabelPlacementHandler,
+  MovingUnitPlacementHandler,
   ViewSelectionCloseHandler,
 } from './MapControls';
 
@@ -99,6 +100,7 @@ import {
   buildPlatoonOffsets,
   normalizePositionTimeline,
   resolveLocationPosition,
+  resolveMovingUnitHeading,
   resolveMovingUnitLeaderPosition,
   isMovingUnitVisibleAtYear,
 } from '../../utils/timePositionUtils';
@@ -252,6 +254,7 @@ function InteractiveMap({
     movingUnits,
     selectedMovingUnitId,
     selectMovingUnit,
+    updateMovingUnit,
     flushPendingMovingUnitSaves,
   } = useMovingUnits();
   const {
@@ -339,6 +342,7 @@ function InteractiveMap({
   const [isViewPanelClosing, setIsViewPanelClosing] = useState(false);
   const [isEditorLocationClosing, setIsEditorLocationClosing] = useState(false);
   const [animatedMovingUnitPositions, setAnimatedMovingUnitPositions] = useState({});
+  const [formationPhase, setFormationPhase] = useState(0);
 
   const isAdmin = role === 'admin';
   const center  = MAP_CENTER;
@@ -500,6 +504,14 @@ function InteractiveMap({
     };
   }, [currentYear, useTemporalPositions, visibleMovingUnits]);
 
+  useEffect(() => {
+    if (!visibleMovingUnits.length) return undefined;
+    const intervalId = window.setInterval(() => {
+      setFormationPhase((prev) => prev + 0.16);
+    }, 120);
+    return () => window.clearInterval(intervalId);
+  }, [visibleMovingUnits.length]);
+
   const displayedMovingUnits = useMemo(() => {
     if (!visibleMovingUnits.length) return [];
     let remainingFollowers = 40;
@@ -512,25 +524,54 @@ function InteractiveMap({
       const allowedFollowers = remainingFollowers <= 0
         ? 0
         : Math.max(0, Math.min(desiredFollowers, Math.max(perUnitBudget, 1), 8));
+      const fallbackHeading = resolveMovingUnitHeading(unit, currentYear, locationById);
+      const animatedHeading =
+        Math.abs((unit.targetLeader?.lat ?? leader.lat) - leader.lat) > 0.00001 ||
+        Math.abs((unit.targetLeader?.lng ?? leader.lng) - leader.lng) > 0.00001
+          ? resolveMovingUnitHeading({
+              ...unit,
+              movementTimeline: [
+                {
+                  id: `${unit.id}-current`,
+                  startYear: currentYear,
+                  endYear: null,
+                  lat: leader.lat,
+                  lng: leader.lng,
+                },
+                {
+                  id: `${unit.id}-target`,
+                  startYear: currentYear + 1,
+                  endYear: null,
+                  lat: unit.targetLeader?.lat,
+                  lng: unit.targetLeader?.lng,
+                },
+              ],
+            }, currentYear, locationById)
+          : fallbackHeading;
 
       remainingFollowers -= allowedFollowers;
       remainingUnits -= 1;
 
-      const followers = buildPlatoonOffsets(unit, allowedFollowers).map((offset, index) => ({
+      const followers = buildPlatoonOffsets(unit, allowedFollowers, {
+        heading: animatedHeading,
+        phase: formationPhase + remainingUnits * 0.24,
+      }).map((offset, index) => ({
         id: `${unit.id}-follower-${index + 1}`,
         lat: leader.lat + offset.lat,
         lng: leader.lng + offset.lng,
         scale: offset.scale,
+        heading: animatedHeading + (index % 2 === 0 ? -8 : 8),
       }));
 
       return {
         ...unit,
         lat: leader.lat,
         lng: leader.lng,
+        heading: animatedHeading,
         followers,
       };
     });
-  }, [animatedMovingUnitPositions, visibleMovingUnits]);
+  }, [animatedMovingUnitPositions, currentYear, formationPhase, locationById, visibleMovingUnits]);
 
   const regionLabelsEnabled = filteredRegions.some((region) => region.labelEnabled !== false);
 
@@ -724,6 +765,27 @@ function InteractiveMap({
     selectRegion(null);
     selectMovingUnit(unitId);
   }, [editorSelection?.id, flushPendingLocationSaves, selectLocation, selectMovingUnit, selectRegion]);
+
+  const handleMovingUnitPlacement = useCallback((unitId, latlng) => {
+    if (!unitId || !canAutoSave) return;
+    const targetUnit = movingUnits.find((unit) => String(unit.id) === String(unitId));
+    if (!targetUnit) return;
+    const nextTimeline = applyWaypointCoordinateUpdate(targetUnit.movementTimeline, currentYear, latlng);
+    updateMovingUnit(
+      unitId,
+      {
+        lat: latlng.lat,
+        lng: latlng.lng,
+        movementTimeline: nextTimeline,
+      },
+      { mode: 'immediate', successMode: 'none' }
+    ).catch(() => null);
+  }, [canAutoSave, currentYear, movingUnits, updateMovingUnit]);
+
+  const handleSelectedMovingUnitMapPlace = useCallback((latlng) => {
+    if (!selectedMovingUnitId) return;
+    handleMovingUnitPlacement(selectedMovingUnitId, latlng);
+  }, [handleMovingUnitPlacement, selectedMovingUnitId]);
 
   const handleMarkerDragStart = useCallback((id) => {
     // Store ID and original position in refs — zero re-renders, so the Leaflet
@@ -1557,6 +1619,7 @@ function InteractiveMap({
     <MovingUnitsPanel
       canAutoSave={canAutoSave}
       currentYear={currentYear}
+      defaultCoordinates={mapInstance?.getCenter?.() || center}
     />
   ) : null;
 
@@ -1631,6 +1694,10 @@ function InteractiveMap({
                 isActive={isEditorMode && isPlacingLabel}
                 onPlace={handlePlaceLabel}
               />
+              <MovingUnitPlacementHandler
+                isActive={isEditorMode && Boolean(selectedMovingUnitId) && !isRegionMode && !isPlacingLabel}
+                onPlace={handleSelectedMovingUnitMapPlace}
+              />
               <ViewSelectionCloseHandler
                 isEnabled={
                   (!isEditorMode && Boolean(selectedLocation)) ||
@@ -1697,7 +1764,9 @@ function InteractiveMap({
                 units={displayedMovingUnits}
                 zoomLevel={mapZoom}
                 selectedUnitId={selectedMovingUnitId}
+                isEditorMode={isEditorMode}
                 onSelectUnit={isEditorMode ? handleMovingUnitSelect : undefined}
+                onDragUnitEnd={isEditorMode ? handleMovingUnitPlacement : undefined}
               />
             </MapContainer>
             {isEditorMode && (

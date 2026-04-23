@@ -1,36 +1,45 @@
 import React from 'react';
-import { CircleMarker, Marker, Tooltip } from 'react-leaflet';
+import { Marker, Tooltip } from 'react-leaflet';
 import L from 'leaflet';
 
-function getUnitGlyph(icon) {
-  switch (icon) {
-    case 'ship':
-      return '~';
-    case 'cart':
-      return '+';
-    case 'horse':
-      return '>';
-    case 'camp':
-      return '#';
-    case 'banner':
+function getKindLabel(kind) {
+  switch (kind) {
+    case 'fleet':
+      return 'Fleet';
+    case 'caravan':
+      return 'Caravan';
+    case 'patrol':
+      return 'Patrol';
+    case 'other':
+      return 'Unit';
+    case 'troop':
     default:
-      return '!';
+      return 'Troop';
   }
 }
 
-function buildLeaderIcon(unit, isSelected, zoomLevel) {
-  const size = Math.max(20, Math.min(34, 24 + (zoomLevel - 4) * 2));
-  const glyph = getUnitGlyph(unit.icon);
-  const color = unit.color || '#f8d86a';
+function buildArrowIcon({ color, heading = 0, zoomLevel = 4, isSelected = false, isFollower = false }) {
+  const size = isFollower
+    ? Math.max(10, Math.min(18, 11 + (zoomLevel - 4) * 0.8))
+    : Math.max(22, Math.min(36, 24 + (zoomLevel - 4) * 2.2));
+  const glow = isSelected && !isFollower ? 2 : 0;
+  const opacity = isFollower ? 0.84 : 1;
+  const strokeOpacity = isFollower ? 0.68 : 0.92;
+
   return L.divIcon({
     className: [
       'moving-unit-marker',
-      `moving-unit-marker--${unit.kind || 'troop'}`,
+      isFollower ? 'moving-unit-marker--follower' : 'moving-unit-marker--leader',
       isSelected ? 'moving-unit-marker--selected' : '',
     ].join(' '),
     html: `
-      <div class="moving-unit-marker__body" style="--unit-color:${color};width:${size}px;height:${size}px;">
-        <span class="moving-unit-marker__glyph">${glyph}</span>
+      <div
+        class="moving-unit-marker__body"
+        style="--unit-color:${color};--unit-size:${size}px;--unit-glow:${glow}px;--unit-opacity:${opacity};--unit-stroke-opacity:${strokeOpacity};transform: rotate(${heading}deg);"
+      >
+        <svg class="moving-unit-marker__arrow" viewBox="0 0 36 36" aria-hidden="true">
+          <path d="M18 2 L31 30 L20.5 25.7 L18 34 L15.5 25.7 L5 30 Z" />
+        </svg>
       </div>
     `,
     iconSize: [size, size],
@@ -42,38 +51,58 @@ export default function MovingUnitLayer({
   units = [],
   zoomLevel = 4,
   selectedUnitId = null,
+  isEditorMode = false,
   onSelectUnit,
+  onDragUnitEnd,
 }) {
   return (
     <>
       {units.map((unit) => {
         const isSelected = String(unit.id) === String(selectedUnitId);
+        const leaderColor = unit.color || '#f8d86a';
+        const heading = unit.heading ?? 0;
+
         return (
           <React.Fragment key={unit.id}>
             {(unit.followers || []).map((follower) => (
-              <CircleMarker
+              <Marker
                 key={follower.id}
-                center={[follower.lat, follower.lng]}
-                radius={Math.max(3, 5 * (follower.scale || 1))}
-                pathOptions={{
-                  color: unit.color || '#f8d86a',
-                  weight: isSelected ? 2 : 1,
-                  fillColor: unit.color || '#f8d86a',
-                  fillOpacity: 0.62,
-                  opacity: 0.75,
-                }}
+                position={[follower.lat, follower.lng]}
+                icon={buildArrowIcon({
+                  color: leaderColor,
+                  heading: follower.heading ?? heading,
+                  zoomLevel,
+                  isFollower: true,
+                })}
+                interactive={false}
+                keyboard={false}
+                zIndexOffset={200}
               />
             ))}
 
             <Marker
               position={[unit.lat, unit.lng]}
-              icon={buildLeaderIcon(unit, isSelected, zoomLevel)}
+              icon={buildArrowIcon({
+                color: leaderColor,
+                heading,
+                zoomLevel,
+                isSelected,
+              })}
+              draggable={isEditorMode}
+              zIndexOffset={isSelected ? 1200 : 900}
               eventHandlers={{
                 click: () => onSelectUnit?.(unit.id),
+                dragstart: () => onSelectUnit?.(unit.id),
+                dragend: (event) => {
+                  const latlng = event.target?.getLatLng?.();
+                  if (!latlng) return;
+                  onDragUnitEnd?.(unit.id, latlng);
+                },
               }}
             >
               <Tooltip direction="top" offset={[0, -10]}>
                 <strong>{unit.name}</strong>
+                <div>{getKindLabel(unit.kind)}</div>
               </Tooltip>
             </Marker>
           </React.Fragment>
@@ -82,4 +111,3 @@ export default function MovingUnitLayer({
     </>
   );
 }
-

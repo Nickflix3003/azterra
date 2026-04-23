@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { useMovingUnits } from '../../context/MovingUnitDataContext';
 import { useLocationData } from '../../context/LocationDataContext';
+import { getActiveTimelineWaypointIndex } from '../../utils/timePositionUtils';
 
 const UNIT_KIND_OPTIONS = [
   { id: 'troop', label: 'Troop' },
@@ -18,26 +19,27 @@ const UNIT_ICON_OPTIONS = [
   { id: 'camp', label: 'Camp' },
 ];
 
-function buildDefaultWaypoint(currentYear = 500) {
+function buildDefaultWaypoint(currentYear = 500, defaultCoordinates = { lat: 0, lng: 0 }) {
   return {
     id: `waypoint-${Date.now()}`,
     startYear: currentYear,
     endYear: null,
     targetLocationId: null,
-    lat: 0,
-    lng: 0,
+    lat: defaultCoordinates.lat ?? 0,
+    lng: defaultCoordinates.lng ?? 0,
   };
 }
 
-function cloneTimeline(unit, currentYear) {
+function cloneTimeline(unit, currentYear, defaultCoordinates) {
   return Array.isArray(unit?.movementTimeline) && unit.movementTimeline.length
     ? unit.movementTimeline
-    : [buildDefaultWaypoint(currentYear)];
+    : [buildDefaultWaypoint(currentYear, defaultCoordinates)];
 }
 
 export default function MovingUnitsPanel({
   canAutoSave = false,
   currentYear = 500,
+  defaultCoordinates = { lat: 0, lng: 0 },
 }) {
   const {
     movingUnits,
@@ -63,7 +65,9 @@ export default function MovingUnitsPanel({
       kind: 'troop',
       icon: 'banner',
       color: '#f8d86a',
-      movementTimeline: [buildDefaultWaypoint(currentYear)],
+      lat: defaultCoordinates.lat ?? 0,
+      lng: defaultCoordinates.lng ?? 0,
+      movementTimeline: [buildDefaultWaypoint(currentYear, defaultCoordinates)],
       platoonStyle: { followers: 5, spread: 0.34 },
     }).catch(() => null);
     if (created) {
@@ -78,7 +82,7 @@ export default function MovingUnitsPanel({
 
   const updateWaypoint = (stopId, patch) => {
     if (!selectedUnit) return;
-    const nextTimeline = cloneTimeline(selectedUnit, currentYear).map((stop) =>
+    const nextTimeline = cloneTimeline(selectedUnit, currentYear, defaultCoordinates).map((stop) =>
       String(stop.id) === String(stopId) ? { ...stop, ...patch } : stop
     );
     updateSelectedUnit({ movementTimeline: nextTimeline }, { mode: 'debounced', successMode: 'none' });
@@ -86,16 +90,19 @@ export default function MovingUnitsPanel({
 
   const addWaypoint = () => {
     if (!selectedUnit) return;
-    const nextTimeline = [...cloneTimeline(selectedUnit, currentYear), buildDefaultWaypoint(currentYear)];
+    const nextTimeline = [
+      ...cloneTimeline(selectedUnit, currentYear, defaultCoordinates),
+      buildDefaultWaypoint(currentYear, defaultCoordinates),
+    ];
     updateSelectedUnit({ movementTimeline: nextTimeline }, { mode: 'immediate', successMode: 'none' });
   };
 
   const removeWaypoint = (stopId) => {
     if (!selectedUnit) return;
-    const timeline = cloneTimeline(selectedUnit, currentYear);
+    const timeline = cloneTimeline(selectedUnit, currentYear, defaultCoordinates);
     const nextTimeline = timeline.filter((stop) => String(stop.id) !== String(stopId));
     updateSelectedUnit(
-      { movementTimeline: nextTimeline.length ? nextTimeline : [buildDefaultWaypoint(currentYear)] },
+      { movementTimeline: nextTimeline.length ? nextTimeline : [buildDefaultWaypoint(currentYear, defaultCoordinates)] },
       { mode: 'immediate', successMode: 'none' }
     );
   };
@@ -254,16 +261,25 @@ export default function MovingUnitsPanel({
 
             <div className="moving-units-panel__timeline">
               <div className="moving-units-panel__timeline-header">
-                <h4>Movement Timeline</h4>
+                <div>
+                  <h4>Movement Timeline</h4>
+                  <p>Drag the unit or right-click the map to place the stop for year {currentYear}.</p>
+                </div>
                 <button type="button" className="toolbox-button toolbox-button--ghost" onClick={addWaypoint}>
                   Add Stop
                 </button>
               </div>
 
-              {cloneTimeline(selectedUnit, currentYear).map((stop) => {
+              {cloneTimeline(selectedUnit, currentYear, defaultCoordinates).map((stop, index, timeline) => {
                 const isLinked = Boolean(stop.targetLocationId);
+                const activeIndex = getActiveTimelineWaypointIndex(timeline, currentYear);
+                const isActiveStop = index === activeIndex;
                 return (
-                  <div key={stop.id} className="moving-units-panel__stop">
+                  <div key={stop.id} className={`moving-units-panel__stop ${isActiveStop ? 'is-current' : ''}`}>
+                    <div className="moving-units-panel__stop-header">
+                      <strong>{isActiveStop ? `Current stop for ${currentYear}` : `Stop ${index + 1}`}</strong>
+                      {isActiveStop ? <span>Live edit target</span> : null}
+                    </div>
                     <div className="moving-units-panel__field-row">
                       <label className="editor-info-panel__field">
                         <span>Start</span>
@@ -376,4 +392,3 @@ export default function MovingUnitsPanel({
     </div>
   );
 }
-

@@ -258,6 +258,15 @@ export function LabelPlacementHandler({ isActive, onPlace }) {
   return null;
 }
 
+export function MovingUnitPlacementHandler({ isActive, onPlace }) {
+  useMapEvent('contextmenu', (event) => {
+    if (!isActive) return;
+    event.originalEvent?.preventDefault();
+    onPlace?.(event.latlng);
+  });
+  return null;
+}
+
 export function ViewSelectionCloseHandler({ isEnabled, onClose }) {
   useMapEvent('click', (event) => {
     if (!isEnabled) return;
