@@ -90,6 +90,7 @@ import {
   getPlacementConfig,
 } from '../../utils/markerUtils';
 import { isVisibleInYear, toOptionalYear } from '../../utils/eraUtils';
+import { findContainingRegionId, getRegionPolygons } from '../../utils/regionGeometry';
 
 // ─── Region constants ─────────────────────────────────────────────────────────
 import {
@@ -547,6 +548,10 @@ function InteractiveMap({
     setShowTrashZone(true);
   }, [locations]);
 
+  const inferRegionIdForCoords = useCallback((lat, lng) => (
+    findContainingRegionId(regions, lat, lng)
+  ), [regions]);
+
   const handleMarkerDragEnd = useCallback((id, coords, originalEvent) => {
     const origin = draggingOriginRef.current;
 
@@ -610,19 +615,15 @@ function InteractiveMap({
     }
 
     // Normal reposition.
-    updateLocation(id, { lat: coords.lat, lng: coords.lng }, { mode: 'immediate', successMode: 'none' });
-  }, [deleteLocation, editorSelection, locations, updateLocation, updateLocationLocal]);
+    const nextRegionId = inferRegionIdForCoords(coords.lat, coords.lng);
+    updateLocation(
+      id,
+      { lat: coords.lat, lng: coords.lng, regionId: nextRegionId },
+      { mode: 'immediate', successMode: 'none' }
+    );
+  }, [deleteLocation, editorSelection, inferRegionIdForCoords, locations, updateLocation, updateLocationLocal]);
 
   // ── Region helpers ───────────────────────────────────────────────────────────
-
-  const getRegionPolygons = useCallback((region) => {
-    if (!region) return [];
-    const base   = Array.isArray(region.points) && region.points.length >= 3 ? [region.points] : [];
-    const extras = Array.isArray(region.parts)
-      ? region.parts.filter((part) => Array.isArray(part) && part.length >= 3)
-      : [];
-    return [...base, ...extras];
-  }, []);
 
   const focusRegionOnMap = (regionId) => {
     if (!mapInstance) return;
@@ -908,7 +909,7 @@ function InteractiveMap({
         description: '',
         category:    typeConfig.label,
         tags:        [],
-        regionId:    null,
+        regionId:    inferRegionIdForCoords(latlng.lat, latlng.lng),
         lat:         latlng.lat,
         lng:         latlng.lng,
       }, {
@@ -936,7 +937,7 @@ function InteractiveMap({
         description: '',
         category:    typeConfig.label,
         tags:        [],
-        regionId:    null,
+        regionId:    inferRegionIdForCoords(latlng.lat, latlng.lng),
         lat:         latlng.lat,
         lng:         latlng.lng,
       }, {
@@ -946,7 +947,7 @@ function InteractiveMap({
     } catch {
       // toast handled by shared location context
     }
-  }, [createLocation, openEditorForLocation]);
+  }, [createLocation, inferRegionIdForCoords, openEditorForLocation]);
 
   const handleMapDragOver = useCallback((e) => {
     if (!isEditorMode) return;
