@@ -1693,6 +1693,12 @@ function InteractiveMap({
                 intensity={intensities.clouds}
                 onDiagnostics={reportDiagnostics}
               />
+              <MovingUnitLayer
+                units={displayedMovingUnits}
+                zoomLevel={mapZoom}
+                selectedUnitId={selectedMovingUnitId}
+                onSelectUnit={isEditorMode ? handleMovingUnitSelect : undefined}
+              />
             </MapContainer>
             {isEditorMode && (
               <div className="editor-zoom-bar" aria-hidden="true">
@@ -1708,19 +1714,13 @@ function InteractiveMap({
               onDiagnostics={reportDiagnostics}
             />
 
-              <HeatmapLayer
-                enabled={heatmapMode !== 'none'}
-                map={mapInstance}
-                locations={displayedLocations}
-                heatmapMode={heatmapMode}
-                onDiagnostics={reportDiagnostics}
-              />
-              <MovingUnitLayer
-                units={displayedMovingUnits}
-                zoomLevel={mapZoom}
-                selectedUnitId={selectedMovingUnitId}
-                onSelectUnit={isEditorMode ? handleMovingUnitSelect : undefined}
-              />
+            <HeatmapLayer
+              enabled={heatmapMode !== 'none'}
+              map={mapInstance}
+              locations={displayedLocations}
+              heatmapMode={heatmapMode}
+              onDiagnostics={reportDiagnostics}
+            />
             <ParallaxLayer
               enabled
               map={mapInstance}

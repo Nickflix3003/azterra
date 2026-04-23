@@ -62,6 +62,7 @@ export function SecretDataProvider({ children }) {
   const [loadingSecrets, setLoadingSecrets] = useState(false);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [error, setError] = useState('');
+  const canLoadSecretUsers = role === 'admin' || secrets.some((secret) => secret.canManage);
 
   const refreshSecrets = useCallback(async () => {
     if (!canUseSecretWindow || !user) {
@@ -88,7 +89,7 @@ export function SecretDataProvider({ children }) {
   }, [canUseSecretWindow, user]);
 
   const refreshSecretUsers = useCallback(async () => {
-    if (!canUseSecretWindow || !user) {
+    if (!canUseSecretWindow || !user || !canLoadSecretUsers) {
       setUsers([]);
       return [];
     }
@@ -113,7 +114,7 @@ export function SecretDataProvider({ children }) {
     } finally {
       setLoadingUsers(false);
     }
-  }, [canUseSecretWindow, user]);
+  }, [canLoadSecretUsers, canUseSecretWindow, user]);
 
   useEffect(() => {
     if (!canUseSecretWindow || !user) {
@@ -125,8 +126,16 @@ export function SecretDataProvider({ children }) {
       return;
     }
     refreshSecrets().catch(() => null);
+  }, [canUseSecretWindow, refreshSecrets, user]);
+
+  useEffect(() => {
+    if (!canUseSecretWindow || !user || !canLoadSecretUsers) {
+      setUsers([]);
+      setLoadingUsers(false);
+      return;
+    }
     refreshSecretUsers().catch(() => null);
-  }, [canUseSecretWindow, refreshSecretUsers, refreshSecrets, user]);
+  }, [canLoadSecretUsers, canUseSecretWindow, refreshSecretUsers, user]);
 
   const createSecret = useCallback(async (payload) => {
     const response = await fetch(`${API_BASE_URL}/secrets`, {
