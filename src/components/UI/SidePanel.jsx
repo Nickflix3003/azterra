@@ -1,9 +1,35 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { useRegions } from '../../context/RegionDataContext';
 import './UI.css';
 
 function SidePanel({ location, region, regionLocations = [], onClose, onSelectLocation }) {
+  const { regions } = useRegions();
   if (!location && !region) return null;
+
+  const formatLocationMeta = (entry) => {
+    const typeLabel = entry?.type ? String(entry.type).trim() : '';
+    const categoryLabel = entry?.category ? String(entry.category).trim() : '';
+    const regionName = entry?.regionId != null
+      ? regions.find((candidate) => String(candidate.id) === String(entry.regionId))?.name || ''
+      : '';
+    const meta = [];
+    if (typeLabel) meta.push({ label: 'Type', value: typeLabel });
+    if (categoryLabel && categoryLabel.toLowerCase() !== typeLabel.toLowerCase()) {
+      meta.push({ label: 'Category', value: categoryLabel });
+    }
+    if (regionName) meta.push({ label: 'Region', value: regionName });
+    return meta;
+  };
+
+  const formatEra = (entry) => {
+    const hasStart = entry?.timeStart != null;
+    const hasEnd = entry?.timeEnd != null;
+    if (!hasStart && !hasEnd) return '';
+    if (hasStart && hasEnd) return `${entry.timeStart}–${entry.timeEnd}`;
+    if (hasStart) return `From ${entry.timeStart}`;
+    return `Until ${entry.timeEnd}`;
+  };
 
   if (region && !location) {
     return (
@@ -84,6 +110,27 @@ function SidePanel({ location, region, regionLocations = [], onClose, onSelectLo
       </div>
 
       <div className="side-panel-content">
+        {formatLocationMeta(location).length > 0 && (
+          <div className="side-panel-meta">
+            {formatLocationMeta(location).map((item) => (
+              <div key={item.label} className="side-panel-meta__item">
+                <span className="side-panel-meta__label">{item.label}</span>
+                <strong className="side-panel-meta__value">{item.value}</strong>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {location.imageUrl ? (
+          <div className="side-panel-image-wrap">
+            <img
+              className="side-panel-image"
+              src={location.imageUrl}
+              alt={location.name || 'Location'}
+            />
+          </div>
+        ) : null}
+
         {location.lore && (
           <div className="side-panel-section">
             <h3>Lore</h3>
@@ -98,9 +145,12 @@ function SidePanel({ location, region, regionLocations = [], onClose, onSelectLo
           </div>
         )}
 
-        {!location.lore && !location.description && (
-          <p className="side-panel-empty">No lore or description added yet.</p>
-        )}
+        {formatEra(location) ? (
+          <div className="side-panel-section">
+            <h3>Era</h3>
+            <p>{formatEra(location)}</p>
+          </div>
+        ) : null}
 
         <div className="side-panel-action-stack">
           {location.hasLocalMap && (
