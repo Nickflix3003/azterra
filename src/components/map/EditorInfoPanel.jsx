@@ -246,6 +246,11 @@ function EditorInfoPanel({
           </select>
         </label>
 
+        <SecretScopeField
+          secretId={draft.secretId ?? null}
+          onChange={(nextSecretId) => onFieldChange('secretId', nextSecretId)}
+        />
+
         <div className="editor-info-panel__field editor-info-panel__field--pin">
           <span>Position</span>
           <button
@@ -357,75 +362,50 @@ function EditorInfoPanel({
           />
         </label>
 
-        <SecretScopeField
-          secretId={draft.secretId ?? null}
-          onChange={(nextSecretId) => onFieldChange('secretId', nextSecretId)}
-        />
-
         <div className="editor-info-panel__field editor-info-panel__field--era">
           <div className="era-section__header">
             <div>
               <span>Era Range</span>
               <small>Show this location only between these years when timeline mode is active.</small>
             </div>
-            <label className="era-toggle">
-              <input
-                type="checkbox"
-                checked={hasEra}
-                onChange={(event) => {
-                  if (event.target.checked) {
-                    onFieldChange('timeStart', timeStart ?? 0);
-                    onFieldChange('timeEnd', timeEnd ?? 1000);
-                  } else {
-                    onFieldChange('timeStart', null);
-                    onFieldChange('timeEnd', null);
-                  }
-                }}
-              />
-              <span>{hasEra ? 'Enabled' : 'Always visible'}</span>
-            </label>
           </div>
 
-          {hasEra && (
-            <>
-              <DualRangeSlider
-                min={0}
-                max={1000}
-                startVal={timeStart ?? 0}
-                endVal={timeEnd ?? 1000}
-                onChangeStart={(value) => onFieldChange('timeStart', value)}
-                onChangeEnd={(value) => onFieldChange('timeEnd', value)}
-              />
+          <DualRangeSlider
+            min={0}
+            max={1000}
+            startVal={timeStart ?? 0}
+            endVal={timeEnd ?? 1000}
+            onChangeStart={(value) => onFieldChange('timeStart', value)}
+            onChangeEnd={(value) => onFieldChange('timeEnd', value)}
+          />
 
-              <div className="era-fields-row">
-                <label className="era-year-field">
-                  <span>Start</span>
-                  <input
-                    type="number"
-                    value={timeStart ?? 0}
-                    min={0}
-                    max={timeEnd ?? 1000}
-                    onChange={(event) => onFieldChange('timeStart', Number(event.target.value))}
-                    onBlur={handleFieldBlur}
-                    onKeyDown={handleSingleLineKeyDown}
-                  />
-                </label>
-                <div className="era-arrow">→</div>
-                <label className="era-year-field">
-                  <span>End</span>
-                  <input
-                    type="number"
-                    value={timeEnd ?? 1000}
-                    min={timeStart ?? 0}
-                    max={1000}
-                    onChange={(event) => onFieldChange('timeEnd', Number(event.target.value))}
-                    onBlur={handleFieldBlur}
-                    onKeyDown={handleSingleLineKeyDown}
-                  />
-                </label>
-              </div>
-            </>
-          )}
+          <div className="era-fields-row">
+            <label className="era-year-field">
+              <span>Start</span>
+              <input
+                type="number"
+                value={timeStart ?? 0}
+                min={0}
+                max={timeEnd ?? 1000}
+                onChange={(event) => onFieldChange('timeStart', Number(event.target.value))}
+                onBlur={handleFieldBlur}
+                onKeyDown={handleSingleLineKeyDown}
+              />
+            </label>
+            <div className="era-arrow">→</div>
+            <label className="era-year-field">
+              <span>End</span>
+              <input
+                type="number"
+                value={timeEnd ?? 1000}
+                min={timeStart ?? 0}
+                max={1000}
+                onChange={(event) => onFieldChange('timeEnd', Number(event.target.value))}
+                onBlur={handleFieldBlur}
+                onKeyDown={handleSingleLineKeyDown}
+              />
+            </label>
+          </div>
         </div>
 
         <div className="editor-info-panel__actions">
