@@ -32,8 +32,11 @@ export const buildNavStyleMarker = (color, letter) => {
 export const PLACEHOLDER_MARKER_SRC = {
   city:     buildNavStyleMarker(MARKER_PLACEHOLDER_COLORS.city,     'C'),
   town:     buildNavStyleMarker(MARKER_PLACEHOLDER_COLORS.town,     'T'),
+  village:  buildNavStyleMarker(MARKER_PLACEHOLDER_COLORS.village,  'V'),
+  institute: buildNavStyleMarker(MARKER_PLACEHOLDER_COLORS.institute, 'I'),
   dungeon:  buildNavStyleMarker(MARKER_PLACEHOLDER_COLORS.dungeon,  'D'),
   landmark: buildNavStyleMarker(MARKER_PLACEHOLDER_COLORS.landmark, 'L'),
+  other:    buildNavStyleMarker(MARKER_PLACEHOLDER_COLORS.other,    'O'),
   generic:  buildNavStyleMarker(MARKER_PLACEHOLDER_COLORS.generic,  'M'),
 };
 
@@ -75,6 +78,7 @@ export const normalizeLocationEntry = (location) => {
     ...(toOptionalYear(location.timeEnd)   != null && { timeEnd:   toOptionalYear(location.timeEnd) }),
     ...(location.gallery   != null && { gallery:   location.gallery }),
     ...(location.secretId  != null && { secretId:  location.secretId }),
+    ...(location.imageUrl  != null && { imageUrl:  location.imageUrl }),
     ...(location.createdBy != null && { createdBy: location.createdBy }),
     ...(location.createdAt != null && { createdAt: location.createdAt }),
     ...(location.updatedBy != null && { updatedBy: location.updatedBy }),
@@ -93,6 +97,9 @@ export const normalizeLocations = (locations) =>
  */
 export const getMarkerFilterKey = (typeId) => {
   const normalized = (typeId || '').toLowerCase();
+  if (normalized === 'village') return 'town';
+  if (normalized === 'institute') return 'landmark';
+  if (normalized === 'other') return 'generic';
   if (['city', 'town', 'dungeon', 'ruins', 'landmark', 'npc'].includes(normalized)) {
     return normalized;
   }

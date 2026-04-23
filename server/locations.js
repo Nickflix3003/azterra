@@ -115,6 +115,7 @@ function rowToLocation(row, secrets = {}, locationMap = null) {
       ? Number(row.id)
       : row.id;
   const secret = secrets[String(row.id)] || secrets[String(numericId)] || {};
+  const gallery = Array.isArray(row.gallery) ? row.gallery : [];
   return {
     id: numericId,
     name: row.name,
@@ -130,7 +131,8 @@ function rowToLocation(row, secrets = {}, locationMap = null) {
     tags: Array.isArray(row.tags) ? row.tags : [],
     regionId: row.region_id || null,
     glowColor: row.glow_color || '#F7B267',
-    gallery: Array.isArray(row.gallery) ? row.gallery : [],
+    gallery,
+    imageUrl: typeof gallery[0] === 'string' ? gallery[0] : '',
     pinned: row.pinned === true,
     timeStart: row.time_start != null ? row.time_start : null,
     timeEnd: row.time_end != null ? row.time_end : null,
@@ -160,6 +162,11 @@ async function getNextLocationId() {
 }
 
 function locationToRow(loc) {
+  const gallery = Array.isArray(loc.gallery)
+    ? loc.gallery
+    : loc.imageUrl
+      ? [loc.imageUrl]
+      : [];
   return {
     id: String(loc.id),
     name: loc.name || 'Unnamed',
@@ -173,7 +180,7 @@ function locationToRow(loc) {
     tags: Array.isArray(loc.tags) ? loc.tags : [],
     region_id: loc.regionId != null ? loc.regionId : (loc.region_id != null ? loc.region_id : null),
     glow_color: loc.glowColor || loc.glow_color || '#F7B267',
-    gallery: Array.isArray(loc.gallery) ? loc.gallery : [],
+    gallery,
     pinned: loc.pinned === true,
     time_start: loc.timeStart != null ? loc.timeStart : null,
     time_end: loc.timeEnd != null ? loc.timeEnd : null,
@@ -496,7 +503,7 @@ router.post('/:id/scene/upload', authRequired, editorRequired, uploadImage.singl
 // PATCH /api/locations/:id
 router.patch('/:id', authRequired, editorRequired, async function(req, res) {
   const { id } = req.params;
-  const allowed = ['name', 'description', 'lore', 'type', 'regionId', 'tags', 'gallery', 'glowColor', 'iconKey', 'pinned', 'timeStart', 'timeEnd', 'lat', 'lng'];
+  const allowed = ['name', 'description', 'lore', 'type', 'category', 'regionId', 'tags', 'gallery', 'imageUrl', 'glowColor', 'iconKey', 'pinned', 'timeStart', 'timeEnd', 'lat', 'lng'];
   const updates = {};
   allowed.forEach(function(key) { if (key in req.body) updates[key] = req.body[key]; });
 
@@ -522,8 +529,27 @@ router.patch('/:id', authRequired, editorRequired, async function(req, res) {
     if (updates.type !== undefined) patchRow.type = updates.type;
     if (updates.regionId !== undefined) patchRow.region_id = updates.regionId;
     if (updates.tags !== undefined) patchRow.tags = updates.tags;
-    if (updates.gallery !== undefined) patchRow.gallery = updates.gallery;
+    let nextGallery = Array.isArray(fetchResult.data.gallery) ? [...fetchResult.data.gallery] : [];
+    if (updates.gallery !== undefined) {
+      nextGallery = Array.isArray(updates.gallery) ? [...updates.gallery] : [];
+    }
+    if (updates.imageUrl !== undefined) {
+      const nextImageUrl =
+        typeof updates.imageUrl === 'string'
+          ? updates.imageUrl.trim()
+          : '';
+      if (nextImageUrl) {
+        if (nextGallery.length) nextGallery[0] = nextImageUrl;
+        else nextGallery = [nextImageUrl];
+      } else if (nextGallery.length) {
+        nextGallery = nextGallery.slice(1);
+      }
+    }
+    if (updates.gallery !== undefined || updates.imageUrl !== undefined) {
+      patchRow.gallery = nextGallery;
+    }
     if (updates.glowColor !== undefined) patchRow.glow_color = updates.glowColor;
+    if (updates.category !== undefined) patchRow.category = updates.category || '';
     if (updates.iconKey !== undefined) patchRow.icon_key = updates.iconKey;
     if (updates.pinned !== undefined) patchRow.pinned = updates.pinned === true;
     if (updates.timeStart !== undefined) patchRow.time_start = updates.timeStart;
@@ -545,6 +571,45 @@ router.patch('/:id', authRequired, editorRequired, async function(req, res) {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Unable to update location.' });
+  }
+});
+
+// POST /api/locations/:id/image
+router.post('/:id/image', authRequired, editorRequired, uploadImage.single('image'), async function(req, res) {
+  if (!req.file) return res.status(400).json({ error: 'No image provided.' });
+  const { id } = req.params;
+  const url = '/api/locations/images/' + req.file.filename;
+  try {
+    const [secretMap, locationMapIndex, fetchResult] = await Promise.all([
+      readLocationSecretMap(),
+      readLocationMapMap(),
+      db().from('locations').select('*').eq('id', String(id)).single(),
+    ]);
+    throwIfError(fetchResult.error, 'location image upload fetch');
+    if (!fetchResult.data) return res.status(404).json({ error: 'Location not found.' });
+
+    const currentGallery = Array.isArray(fetchResult.data.gallery) ? [...fetchResult.data.gallery] : [];
+    if (currentGallery.length) currentGallery[0] = url;
+    else currentGallery.push(url);
+
+    const actor = (req.user && (req.user.username || req.user.name)) || 'unknown';
+    const updateResult = await db()
+      .from('locations')
+      .update({
+        gallery: currentGallery,
+        updated_by: actor,
+      })
+      .eq('id', String(id))
+      .select()
+      .single();
+    throwIfError(updateResult.error, 'location image upload update');
+    return res.json({
+      url,
+      location: rowToLocation(updateResult.data, secretMap, locationMapIndex[String(updateResult.data.id)]),
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Unable to upload location image.' });
   }
 });
 

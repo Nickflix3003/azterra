@@ -324,9 +324,11 @@ function InteractiveMap({
   const buildEditorDraft = useCallback((location) => ({
     name: location?.name || '',
     type: location?.type || '',
+    category: location?.category || '',
     lore: location?.lore || '',
     description: location?.description || '',
     secretId: location?.secretId ?? null,
+    imageUrl: location?.imageUrl || '',
     pinned: location?.pinned ?? false,
     timeStart: location?.timeStart,
     timeEnd: location?.timeEnd,
@@ -1220,7 +1222,7 @@ function InteractiveMap({
     if (String(editorSelection.id) !== String(selectedLocation.id)) return;
     const nextDraft = buildEditorDraft(selectedLocation);
     const currentDraft = editorSelection.draft || {};
-    const fields = ['name', 'type', 'lore', 'description', 'secretId', 'pinned', 'timeStart', 'timeEnd', 'regionId'];
+    const fields = ['name', 'type', 'category', 'lore', 'description', 'secretId', 'imageUrl', 'pinned', 'timeStart', 'timeEnd', 'regionId'];
     const changed = fields.some((field) => currentDraft[field] !== nextDraft[field]);
     if (!changed) return;
     setEditorSelection((prev) => (

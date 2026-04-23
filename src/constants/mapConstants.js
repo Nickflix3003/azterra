@@ -27,7 +27,17 @@ export const MARKER_TYPES = [
 
 export const GENERIC_MARKER_TYPE = { id: 'generic', label: 'Generic', glowColor: '#9ca3af' };
 
-export const TYPE_CONFIG = MARKER_TYPES.reduce(
+export const LOCATION_EDITOR_TYPE_OPTIONS = [
+  { id: 'city', label: 'City', glowColor: '#F7B267' },
+  { id: 'town', label: 'Town', glowColor: '#74c2e1' },
+  { id: 'village', label: 'Village', glowColor: '#8fd3a8' },
+  { id: 'institute', label: 'Institute', glowColor: '#c4a7ff' },
+  { id: 'dungeon', label: 'Dungeon', glowColor: '#8E7CC3' },
+  { id: 'landmark', label: 'Landmark', glowColor: '#FFDAB9' },
+  { id: 'other', label: 'Other', glowColor: '#9ca3af' },
+];
+
+export const TYPE_CONFIG = LOCATION_EDITOR_TYPE_OPTIONS.reduce(
   (acc, type) => ({ ...acc, [type.id]: type }),
   { [GENERIC_MARKER_TYPE.id]: GENERIC_MARKER_TYPE },
 );
@@ -41,8 +51,11 @@ export const LOCATION_FILTER_OPTIONS = [
 export const DEFAULT_TYPE_ICON = {
   city:     'city-gold',
   town:     'town-oak',
+  village:  'village-meadow',
+  institute:'academy-star',
   dungeon:  'dungeon-abyss',
   landmark: 'landmark-spire',
+  other:    'city-gold',
   generic:  'city-gold',
 };
 
@@ -124,8 +137,11 @@ export const DEMO_LOCATIONS = [
 export const MARKER_PLACEHOLDER_COLORS = {
   city:     '#facc15',
   town:     '#93c5fd',
+  village:  '#86efac',
+  institute:'#c4b5fd',
   dungeon:  '#c084fc',
   landmark: '#fb923c',
+  other:    '#e5e7eb',
   generic:  '#e5e7eb',
 };
 
