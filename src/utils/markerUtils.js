@@ -79,6 +79,7 @@ export const normalizeLocationEntry = (location) => {
     ...(location.gallery   != null && { gallery:   location.gallery }),
     ...(location.secretId  != null && { secretId:  location.secretId }),
     ...(location.imageUrl  != null && { imageUrl:  location.imageUrl }),
+    ...(location.imageDisplayMode != null && { imageDisplayMode: location.imageDisplayMode }),
     ...(location.createdBy != null && { createdBy: location.createdBy }),
     ...(location.createdAt != null && { createdAt: location.createdAt }),
     ...(location.updatedBy != null && { updatedBy: location.updatedBy }),

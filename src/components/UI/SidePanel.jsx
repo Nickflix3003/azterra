@@ -6,6 +6,7 @@ import './UI.css';
 function SidePanel({ location, region, regionLocations = [], onClose, onSelectLocation }) {
   const { regions } = useRegions();
   if (!location && !region) return null;
+  const imageDisplayMode = location?.imageDisplayMode || 'cover';
 
   const formatLocationMeta = (entry) => {
     const typeLabel = entry?.type ? String(entry.type).trim() : '';
@@ -122,7 +123,7 @@ function SidePanel({ location, region, regionLocations = [], onClose, onSelectLo
         )}
 
         {location.imageUrl ? (
-          <div className="side-panel-image-wrap">
+          <div className={`side-panel-image-wrap side-panel-image-wrap--${imageDisplayMode}`}>
             <img
               className="side-panel-image"
               src={location.imageUrl}

@@ -17,6 +17,7 @@ import {
 } from './utils.js';
 import { db, throwIfError } from './db.js';
 import { sanitizeSecretItems } from './secretAccess.js';
+import { readLocationDisplayMap } from './locationDisplayStore.js';
 import { hasLocationMapImage, readLocationMapMap } from './locationMapStore.js';
 
 const router = express.Router();
@@ -93,12 +94,13 @@ function rowToNpc(row) {
   };
 }
 
-function rowToLocation(row, secrets = {}, locationMap = null) {
+function rowToLocation(row, secrets = {}, locationMap = null, locationDisplay = null) {
   const numericId =
     typeof row.id === 'string' && /^-?\d+$/.test(row.id)
       ? Number(row.id)
       : row.id;
   const secret = secrets[String(row.id)] || secrets[String(numericId)] || {};
+  const gallery = Array.isArray(row.gallery) ? row.gallery : [];
   return {
     id: numericId,
     name: row.name,
@@ -116,6 +118,8 @@ function rowToLocation(row, secrets = {}, locationMap = null) {
     glowColor: row.glow_color || '#ffd700',
     campaign: row.campaign || 'Main',
     lore: row.lore || '',
+    imageUrl: typeof gallery[0] === 'string' ? gallery[0] : '',
+    imageDisplayMode: locationDisplay?.imageMode || 'cover',
     hasLocalMap: hasLocationMapImage(locationMap),
     ...(normalizeSecretId(secret.secretId) && { secretId: normalizeSecretId(secret.secretId) }),
   };
@@ -159,13 +163,21 @@ async function getNpcs() {
 
 async function getLocations() {
   try {
-    const [secretMap, locationMapIndex, result] = await Promise.all([
+    const [secretMap, locationMapIndex, locationDisplayMap, result] = await Promise.all([
       readSecretMap('location-secrets.json'),
       readLocationMapMap(),
+      readLocationDisplayMap(),
       db().from('locations').select('*').order('id'),
     ]);
     throwIfError(result.error, 'view locations');
-    return (result.data || []).map((row) => rowToLocation(row, secretMap, locationMapIndex[String(row.id)]));
+    return (result.data || []).map((row) =>
+      rowToLocation(
+        row,
+        secretMap,
+        locationMapIndex[String(row.id)],
+        locationDisplayMap[String(row.id)]
+      )
+    );
   } catch {
     const parsed = await readJsonFile(path.join(DATA_DIR, 'locations.json'), { locations: [] });
     const list = Array.isArray(parsed) ? parsed : parsed?.locations;

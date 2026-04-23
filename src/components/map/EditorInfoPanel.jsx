@@ -5,6 +5,12 @@ import { useToast } from '../../context/ToastContext';
 import { LOCATION_EDITOR_TYPE_OPTIONS } from '../../constants/mapConstants';
 import SecretScopeField from '../UI/SecretScopeField';
 
+const IMAGE_DISPLAY_MODE_OPTIONS = [
+  { id: 'cover', label: 'Zoom to Fit' },
+  { id: 'contain', label: 'Fit Entire Image' },
+  { id: 'natural', label: 'Full Size' },
+];
+
 function DualRangeSlider({ min = 0, max = 1000, startVal, endVal, onChangeStart, onChangeEnd }) {
   const safeStart = startVal ?? min;
   const safeEnd = endVal ?? max;
@@ -170,7 +176,6 @@ function EditorInfoPanel({
 
   const timeStart = draft.timeStart != null ? Number(draft.timeStart) : undefined;
   const timeEnd = draft.timeEnd != null ? Number(draft.timeEnd) : undefined;
-  const hasEra = timeStart != null || timeEnd != null;
   const saveStatusText = saveState?.error
     ? `Retry save: ${saveState.error}`
     : saveState?.saving
@@ -336,6 +341,18 @@ function EditorInfoPanel({
               placeholder="https://example.com/location-image.jpg"
             />
           </label>
+          <div className="editor-image__mode-picker" role="group" aria-label="Display image mode">
+            {IMAGE_DISPLAY_MODE_OPTIONS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                className={`editor-image__mode-chip ${draft.imageDisplayMode === option.id ? 'editor-image__mode-chip--active' : ''}`}
+                onClick={() => onFieldChange('imageDisplayMode', option.id)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <label className="editor-info-panel__field">

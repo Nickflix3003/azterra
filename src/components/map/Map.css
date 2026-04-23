@@ -2309,6 +2309,39 @@ html, body, #root {
   background: linear-gradient(to top, rgba(8, 7, 5, 0.88), rgba(8, 7, 5, 0));
 }
 
+.editor-image__mode-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.editor-image__mode-chip {
+  padding: 0.48rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid rgba(244, 219, 169, 0.16);
+  background: rgba(15, 23, 42, 0.7);
+  color: rgba(248, 242, 226, 0.82);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.editor-image__mode-chip:hover {
+  border-color: rgba(250, 204, 21, 0.36);
+  color: #fef3c7;
+  transform: translateY(-1px);
+}
+
+.editor-image__mode-chip--active {
+  border-color: rgba(250, 204, 21, 0.68);
+  background: linear-gradient(135deg, rgba(250, 204, 21, 0.18), rgba(249, 115, 22, 0.16));
+  color: #fde68a;
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.22);
+}
+
 .era-toggle {
   display: inline-flex;
   align-items: center;

@@ -20,6 +20,12 @@ import {
   readLocationMapMap,
   saveLocationMap,
 } from './locationMapStore.js';
+import {
+  readLocationDisplay,
+  readLocationDisplayMap,
+  saveLocationDisplay,
+  writeLocationDisplayMap,
+} from './locationDisplayStore.js';
 
 const router = Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -109,7 +115,7 @@ router.use('/images', express.static(LOCATION_IMAGES_DIR));
 
 // ── DB helpers ────────────────────────────────────────────────────────────────
 
-function rowToLocation(row, secrets = {}, locationMap = null) {
+function rowToLocation(row, secrets = {}, locationMap = null, locationDisplay = null) {
   const numericId =
     typeof row.id === 'string' && /^-?\d+$/.test(row.id)
       ? Number(row.id)
@@ -133,6 +139,7 @@ function rowToLocation(row, secrets = {}, locationMap = null) {
     glowColor: row.glow_color || '#F7B267',
     gallery,
     imageUrl: typeof gallery[0] === 'string' ? gallery[0] : '',
+    imageDisplayMode: locationDisplay?.imageMode || 'cover',
     pinned: row.pinned === true,
     timeStart: row.time_start != null ? row.time_start : null,
     timeEnd: row.time_end != null ? row.time_end : null,
@@ -195,14 +202,20 @@ function locationToRow(loc) {
 router.get('/', async function(req, res) {
   try {
     const viewer = await resolveRequestUser(req);
-    const [secretMap, locationMapIndex, result] = await Promise.all([
+    const [secretMap, locationMapIndex, locationDisplayMap, result] = await Promise.all([
       readLocationSecretMap(),
       readLocationMapMap(),
+      readLocationDisplayMap(),
       db().from('locations').select('*').order('id'),
     ]);
     const { data, error } = result;
     throwIfError(error, 'locations GET /');
-    const locations = (data || []).map((row) => rowToLocation(row, secretMap, locationMapIndex[String(row.id)]));
+    const locations = (data || []).map((row) => rowToLocation(
+      row,
+      secretMap,
+      locationMapIndex[String(row.id)],
+      locationDisplayMap[String(row.id)]
+    ));
     return res.json({ locations: sanitizeSecretItems(locations, viewer) });
   } catch (err) {
     console.error(err);
@@ -232,7 +245,8 @@ router.post('/', authRequired, editorRequired, async function(req, res) {
       secretMap = setLocationSecret(secretMap, data.id, req.body?.secretId);
       await writeLocationSecretMap(secretMap);
     }
-    return res.status(201).json({ location: rowToLocation(data, secretMap) });
+    const locationDisplay = await readLocationDisplay(data.id);
+    return res.status(201).json({ location: rowToLocation(data, secretMap, null, locationDisplay) });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Unable to create location.' });
@@ -282,7 +296,10 @@ router.post('/save', authRequired, editorRequired, async function(req, res) {
       const { error: insErr } = await db().from('locations').insert(rows);
       throwIfError(insErr, 'locations save insert');
     }
-    const locationMapIndex = await readLocationMapMap();
+    const [locationMapIndex, locationDisplayMap] = await Promise.all([
+      readLocationMapMap(),
+      readLocationDisplayMap(),
+    ]);
     const { data, error } = await db().from('locations').select('*').order('id');
     throwIfError(error, 'locations save fetch');
     const nextSecretMap = combinedPayload.reduce((acc, location) => {
@@ -292,7 +309,12 @@ router.post('/save', authRequired, editorRequired, async function(req, res) {
     }, {});
     await writeLocationSecretMap(nextSecretMap);
     return res.json({
-      locations: (data || []).map((row) => rowToLocation(row, nextSecretMap, locationMapIndex[String(row.id)])),
+      locations: (data || []).map((row) => rowToLocation(
+        row,
+        nextSecretMap,
+        locationMapIndex[String(row.id)],
+        locationDisplayMap[String(row.id)]
+      )),
     });
   } catch (err) {
     console.error(err);
@@ -503,7 +525,7 @@ router.post('/:id/scene/upload', authRequired, editorRequired, uploadImage.singl
 // PATCH /api/locations/:id
 router.patch('/:id', authRequired, editorRequired, async function(req, res) {
   const { id } = req.params;
-  const allowed = ['name', 'description', 'lore', 'type', 'category', 'regionId', 'tags', 'gallery', 'imageUrl', 'glowColor', 'iconKey', 'pinned', 'timeStart', 'timeEnd', 'lat', 'lng'];
+  const allowed = ['name', 'description', 'lore', 'type', 'category', 'regionId', 'tags', 'gallery', 'imageUrl', 'imageDisplayMode', 'glowColor', 'iconKey', 'pinned', 'timeStart', 'timeEnd', 'lat', 'lng'];
   const updates = {};
   allowed.forEach(function(key) { if (key in req.body) updates[key] = req.body[key]; });
 
@@ -511,7 +533,10 @@ router.patch('/:id', authRequired, editorRequired, async function(req, res) {
     const fetchResult = await db().from('locations').select('*').eq('id', String(id)).single();
     throwIfError(fetchResult.error, 'locations PATCH fetch');
     if (!fetchResult.data) return res.status(404).json({ error: 'Location not found.' });
-    const currentSecretMap = await readLocationSecretMap();
+    const [currentSecretMap, currentDisplay] = await Promise.all([
+      readLocationSecretMap(),
+      readLocationDisplay(id),
+    ]);
     const secretSettings = await readSecretSettingsMap();
     const currentSecretId =
       currentSecretMap[String(id)]?.secretId ||
@@ -561,13 +586,20 @@ router.patch('/:id', authRequired, editorRequired, async function(req, res) {
 
     const { data, error } = await db().from('locations').update(patchRow).eq('id', String(id)).select().single();
     throwIfError(error, 'locations PATCH update');
+    let nextDisplay = currentDisplay;
+    if (updates.imageDisplayMode !== undefined) {
+      nextDisplay = await saveLocationDisplay(id, {
+        ...currentDisplay,
+        imageMode: updates.imageDisplayMode,
+      });
+    }
     let secretMap = currentSecretMap;
     if (req.body?.secretId !== undefined) {
       secretMap = setLocationSecret(secretMap, id, req.body.secretId);
       await writeLocationSecretMap(secretMap);
     }
     const locationMap = await readLocationMap(id);
-    return res.json({ location: rowToLocation(data, secretMap, locationMap) });
+    return res.json({ location: rowToLocation(data, secretMap, locationMap, nextDisplay) });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Unable to update location.' });
@@ -580,9 +612,10 @@ router.post('/:id/image', authRequired, editorRequired, uploadImage.single('imag
   const { id } = req.params;
   const url = '/api/locations/images/' + req.file.filename;
   try {
-    const [secretMap, locationMapIndex, fetchResult] = await Promise.all([
+    const [secretMap, locationMapIndex, locationDisplayMap, fetchResult] = await Promise.all([
       readLocationSecretMap(),
       readLocationMapMap(),
+      readLocationDisplayMap(),
       db().from('locations').select('*').eq('id', String(id)).single(),
     ]);
     throwIfError(fetchResult.error, 'location image upload fetch');
@@ -605,7 +638,12 @@ router.post('/:id/image', authRequired, editorRequired, uploadImage.single('imag
     throwIfError(updateResult.error, 'location image upload update');
     return res.json({
       url,
-      location: rowToLocation(updateResult.data, secretMap, locationMapIndex[String(updateResult.data.id)]),
+      location: rowToLocation(
+        updateResult.data,
+        secretMap,
+        locationMapIndex[String(updateResult.data.id)],
+        locationDisplayMap[String(updateResult.data.id)]
+      ),
     });
   } catch (err) {
     console.error(err);
@@ -624,6 +662,11 @@ router.delete('/:id', authRequired, editorRequired, async function(req, res) {
     throwIfError(error, 'locations DELETE');
     const secretMap = setLocationSecret(await readLocationSecretMap(), id, null);
     await writeLocationSecretMap(secretMap);
+    const displayMap = await readLocationDisplayMap();
+    if (displayMap[String(id)]) {
+      delete displayMap[String(id)];
+      await writeLocationDisplayMap(displayMap);
+    }
     return res.json({ success: true, id: typeof existing.id === 'string' && /^-?\d+$/.test(existing.id) ? Number(existing.id) : existing.id });
   } catch (err) {
     console.error(err);

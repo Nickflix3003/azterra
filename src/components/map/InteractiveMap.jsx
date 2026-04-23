@@ -329,6 +329,7 @@ function InteractiveMap({
     description: location?.description || '',
     secretId: location?.secretId ?? null,
     imageUrl: location?.imageUrl || '',
+    imageDisplayMode: location?.imageDisplayMode || 'cover',
     pinned: location?.pinned ?? false,
     timeStart: location?.timeStart,
     timeEnd: location?.timeEnd,
@@ -1222,7 +1223,7 @@ function InteractiveMap({
     if (String(editorSelection.id) !== String(selectedLocation.id)) return;
     const nextDraft = buildEditorDraft(selectedLocation);
     const currentDraft = editorSelection.draft || {};
-    const fields = ['name', 'type', 'category', 'lore', 'description', 'secretId', 'imageUrl', 'pinned', 'timeStart', 'timeEnd', 'regionId'];
+    const fields = ['name', 'type', 'category', 'lore', 'description', 'secretId', 'imageUrl', 'imageDisplayMode', 'pinned', 'timeStart', 'timeEnd', 'regionId'];
     const changed = fields.some((field) => currentDraft[field] !== nextDraft[field]);
     if (!changed) return;
     setEditorSelection((prev) => (
