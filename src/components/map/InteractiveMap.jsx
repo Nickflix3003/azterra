@@ -1142,28 +1142,6 @@ function InteractiveMap({
   }, [mapInstance]);
 
   useEffect(() => {
-    const node = mapContainerRef.current;
-    if (!node) return undefined;
-    const preventCtrlWheel    = (event) => { if (event.ctrlKey) event.preventDefault(); };
-    const preventBrowserZoom  = (event) => {
-      if ((event.ctrlKey || event.metaKey) && ['+', '-', '=', '_', '0'].includes(event.key)) {
-        event.preventDefault();
-      }
-    };
-    const preventGesture = (event) => event.preventDefault();
-    node.addEventListener('wheel', preventCtrlWheel, { passive: false });
-    window.addEventListener('keydown',       preventBrowserZoom, { passive: false });
-    window.addEventListener('gesturestart',  preventGesture,     { passive: false });
-    window.addEventListener('gesturechange', preventGesture,     { passive: false });
-    return () => {
-      node.removeEventListener('wheel', preventCtrlWheel);
-      window.removeEventListener('keydown',       preventBrowserZoom);
-      window.removeEventListener('gesturestart',  preventGesture);
-      window.removeEventListener('gesturechange', preventGesture);
-    };
-  }, []);
-
-  useEffect(() => {
     // Guard: mapInstance must exist AND Leaflet's internal pane DOM must be ready.
     // The _panes object is only populated after the map has fully initialised its
     // container — calling invalidateSize() before that throws "_leaflet_pos" errors.
@@ -1200,25 +1178,6 @@ function InteractiveMap({
       else if (!isIntroVisible && handler.enable) handler.enable();
     });
   }, [mapInstance, isIntroVisible]);
-
-  useEffect(() => {
-    if (!isIntroVisible) return;
-    const preventWheel   = (e) => { if (e.ctrlKey) e.preventDefault(); };
-    const preventKeyZoom = (e) => {
-      if ((e.ctrlKey || e.metaKey) && ['+', '-', '=', '_', '0'].includes(e.key)) e.preventDefault();
-    };
-    const preventGesture = (e) => e.preventDefault();
-    window.addEventListener('wheel',         preventWheel,   { passive: false });
-    window.addEventListener('keydown',       preventKeyZoom, { passive: false });
-    window.addEventListener('gesturestart',  preventGesture, { passive: false });
-    window.addEventListener('gesturechange', preventGesture, { passive: false });
-    return () => {
-      window.removeEventListener('wheel',         preventWheel);
-      window.removeEventListener('keydown',       preventKeyZoom);
-      window.removeEventListener('gesturestart',  preventGesture);
-      window.removeEventListener('gesturechange', preventGesture);
-    };
-  }, [isIntroVisible]);
 
   const handleIntroFinish = () => {
     introShownThisSession = true;
