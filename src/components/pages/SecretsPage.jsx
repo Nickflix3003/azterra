@@ -52,6 +52,10 @@ function buildContentDraft(entry = {}) {
   };
 }
 
+function getViewerLabel(entry = {}) {
+  return entry.name || entry.username || entry.email || 'This user';
+}
+
 function LinkedEntityList({ title, items, renderItem }) {
   if (!Array.isArray(items) || items.length === 0) return null;
   return (
@@ -238,15 +242,6 @@ export default function SecretsPage() {
     }));
   };
 
-  const handleSecretReset = (secretId) => {
-    const current = secrets.find((secret) => secret.id === secretId);
-    if (!current) return;
-    setSecretDrafts((prev) => ({
-      ...prev,
-      [secretId]: buildSecretDraft(current),
-    }));
-  };
-
   const handleSecretSave = async (secretId) => {
     const draft = secretDrafts[secretId];
     if (!draft) return;
@@ -287,6 +282,12 @@ export default function SecretsPage() {
   };
 
   const handleSecretDelete = async (secretId) => {
+    const secret = secrets.find((entry) => entry.id === secretId);
+    const confirmed = window.confirm(
+      `Delete "${secret?.title || 'this secret'}"? This cannot be undone.`
+    );
+    if (!confirmed) return;
+
     setDeletingSecretId(secretId);
     setManageError('');
     try {
@@ -300,6 +301,16 @@ export default function SecretsPage() {
   };
 
   const handleAssignmentToggle = async (userId, secretId, enabled) => {
+    const secret = getSecretById(secretId);
+    const viewer = users.find((entry) => String(entry.id) === String(userId));
+    const viewerLabel = getViewerLabel(viewer);
+    const confirmed = window.confirm(
+      enabled
+        ? `Remove "${viewerLabel}" from "${secret?.title || 'this secret'}"? They will lose access to everything in this secret.`
+        : `Grant "${viewerLabel}" access to "${secret?.title || 'this secret'}"? They will be able to see everything in this secret.`
+    );
+    if (!confirmed) return;
+
     const key = `${userId}:${secretId}`;
     setAssignmentKey(key);
     setManageError('');
@@ -323,15 +334,6 @@ export default function SecretsPage() {
         ...(prev[entryId] || {}),
         [field]: value,
       },
-    }));
-  };
-
-  const handleEntryReset = (entryId) => {
-    const current = manageableEntries.find((entry) => String(entry.id) === String(entryId));
-    if (!current) return;
-    setEntryDrafts((prev) => ({
-      ...prev,
-      [entryId]: buildContentDraft(current),
     }));
   };
 
@@ -366,6 +368,12 @@ export default function SecretsPage() {
   };
 
   const handleEntryDelete = async (entryId) => {
+    const entry = manageableEntries.find((item) => String(item.id) === String(entryId));
+    const confirmed = window.confirm(
+      `Delete "${entry?.title || 'this secret note'}"? This cannot be undone.`
+    );
+    if (!confirmed) return;
+
     setDeletingEntryId(entryId);
     setManageError('');
     try {
@@ -676,7 +684,7 @@ export default function SecretsPage() {
                                 onClick={() => !isOwner && handleAssignmentToggle(entry.id, secret.id, enabled)}
                                 disabled={assignmentKey === key || isOwner}
                               >
-                                <span>{entry.name || entry.username || entry.email}</span>
+                                <span>{getViewerLabel(entry)}</span>
                                 <small>
                                   {isOwner
                                     ? 'Owner'
@@ -778,14 +786,6 @@ export default function SecretsPage() {
                         disabled={savingSecretId === secret.id}
                       >
                         {savingSecretId === secret.id ? 'Saving...' : 'Save'}
-                      </button>
-                      <button
-                        type="button"
-                        className="progression__ghost-button"
-                        onClick={() => handleSecretReset(secret.id)}
-                        disabled={savingSecretId === secret.id}
-                      >
-                        Reset
                       </button>
                       <button
                         type="button"
@@ -1012,14 +1012,6 @@ export default function SecretsPage() {
                         disabled={savingEntryId === entry.id}
                       >
                         {savingEntryId === entry.id ? 'Saving...' : 'Save'}
-                      </button>
-                      <button
-                        type="button"
-                        className="progression__ghost-button"
-                        onClick={() => handleEntryReset(entry.id)}
-                        disabled={savingEntryId === entry.id}
-                      >
-                        Reset
                       </button>
                       <button
                         type="button"
