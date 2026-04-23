@@ -315,7 +315,6 @@ function InteractiveMap({
   const [showMapLabels, setShowMapLabels] = useState(true);
   const [isPlacingLabel, setIsPlacingLabel] = useState(false);
   const [isEditorPanelOpen, setIsEditorPanelOpen] = useState(true);
-  const [cachedMapCenter, setCachedMapCenter] = useState(center);
 
   // Drag-and-drop state
   // Use a ref (not state) for the active marker ID so that setting it during
@@ -348,6 +347,7 @@ function InteractiveMap({
   const isAdmin = role === 'admin';
   const center  = MAP_CENTER;
   const zoom    = INTERACTIVE_MIN_ZOOM_LEVEL;
+  const [cachedMapCenter, setCachedMapCenter] = useState(center);
 
   const canAutoSave         = ['player', 'editor', 'admin'].includes(role);
   const hoveredLocationId = hoveredEntity?.type === 'location' ? hoveredEntity.id : null;
