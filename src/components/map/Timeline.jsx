@@ -641,11 +641,6 @@ export default function Timeline({
         </div>
 
         <div className="timeline-bar__summary-right">
-          <div className="timeline-bar__window-card">
-            <span className="timeline-bar__eyebrow">View Window</span>
-            <strong>{formatRange(visibleStart, visibleEnd)}</strong>
-            <span>{visibleSpan} year span</span>
-          </div>
           <div className="timeline-bar__summary-actions">
             {isZoomed && (
               <button
@@ -656,7 +651,6 @@ export default function Timeline({
                 Full Range
               </button>
             )}
-            <span className="timeline-bar__summary-note">Scroll the bar to zoom</span>
           </div>
         </div>
       </div>
