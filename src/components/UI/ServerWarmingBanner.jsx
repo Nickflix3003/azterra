@@ -15,7 +15,19 @@ const OVERLAY_ROUTE_MATCHERS = [
   (pathname) => pathname.startsWith('/compendium'),
 ];
 
+const AUTH_ROUTE_MATCHERS = [
+  (pathname) => pathname.startsWith('/login'),
+  (pathname) => pathname.startsWith('/signup'),
+  (pathname) => pathname.startsWith('/auth'),
+];
+
 function getRouteCopy(pathname) {
+  if (pathname.startsWith('/login') || pathname.startsWith('/signup') || pathname.startsWith('/auth')) {
+    return {
+      eyebrow: 'Sign In',
+      title: 'Preparing sign-in',
+    };
+  }
   if (pathname.startsWith('/campaign')) {
     return {
       eyebrow: 'Campaign',
@@ -78,20 +90,26 @@ export default function ServerWarmingBanner() {
 
   const showNotice = status.phase !== 'idle';
   const elapsedLabel = formatElapsed(status.startedAt, nowMs);
+  const isAuthRoute = AUTH_ROUTE_MATCHERS.some((matcher) => matcher(location.pathname || '/'));
   const shouldUseOverlay =
     showNotice &&
-    OVERLAY_ROUTE_MATCHERS.some((matcher) => matcher(location.pathname || '/')) &&
-    ((status.phase === 'warming' && status.startedAt && nowMs - status.startedAt >= 4500) ||
+    (isAuthRoute || OVERLAY_ROUTE_MATCHERS.some((matcher) => matcher(location.pathname || '/'))) &&
+    ((isAuthRoute && status.phase === 'warming') ||
+      (status.phase === 'warming' && status.startedAt && nowMs - status.startedAt >= 4500) ||
       status.phase === 'offline');
 
   const bodyText =
     status.phase === 'warming'
-      ? 'Render put the backend to sleep. Give it about 30-50 seconds and this page will fill in automatically.'
+      ? (isAuthRoute
+          ? 'Render put the backend to sleep. Azterra is waking it before handing you off to sign in.'
+          : 'Render put the backend to sleep. Give it about 30-50 seconds and this page will fill in automatically.')
       : status.lastError || 'The backend is still unavailable. Try waking it again in a moment.';
 
   const secondaryText =
     status.phase === 'warming'
-      ? 'No refresh needed. Azterra will reconnect on its own.'
+      ? (isAuthRoute
+          ? 'No refresh needed. When the backend responds, sign-in will continue automatically.'
+          : 'No refresh needed. Azterra will reconnect on its own.')
       : 'If the server was sleeping, waking it again usually fixes it.';
 
   async function handleWakeServer() {

@@ -12,6 +12,7 @@ const listeners = new Set();
 let state = {
   phase: 'idle',
   warmingCount: 0,
+  pendingCount: 0,
   startedAt: null,
   lastError: '',
   lastUpdatedAt: Date.now(),
@@ -31,12 +32,59 @@ function setState(patch) {
   notify();
 }
 
+function getWarmStartedAt() {
+  return state.phase === 'warming' && state.startedAt ? state.startedAt : Date.now();
+}
+
+export function markWarmupPending() {
+  const nextCount = state.pendingCount + 1;
+  setState({
+    phase: 'warming',
+    pendingCount: nextCount,
+    startedAt: getWarmStartedAt(),
+    lastError: '',
+  });
+}
+
+export function clearWarmupPending({ outcome = 'success', message = '' } = {}) {
+  const nextCount = Math.max(0, state.pendingCount - 1);
+  const stillWarming = nextCount > 0 || state.warmingCount > 0;
+
+  if (stillWarming) {
+    setState({
+      phase: 'warming',
+      pendingCount: nextCount,
+      lastError: outcome === 'failed' ? message || state.lastError : '',
+    });
+    return;
+  }
+
+  if (outcome === 'failed') {
+    setState({
+      phase: 'offline',
+      pendingCount: 0,
+      warmingCount: 0,
+      startedAt: null,
+      lastError: message || 'The backend is still unavailable.',
+    });
+    return;
+  }
+
+  setState({
+    phase: 'idle',
+    pendingCount: 0,
+    warmingCount: 0,
+    startedAt: null,
+    lastError: '',
+  });
+}
+
 export function markRetryStart() {
   const nextCount = state.warmingCount + 1;
   setState({
     phase: 'warming',
     warmingCount: nextCount,
-    startedAt: state.phase === 'warming' && state.startedAt ? state.startedAt : Date.now(),
+    startedAt: getWarmStartedAt(),
     lastError: '',
   });
 }
@@ -54,39 +102,39 @@ export function markRetryEnd({ outcome = 'success', message = '' } = {}) {
 
   if (outcome === 'failed') {
     setState({
-      phase: 'offline',
+      phase: state.pendingCount > 0 ? 'warming' : 'offline',
       warmingCount: 0,
-      startedAt: null,
+      startedAt: state.pendingCount > 0 ? state.startedAt || Date.now() : null,
       lastError: message || 'The backend is still unavailable.',
     });
     return;
   }
 
   setState({
-    phase: 'idle',
+    phase: state.pendingCount > 0 ? 'warming' : 'idle',
     warmingCount: 0,
-    startedAt: null,
+    startedAt: state.pendingCount > 0 ? state.startedAt || Date.now() : null,
     lastError: '',
   });
 }
 
 export function markServerFailure(message = 'Could not reach the backend.') {
   setState({
-    phase: 'offline',
+    phase: state.pendingCount > 0 ? 'warming' : 'offline',
     warmingCount: 0,
-    startedAt: null,
+    startedAt: state.pendingCount > 0 ? state.startedAt || Date.now() : null,
     lastError: message,
   });
 }
 
 export function markServerRecovered() {
-  if (state.phase === 'idle' && state.warmingCount === 0 && !state.lastError) {
+  if (state.phase === 'idle' && state.warmingCount === 0 && state.pendingCount === 0 && !state.lastError) {
     return;
   }
   setState({
-    phase: 'idle',
+    phase: state.pendingCount > 0 ? 'warming' : 'idle',
     warmingCount: 0,
-    startedAt: null,
+    startedAt: state.pendingCount > 0 ? state.startedAt || Date.now() : null,
     lastError: '',
   });
 }

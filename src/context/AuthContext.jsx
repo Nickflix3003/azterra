@@ -4,6 +4,7 @@ import { canView as baseCanView } from '../utils/permissions';
 import { getSupabaseRedirectUrl, supabase } from '../lib/supabaseClient';
 import { fetchWithRetry } from '../utils/fetchWithRetry';
 import { API_BASE_URL } from '../utils/apiBase';
+import { clearWarmupPending, markWarmupPending } from '../utils/serverStatus';
 
 const AuthContext = createContext({
   user: null,
@@ -107,16 +108,43 @@ async function request({ path, method = 'GET', body, headers = {} }) {
 }
 
 async function ensureBackendReady() {
-  const response = await fetchWithRetry(`${API_BASE_URL}/health`, {
-    credentials: 'include',
-    cache: 'no-store',
-  });
-  const contentType = response.headers.get('content-type') || '';
-  const data = contentType.includes('application/json') ? await response.json().catch(() => ({})) : {};
-  if (!response.ok) {
-    throw new Error(data.error || 'The world server is still unavailable. Please try again in a moment.');
+  let pendingTimer = null;
+  let pendingMarked = false;
+  let outcome = 'success';
+  let failureMessage = '';
+
+  try {
+    if (typeof window !== 'undefined') {
+      pendingTimer = window.setTimeout(() => {
+        markWarmupPending();
+        pendingMarked = true;
+      }, 700);
+    }
+
+    const response = await fetchWithRetry(`${API_BASE_URL}/health`, {
+      credentials: 'include',
+      cache: 'no-store',
+    });
+    const contentType = response.headers.get('content-type') || '';
+    const data = contentType.includes('application/json') ? await response.json().catch(() => ({})) : {};
+    if (!response.ok) {
+      outcome = 'failed';
+      failureMessage = data.error || 'The world server is still unavailable. Please try again in a moment.';
+      throw new Error(failureMessage);
+    }
+    return data;
+  } catch (error) {
+    outcome = 'failed';
+    failureMessage = error?.message || 'The world server is still unavailable. Please try again in a moment.';
+    throw error;
+  } finally {
+    if (pendingTimer) {
+      window.clearTimeout(pendingTimer);
+    }
+    if (pendingMarked) {
+      clearWarmupPending({ outcome, message: failureMessage });
+    }
   }
-  return data;
 }
 
 export function AuthProvider({ children }) {
