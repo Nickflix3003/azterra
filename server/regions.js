@@ -291,7 +291,24 @@ router.post('/save', authRequired, editorRequired, async (req, res) => {
 // PATCH /api/regions/:id
 router.patch('/:id', authRequired, editorRequired, async (req, res) => {
   const { id } = req.params;
-  const allowed = ['name', 'description', 'lore', 'emblem', 'bannerImage', 'color', 'borderColor', 'timeStart', 'timeEnd'];
+  const allowed = [
+    'name',
+    'description',
+    'lore',
+    'emblem',
+    'bannerImage',
+    'color',
+    'borderColor',
+    'opacity',
+    'category',
+    'labelEnabled',
+    'labelSize',
+    'labelOffsetX',
+    'labelOffsetY',
+    'labelWidth',
+    'timeStart',
+    'timeEnd',
+  ];
   const updates = {};
   allowed.forEach((key) => {
     if (key in req.body) updates[key] = req.body[key];
@@ -313,6 +330,13 @@ router.patch('/:id', authRequired, editorRequired, async (req, res) => {
       ...(updates.bannerImage !== undefined && { banner_image: updates.bannerImage }),
       ...(updates.color !== undefined && { color: updates.color }),
       ...(updates.borderColor !== undefined && { border_color: updates.borderColor }),
+      ...(updates.opacity !== undefined && { opacity: updates.opacity }),
+      ...(updates.category !== undefined && { category: updates.category || '' }),
+      ...(updates.labelEnabled !== undefined && { label_enabled: updates.labelEnabled !== false }),
+      ...(updates.labelSize !== undefined && { label_size: updates.labelSize }),
+      ...(updates.labelOffsetX !== undefined && { label_offset_x: String(updates.labelOffsetX ?? '0') }),
+      ...(updates.labelOffsetY !== undefined && { label_offset_y: String(updates.labelOffsetY ?? '0') }),
+      ...(updates.labelWidth !== undefined && { label_width: updates.labelWidth }),
     };
 
     const currentEra = eras[String(id)] || {};

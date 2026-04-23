@@ -14,6 +14,25 @@ import { useToast } from './ToastContext';
 const RegionDataContext = createContext(null);
 const API_BASE_URL = '/api';
 const REGION_AUTOSAVE_DELAY_MS = 500;
+const PATCHABLE_REGION_FIELDS = new Set([
+  'name',
+  'description',
+  'lore',
+  'emblem',
+  'bannerImage',
+  'color',
+  'borderColor',
+  'opacity',
+  'category',
+  'labelEnabled',
+  'labelSize',
+  'labelOffsetX',
+  'labelOffsetY',
+  'labelWidth',
+  'timeStart',
+  'timeEnd',
+  'secretId',
+]);
 const EMPTY_REGION_SAVE_STATE = Object.freeze({
   dirty: false,
   saving: false,
@@ -41,6 +60,10 @@ export function RegionDataProvider({ children }) {
   const regionsRef = useRef([]);
   const saveTimerRef = useRef(null);
   const savePromiseRef = useRef(null);
+  const patchTimersRef = useRef({});
+  const patchPromisesRef = useRef({});
+  const pendingPatchesRef = useRef({});
+  const bulkDirtyRef = useRef(false);
 
   const setRegions = useCallback((updater) => {
     setRegionsState((prev) => {
@@ -65,6 +88,18 @@ export function RegionDataProvider({ children }) {
       return next;
     });
   }, []);
+
+  const replaceRegionLocal = useCallback((region) => {
+    const normalized = normalizeRegionEntry(region);
+    setRegions((prev) => {
+      const index = prev.findIndex((entry) => String(entry.id) === String(normalized.id));
+      if (index === -1) return [...prev, normalized];
+      const next = prev.slice();
+      next[index] = normalized;
+      return next;
+    });
+    return normalized;
+  }, [setRegions]);
 
   const selectRegion = useCallback((id) => {
     setSelectedRegionId(id);
@@ -124,6 +159,7 @@ export function RegionDataProvider({ children }) {
           ? data.regions.map(normalizeRegionEntry)
           : [];
         setRegions(normalized);
+        bulkDirtyRef.current = false;
         setRegionSaveState({
           dirty: false,
           saving: false,
@@ -164,24 +200,129 @@ export function RegionDataProvider({ children }) {
     }, REGION_AUTOSAVE_DELAY_MS);
   }, [persistRegions]);
 
+  const persistQueuedRegionPatch = useCallback((id, options = {}) => {
+    const key = String(id);
+    const {
+      successMode = 'none',
+      successMessage = 'Region saved.',
+      errorMessage = 'Unable to save region.',
+    } = options;
+
+    if (patchTimersRef.current[key]) {
+      clearTimeout(patchTimersRef.current[key]);
+      delete patchTimersRef.current[key];
+    }
+
+    const previous = patchPromisesRef.current[key] || Promise.resolve();
+    const next = previous.catch(() => null).then(async () => {
+      while (true) {
+        const patch = pendingPatchesRef.current[key];
+        if (!patch || !Object.keys(patch).length) {
+          return regionsRef.current.find((region) => String(region.id) === key) || null;
+        }
+
+        delete pendingPatchesRef.current[key];
+        setRegionSaveState({ saving: true, error: '' });
+
+        try {
+          const response = await fetch(`${API_BASE_URL}/regions/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(patch),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(data.error || errorMessage);
+          }
+
+          const hasMoreQueued = Boolean(
+            pendingPatchesRef.current[key] && Object.keys(pendingPatchesRef.current[key]).length
+          );
+          if (!hasMoreQueued && data.region) {
+            replaceRegionLocal(data.region);
+          }
+
+          setRegionSaveState({
+            dirty: hasMoreQueued || bulkDirtyRef.current,
+            saving: hasMoreQueued,
+            error: '',
+            lastSavedAt: Date.now(),
+          });
+
+          if (!hasMoreQueued && successMode === 'immediate') {
+            toast.success(successMessage);
+          }
+        } catch (error) {
+          pendingPatchesRef.current[key] = {
+            ...patch,
+            ...(pendingPatchesRef.current[key] || {}),
+          };
+          setRegionSaveState({
+            dirty: true,
+            saving: false,
+            error: error.message || errorMessage,
+          });
+          toast.error(error.message || errorMessage);
+          throw error;
+        }
+      }
+    });
+
+    patchPromisesRef.current[key] = next.finally(() => {
+      if (patchPromisesRef.current[key] === next) {
+        delete patchPromisesRef.current[key];
+      }
+    });
+
+    return patchPromisesRef.current[key];
+  }, [replaceRegionLocal, setRegionSaveState, toast]);
+
   const updateRegion = useCallback((id, updates, options = {}) => {
     const { mode = 'debounced' } = options;
+    const sanitizedUpdates = Object.fromEntries(
+      Object.entries(updates || {}).map(([key, value]) => [key, value === undefined ? null : value])
+    );
+    const patchable = Object.keys(sanitizedUpdates).every((key) => PATCHABLE_REGION_FIELDS.has(key));
     let nextRegions = regionsRef.current;
     setRegions((prev) => {
       nextRegions = prev.map((region) => (
         String(region.id) === String(id)
-          ? normalizeRegionEntry({ ...region, ...updates })
+          ? normalizeRegionEntry({ ...region, ...sanitizedUpdates })
           : region
       ));
       return nextRegions;
     });
     setRegionSaveState({ dirty: true, error: '' });
-    if (mode === 'immediate') {
-      return persistRegions(nextRegions, options);
+
+    if (!patchable) {
+      bulkDirtyRef.current = true;
+      if (mode === 'immediate') {
+        return persistRegions(nextRegions, options);
+      }
+      scheduleRegionSave(options);
+      return Promise.resolve(nextRegions);
     }
-    scheduleRegionSave(options);
+
+    const key = String(id);
+    pendingPatchesRef.current[key] = {
+      ...(pendingPatchesRef.current[key] || {}),
+      ...sanitizedUpdates,
+    };
+
+    if (mode === 'immediate') {
+      return persistQueuedRegionPatch(id, options);
+    }
+
+    if (patchTimersRef.current[key]) {
+      clearTimeout(patchTimersRef.current[key]);
+    }
+    patchTimersRef.current[key] = setTimeout(() => {
+      delete patchTimersRef.current[key];
+      persistQueuedRegionPatch(id, options).catch(() => null);
+    }, REGION_AUTOSAVE_DELAY_MS);
     return Promise.resolve(nextRegions);
-  }, [persistRegions, scheduleRegionSave, setRegionSaveState, setRegions]);
+  }, [persistQueuedRegionPatch, persistRegions, scheduleRegionSave, setRegionSaveState, setRegions]);
 
   const createRegion = useCallback((region, options = {}) => {
     const { mode = 'immediate' } = options;
@@ -191,6 +332,7 @@ export function RegionDataProvider({ children }) {
       nextRegions = [...prev, createdRegion];
       return nextRegions;
     });
+    bulkDirtyRef.current = true;
     setRegionSaveState({ dirty: true, error: '' });
     if (mode === 'immediate') {
       return persistRegions(nextRegions, options).then(() => createdRegion);
@@ -206,6 +348,7 @@ export function RegionDataProvider({ children }) {
       nextRegions = prev.filter((region) => String(region.id) !== String(id));
       return nextRegions;
     });
+    bulkDirtyRef.current = true;
     setSelectedRegionId((prev) => (String(prev) === String(id) ? null : prev));
     setRegionSaveState({ dirty: true, error: '' });
     if (mode === 'immediate') {
@@ -216,15 +359,34 @@ export function RegionDataProvider({ children }) {
   }, [persistRegions, scheduleRegionSave, setRegionSaveState, setRegions]);
 
   const flushPendingRegionSaves = useCallback((options = {}) => {
+    const patchIds = Array.from(
+      new Set([
+        ...Object.keys(pendingPatchesRef.current),
+        ...Object.keys(patchTimersRef.current),
+        ...Object.keys(patchPromisesRef.current),
+      ].filter(Boolean))
+    );
+
+    patchIds.forEach((key) => {
+      if (patchTimersRef.current[key]) {
+        clearTimeout(patchTimersRef.current[key]);
+        delete patchTimersRef.current[key];
+      }
+    });
+
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
     }
-    if (!regionSaveState.dirty && !savePromiseRef.current) {
-      return Promise.resolve(regionsRef.current);
-    }
-    return persistRegions(regionsRef.current, options).catch(() => null);
-  }, [persistRegions, regionSaveState.dirty]);
+
+    return Promise.all(patchIds.map((key) => persistQueuedRegionPatch(key, options).catch(() => null)))
+      .then(() => {
+        if (!bulkDirtyRef.current && !savePromiseRef.current) {
+          return regionsRef.current;
+        }
+        return persistRegions(regionsRef.current, options).catch(() => null);
+      });
+  }, [persistQueuedRegionPatch, persistRegions]);
 
   useEffect(() => {
     if (hasLoadedRef.current) return undefined;
@@ -242,6 +404,9 @@ export function RegionDataProvider({ children }) {
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
     }
+    Object.values(patchTimersRef.current).forEach((timer) => {
+      clearTimeout(timer);
+    });
   }, []);
 
   const value = useMemo(
