@@ -15,7 +15,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { db } from './db.js';
+import { db, throwIfError } from './db.js';
 import { getOwnedSecretIdsForUser, readSecretSettingsMap } from './secretStore.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -26,7 +26,7 @@ const BACKUP_DIR = path.join(__dirname, 'backups');
 const JWT_SECRET = process.env.JWT_SECRET || 'azterra_dev_secret_change_me';
 const COOKIE_NAME = process.env.SESSION_COOKIE_NAME || 'token';
 const DEFAULT_ADMIN_EMAIL = process.env.DEFAULT_ADMIN_EMAIL || 'admin@azterra.com';
-const DEFAULT_ADMIN_PASSWORD = process.env.DEFAULT_ADMIN_PASSWORD || 'admin12345';
+const DEFAULT_ADMIN_PASSWORD = process.env.DEFAULT_ADMIN_PASSWORD || 'dibbins';
 const DEFAULT_ADMIN_NAME = process.env.DEFAULT_ADMIN_NAME || 'Azterra Admin';
 export const ALLOWED_ROLES = ['pending', 'player', 'editor', 'admin'];
 export const IMMUTABLE_ADMIN_EMAIL = DEFAULT_ADMIN_EMAIL.toLowerCase();
@@ -185,18 +185,51 @@ export async function addUser(userData) {
 
 export async function ensureDefaultAdmin() {
   const users = await readUsers();
-  const nextUsers = users.map((user) => {
-    if (isImmutableAdminEmail(user.email)) {
-      return applyFriendState({ ...user, role: 'admin' });
+  let didChange = false;
+  let desiredPasswordHash = null;
+  const getDesiredPasswordHash = async () => {
+    if (!desiredPasswordHash) {
+      desiredPasswordHash = await hashPassword(DEFAULT_ADMIN_PASSWORD);
     }
-    if (user.role === 'admin') {
-      return applyFriendState({ ...user, role: 'editor' });
+    return desiredPasswordHash;
+  };
+
+  const nextUsers = await Promise.all(users.map(async (user) => {
+    const normalizedUser = applyFriendState(user);
+
+    if (isImmutableAdminEmail(normalizedUser.email)) {
+      const passwordMatches = normalizedUser.passwordHash
+        ? await comparePassword(DEFAULT_ADMIN_PASSWORD, normalizedUser.passwordHash).catch(() => false)
+        : false;
+      const nextUser = {
+        ...normalizedUser,
+        email: IMMUTABLE_ADMIN_EMAIL,
+        name: DEFAULT_ADMIN_NAME,
+        username: normalizedUser.username || 'admin',
+        role: 'admin',
+      };
+
+      if (!passwordMatches) {
+        nextUser.passwordHash = await getDesiredPasswordHash();
+      }
+
+      if (JSON.stringify(nextUser) !== JSON.stringify(normalizedUser)) {
+        didChange = true;
+      }
+
+      return nextUser;
     }
-    return applyFriendState(user);
-  });
+
+    if (normalizedUser.role === 'admin') {
+      didChange = true;
+      return applyFriendState({ ...normalizedUser, role: 'editor' });
+    }
+
+    return normalizedUser;
+  }));
 
   if (!nextUsers.some((user) => isImmutableAdminEmail(user.email))) {
-    const passwordHash = await hashPassword(DEFAULT_ADMIN_PASSWORD);
+    const passwordHash = await getDesiredPasswordHash();
     nextUsers.unshift(applyFriendState({
       id: 1,
       email: IMMUTABLE_ADMIN_EMAIL,
@@ -211,10 +244,31 @@ export async function ensureDefaultAdmin() {
       role: 'admin',
       createdAt: new Date().toISOString(),
     }));
+    didChange = true;
   }
 
-  if (JSON.stringify(users) !== JSON.stringify(nextUsers)) {
+  if (didChange || JSON.stringify(users) !== JSON.stringify(nextUsers)) {
     await writeUsers(nextUsers);
+  }
+
+  try {
+    const { data: profiles, error } = await db().from('profiles').select('id,email,role');
+    throwIfError(error, 'ensureDefaultAdmin profiles fetch');
+
+    for (const profile of profiles || []) {
+      const desiredRole = isImmutableAdminEmail(profile.email)
+        ? 'admin'
+        : normalizeEffectiveRole(profile.role, profile.email);
+      if (profile.role === desiredRole) continue;
+
+      const { error: updateError } = await db()
+        .from('profiles')
+        .update({ role: desiredRole })
+        .eq('id', profile.id);
+      throwIfError(updateError, `ensureDefaultAdmin profile update ${profile.email}`);
+    }
+  } catch (error) {
+    console.error('Failed to normalize Supabase admin roles:', error);
   }
 }
 

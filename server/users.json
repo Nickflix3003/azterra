@@ -2,7 +2,7 @@
   {
     "id": 1,
     "email": "admin@azterra.com",
-    "passwordHash": "$2b$10$6orR5tqth0MMKFYh/7B7dOW02.yRVgZmzkmrBlzglEGxR1rkWrPoa",
+    "passwordHash": "$2b$10$U5XkqjsZmILFU.EKZeWLIuXAoEqwfUeLp2.HldTksC8k77/YF1njG",
     "name": "Azterra Admin",
     "role": "admin",
     "createdAt": "2025-11-19T09:33:29.389Z",
@@ -28,7 +28,7 @@
       "incoming": [],
       "outgoing": []
     },
-    "username": "",
+    "username": "admin",
     "profilePicture": ""
   },
   {
@@ -75,7 +75,7 @@
       "viewFavorites": []
     },
     "unlockedSecrets": [],
-    "role": "admin",
+    "role": "editor",
     "provider": "supabase",
     "supabaseId": "453950fb-c791-412b-aecd-b095481d1113",
     "createdAt": "2025-12-05T07:26:40.483Z",
