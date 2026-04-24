@@ -20,6 +20,7 @@ const TROOP_DEFAULTS = Object.freeze({
   anchorMaxForce: 0.08,
   anchorSlowRadius: 250,
 });
+const TROOP_RENDER_INTERVAL_MS = 1000 / 24;
 
 function getKindLabel(kind) {
   switch (kind) {
@@ -64,6 +65,10 @@ function headingFromVelocity(vx, vy, fallback = 0) {
   return magnitude(vx, vy) > 0.000001
     ? (Math.atan2(vy, vx) * 180) / Math.PI + 90
     : fallback;
+}
+
+function quantizeHeading(angle, step = 8) {
+  return Math.round(angle / step) * step;
 }
 
 function hashIndex(seed, index) {
@@ -487,6 +492,7 @@ export default function MovingUnitLayer({
   const troopStateRef = useRef({});
   const troopUnitsRef = useRef([]);
   const elapsedMsRef = useRef(0);
+  const lastCommittedFrameRef = useRef(0);
 
   const troopUnits = useMemo(
     () => units.filter(
@@ -525,6 +531,7 @@ export default function MovingUnitLayer({
       })
     );
     troopStateRef.current = nextState;
+    lastCommittedFrameRef.current = performance.now();
     setTroopState(nextState);
   }, [simulationEnabled, troopUnits, troopUnitsSignature]);
 
@@ -540,26 +547,29 @@ export default function MovingUnitLayer({
       lastFrame = timestamp;
       elapsedMsRef.current += deltaMs;
 
-      setTroopState((previousState) => {
-        const nextState = Object.fromEntries(
-          troopUnitsRef.current.map((unit) => {
-            const existing = previousState[String(unit.id)] || {
-              anchor: buildInitialAnchorState(unit),
-              boids: buildInitialTroopBoids(unit, buildInitialAnchorState(unit)),
-            };
-            const config = getTroopConfig(unit);
-            const routeTarget = {
-              lat: unit.routeTargetLat ?? unit.lat,
-              lng: unit.routeTargetLng ?? unit.lng,
-            };
-            const nextAnchor = stepAnchor(existing.anchor, routeTarget, config, deltaScale);
-            const nextBoids = stepTroopBoids(unit, existing.boids, nextAnchor, deltaScale, elapsedMsRef.current);
-            return [String(unit.id), { anchor: nextAnchor, boids: nextBoids }];
-          })
-        );
-        troopStateRef.current = nextState;
-        return nextState;
-      });
+      const baseState = troopStateRef.current;
+      const nextState = Object.fromEntries(
+        troopUnitsRef.current.map((unit) => {
+          const existing = baseState[String(unit.id)] || {
+            anchor: buildInitialAnchorState(unit),
+            boids: buildInitialTroopBoids(unit, buildInitialAnchorState(unit)),
+          };
+          const config = getTroopConfig(unit);
+          const routeTarget = {
+            lat: unit.routeTargetLat ?? unit.lat,
+            lng: unit.routeTargetLng ?? unit.lng,
+          };
+          const nextAnchor = stepAnchor(existing.anchor, routeTarget, config, deltaScale);
+          const nextBoids = stepTroopBoids(unit, existing.boids, nextAnchor, deltaScale, elapsedMsRef.current);
+          return [String(unit.id), { anchor: nextAnchor, boids: nextBoids }];
+        })
+      );
+      troopStateRef.current = nextState;
+
+      if (timestamp - lastCommittedFrameRef.current >= TROOP_RENDER_INTERVAL_MS) {
+        lastCommittedFrameRef.current = timestamp;
+        setTroopState(nextState);
+      }
 
       frameId = window.requestAnimationFrame(step);
     };
@@ -610,7 +620,7 @@ export default function MovingUnitLayer({
                 position={[follower.lat, follower.lng]}
                 icon={buildArrowIcon({
                   color,
-                  heading: follower.heading ?? heading,
+                  heading: isBoidTroop ? quantizeHeading(follower.heading ?? heading) : (follower.heading ?? heading),
                   zoomLevel,
                   variant: isBoidTroop ? 'troop' : 'follower',
                 })}
