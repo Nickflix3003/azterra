@@ -10,14 +10,15 @@ const TROOP_DEFAULTS = Object.freeze({
   separationWeight: 1.5,
   alignmentWeight: 1.0,
   cohesionWeight: 1.0,
-  arrivalRadius: 90,
-  idleOrbitRadius: 32,
-  travelSeekWeight: 0.8,
-  settleSeekWeight: 0.32,
-  orbitWeight: 0.62,
-  anchorMaxSpeed: 6,
-  anchorMaxForce: 0.12,
-  anchorSlowRadius: 180,
+  arrivalRadius: 120,
+  idleOrbitRadius: 42,
+  travelSeekWeight: 0.52,
+  settleSeekWeight: 0.28,
+  orbitWeight: 0.76,
+  wanderWeight: 0.34,
+  anchorMaxSpeed: 4.25,
+  anchorMaxForce: 0.08,
+  anchorSlowRadius: 250,
 });
 
 function getKindLabel(kind) {
@@ -107,10 +108,15 @@ function getTroopConfig(unit) {
     travelSeekWeight: clamp(Number(raw.travelSeekWeight) || TROOP_DEFAULTS.travelSeekWeight, 0, 3),
     settleSeekWeight: clamp(Number(raw.settleSeekWeight) || TROOP_DEFAULTS.settleSeekWeight, 0, 2),
     orbitWeight: clamp(Number(raw.orbitWeight) || TROOP_DEFAULTS.orbitWeight, 0, 3),
+    wanderWeight: clamp(Number(raw.wanderWeight) || TROOP_DEFAULTS.wanderWeight, 0, 2),
     anchorMaxSpeed: clamp(Number(raw.anchorMaxSpeed) || TROOP_DEFAULTS.anchorMaxSpeed, 2, 20),
     anchorMaxForce: clamp(Number(raw.anchorMaxForce) || TROOP_DEFAULTS.anchorMaxForce, 0.02, 0.8),
     anchorSlowRadius: clamp(Number(raw.anchorSlowRadius) || TROOP_DEFAULTS.anchorSlowRadius, 50, 420),
   };
+}
+
+function getTroopZoomScale(zoomLevel = 4) {
+  return clamp(1.9 - ((zoomLevel - 2) * 0.2), 1, 1.9);
 }
 
 function buildArrowIcon({
@@ -123,7 +129,7 @@ function buildArrowIcon({
   const size = variant === 'follower'
     ? Math.max(10, Math.min(18, 11 + (zoomLevel - 4) * 0.8))
     : variant === 'troop'
-      ? Math.max(12, Math.min(22, 14 + (zoomLevel - 4) * 1.1))
+      ? Math.max(16, Math.min(28, 18 + (4 - zoomLevel) * 2.4))
       : Math.max(22, Math.min(36, 24 + (zoomLevel - 4) * 2.2));
   const glow = isSelected && variant !== 'follower' ? 2 : 0;
   const opacity = variant === 'follower' ? 0.84 : variant === 'troop' ? 0.92 : 1;
@@ -155,7 +161,7 @@ function buildArrowIcon({
 }
 
 function buildAnchorIcon({ color, zoomLevel = 4, isSelected = false }) {
-  const size = Math.max(12, Math.min(22, 14 + (zoomLevel - 4) * 1.4));
+  const size = Math.max(14, Math.min(24, 16 + (4 - zoomLevel) * 1.8));
   return L.divIcon({
     className: [
       'moving-unit-marker',
@@ -317,6 +323,16 @@ function orbitForce(boid, center, config) {
   return limitVector(desired.x - boid.vx, desired.y - boid.vy, config.maxForce);
 }
 
+function wanderForce(boid, elapsedMs, config) {
+  const headingBase = headingFromVelocity(boid.vx, boid.vy, 0) * (Math.PI / 180);
+  const driftAngle = elapsedMs / 780 + boid.orbitSeed * Math.PI * 2;
+  const desired = {
+    x: Math.cos(headingBase + Math.cos(driftAngle) * 0.9) * config.maxSpeed * 0.48,
+    y: Math.sin(headingBase + Math.sin(driftAngle * 1.17) * 0.9) * config.maxSpeed * 0.48,
+  };
+  return limitVector(desired.x - boid.vx, desired.y - boid.vy, config.maxForce);
+}
+
 function buildInitialTroopBoids(unit, anchorState) {
   const renderCount = Math.max(0, Math.round(Number(unit.renderCount) || 0));
   const config = getTroopConfig(unit);
@@ -371,7 +387,7 @@ function stepAnchor(anchorState, target, config, deltaScale) {
   };
 }
 
-function stepTroopBoids(unit, boids, anchorState, deltaScale) {
+function stepTroopBoids(unit, boids, anchorState, deltaScale, elapsedMs) {
   const config = getTroopConfig(unit);
   const anchorTarget = { lat: anchorState.lat, lng: anchorState.lng };
   const distanceToRoute = magnitude(
@@ -411,6 +427,7 @@ function stepTroopBoids(unit, boids, anchorState, deltaScale) {
       config.arrivalRadius
     );
     const orbit = orbitForce(boid, anchorTarget, config);
+    const wander = wanderForce(boid, elapsedMs, config);
 
     let ax = 0;
     let ay = 0;
@@ -427,9 +444,15 @@ function stepTroopBoids(unit, boids, anchorState, deltaScale) {
       ay += arrive.y * config.settleSeekWeight;
       ax += orbit.x * config.orbitWeight;
       ay += orbit.y * config.orbitWeight;
+      ax += wander.x * (config.wanderWeight * 0.58);
+      ay += wander.y * (config.wanderWeight * 0.58);
     } else {
       ax += arrive.x * config.travelSeekWeight;
       ay += arrive.y * config.travelSeekWeight;
+      ax += wander.x * config.wanderWeight;
+      ay += wander.y * config.wanderWeight;
+      ax += orbit.x * 0.12;
+      ay += orbit.y * 0.12;
     }
 
     const nextVelocity = limitVector(
@@ -463,6 +486,7 @@ export default function MovingUnitLayer({
   const [troopState, setTroopState] = useState({});
   const troopStateRef = useRef({});
   const troopUnitsRef = useRef([]);
+  const elapsedMsRef = useRef(0);
 
   const troopUnits = useMemo(
     () => units.filter(
@@ -514,6 +538,7 @@ export default function MovingUnitLayer({
       const deltaMs = Math.min(42, timestamp - lastFrame || 16);
       const deltaScale = deltaMs / 16;
       lastFrame = timestamp;
+      elapsedMsRef.current += deltaMs;
 
       setTroopState((previousState) => {
         const nextState = Object.fromEntries(
@@ -528,7 +553,7 @@ export default function MovingUnitLayer({
               lng: unit.routeTargetLng ?? unit.lng,
             };
             const nextAnchor = stepAnchor(existing.anchor, routeTarget, config, deltaScale);
-            const nextBoids = stepTroopBoids(unit, existing.boids, nextAnchor, deltaScale);
+            const nextBoids = stepTroopBoids(unit, existing.boids, nextAnchor, deltaScale, elapsedMsRef.current);
             return [String(unit.id), { anchor: nextAnchor, boids: nextBoids }];
           })
         );
@@ -555,7 +580,7 @@ export default function MovingUnitLayer({
         const heading = unit.heading ?? 0;
         const isBoidTroop = unit.kind === 'troop' && (unit.simulationMode || 'boids') === 'boids';
         const troopRenderState = troopState[String(unit.id)];
-        const renderedFollowers = isBoidTroop
+        const rawFollowers = isBoidTroop
           ? troopRenderState?.boids || buildInitialTroopBoids(unit, buildInitialAnchorState(unit))
           : unit.followers || [];
         const troopTooltip = isBoidTroop
@@ -563,6 +588,15 @@ export default function MovingUnitLayer({
             ? `${unit.troopCount} troops · showing ${unit.renderCount}`
             : `${unit.troopCount} troops`
           : getKindLabel(unit.kind);
+        const zoomScale = isBoidTroop ? getTroopZoomScale(zoomLevel) : 1;
+        const renderCenter = troopRenderState?.anchor || buildInitialAnchorState(unit);
+        const renderedFollowers = isBoidTroop
+          ? rawFollowers.map((follower) => ({
+              ...follower,
+              lat: renderCenter.lat + (follower.lat - renderCenter.lat) * zoomScale,
+              lng: renderCenter.lng + (follower.lng - renderCenter.lng) * zoomScale,
+            }))
+          : rawFollowers;
         const anchorPosition = [
           unit.routeTargetLat ?? unit.lat,
           unit.routeTargetLng ?? unit.lng,
