@@ -3,8 +3,8 @@ import { Marker, Tooltip } from 'react-leaflet';
 import L from 'leaflet';
 
 const TROOP_DEFAULTS = Object.freeze({
-  maxSpeed: 3,
-  maxForce: 0.05,
+  maxSpeed: 4.8,
+  maxForce: 0.085,
   separationDistance: 25,
   neighborDistance: 50,
   separationWeight: 1.5,
@@ -12,12 +12,12 @@ const TROOP_DEFAULTS = Object.freeze({
   cohesionWeight: 1.0,
   arrivalRadius: 120,
   idleOrbitRadius: 42,
-  travelSeekWeight: 0.52,
+  travelSeekWeight: 1.45,
   settleSeekWeight: 0.28,
   orbitWeight: 0.76,
   wanderWeight: 0.34,
-  anchorMaxSpeed: 4.25,
-  anchorMaxForce: 0.08,
+  anchorMaxSpeed: 8,
+  anchorMaxForce: 0.18,
   anchorSlowRadius: 250,
 });
 const TROOP_RENDER_INTERVAL_MS = 1000 / 24;
@@ -370,18 +370,20 @@ function buildInitialTroopBoids(unit, anchorState) {
 function stepAnchor(anchorState, target, config, deltaScale) {
   const position = { lat: anchorState.lat, lng: anchorState.lng };
   const velocity = { vx: anchorState.vx, vy: anchorState.vy };
+  const distanceToTarget = magnitude(target.lng - anchorState.lng, target.lat - anchorState.lat);
+  const travelUrgency = clamp(distanceToTarget / Math.max(config.anchorSlowRadius, 1), 0, 1.8);
   const arrive = arriveForce(
     position,
     velocity,
     target,
-    config.anchorMaxSpeed * deltaScale,
-    config.anchorMaxForce * deltaScale,
+    config.anchorMaxSpeed * (1 + travelUrgency * 0.8) * deltaScale,
+    config.anchorMaxForce * (1 + travelUrgency * 0.7) * deltaScale,
     config.anchorSlowRadius
   );
   const nextVelocity = limitVector(
     anchorState.vx * 0.95 + arrive.x,
     anchorState.vy * 0.95 + arrive.y,
-    config.anchorMaxSpeed * deltaScale
+    config.anchorMaxSpeed * (1 + travelUrgency * 0.8) * deltaScale
   );
 
   return {
@@ -395,41 +397,57 @@ function stepAnchor(anchorState, target, config, deltaScale) {
 function stepTroopBoids(unit, boids, anchorState, deltaScale, elapsedMs) {
   const config = getTroopConfig(unit);
   const anchorTarget = { lat: anchorState.lat, lng: anchorState.lng };
+  const routeTarget = {
+    lat: unit.routeTargetLat ?? anchorTarget.lat,
+    lng: unit.routeTargetLng ?? anchorTarget.lng,
+  };
   const distanceToRoute = magnitude(
-    anchorTarget.lng - (unit.routeTargetLng ?? anchorTarget.lng),
-    anchorTarget.lat - (unit.routeTargetLat ?? anchorTarget.lat)
+    anchorTarget.lng - routeTarget.lng,
+    anchorTarget.lat - routeTarget.lat
   );
   const isSettled = distanceToRoute < config.arrivalRadius * 0.55;
+  const travelUrgency = clamp(distanceToRoute / Math.max(config.arrivalRadius * 3.2, 1), 0, 2);
+  const travelSpeed = config.maxSpeed * (1 + travelUrgency * 0.9) * deltaScale;
+  const travelForce = config.maxForce * (1 + travelUrgency * 0.85) * deltaScale;
+  const flockWeight = isSettled ? 1 : clamp(1 - travelUrgency * 0.72, 0.22, 1);
 
   return boids.map((boid) => {
     const separation = separateForce(
       boid,
       boids,
       config.separationDistance,
-      config.maxSpeed * deltaScale,
-      config.maxForce * deltaScale
+      travelSpeed,
+      travelForce
     );
     const alignment = alignForce(
       boid,
       boids,
       config.neighborDistance,
-      config.maxSpeed * deltaScale,
-      config.maxForce * deltaScale
+      travelSpeed,
+      travelForce
     );
     const cohesion = cohesionForce(
       boid,
       boids,
       config.neighborDistance,
-      config.maxSpeed * deltaScale,
-      config.maxForce * deltaScale
+      travelSpeed,
+      travelForce
     );
     const arrive = arriveForce(
       boid,
       boid,
       anchorTarget,
-      config.maxSpeed * deltaScale,
-      config.maxForce * deltaScale,
+      travelSpeed,
+      travelForce,
       config.arrivalRadius
+    );
+    const directRouteSeek = arriveForce(
+      boid,
+      boid,
+      routeTarget,
+      travelSpeed,
+      travelForce,
+      config.arrivalRadius * 1.6
     );
     const orbit = orbitForce(boid, anchorTarget, config);
     const wander = wanderForce(boid, elapsedMs, config);
@@ -437,12 +455,12 @@ function stepTroopBoids(unit, boids, anchorState, deltaScale, elapsedMs) {
     let ax = 0;
     let ay = 0;
 
-    ax += separation.x * config.separationWeight;
-    ay += separation.y * config.separationWeight;
-    ax += alignment.x * config.alignmentWeight;
-    ay += alignment.y * config.alignmentWeight;
-    ax += cohesion.x * config.cohesionWeight;
-    ay += cohesion.y * config.cohesionWeight;
+    ax += separation.x * config.separationWeight * (isSettled ? 1 : Math.max(0.7, flockWeight));
+    ay += separation.y * config.separationWeight * (isSettled ? 1 : Math.max(0.7, flockWeight));
+    ax += alignment.x * config.alignmentWeight * flockWeight;
+    ay += alignment.y * config.alignmentWeight * flockWeight;
+    ax += cohesion.x * config.cohesionWeight * flockWeight;
+    ay += cohesion.y * config.cohesionWeight * flockWeight;
 
     if (isSettled) {
       ax += arrive.x * config.settleSeekWeight;
@@ -452,18 +470,20 @@ function stepTroopBoids(unit, boids, anchorState, deltaScale, elapsedMs) {
       ax += wander.x * (config.wanderWeight * 0.58);
       ay += wander.y * (config.wanderWeight * 0.58);
     } else {
-      ax += arrive.x * config.travelSeekWeight;
-      ay += arrive.y * config.travelSeekWeight;
-      ax += wander.x * config.wanderWeight;
-      ay += wander.y * config.wanderWeight;
-      ax += orbit.x * 0.12;
-      ay += orbit.y * 0.12;
+      ax += arrive.x * config.travelSeekWeight * (1 + travelUrgency * 1.2);
+      ay += arrive.y * config.travelSeekWeight * (1 + travelUrgency * 1.2);
+      ax += directRouteSeek.x * (0.65 + travelUrgency * 1.1);
+      ay += directRouteSeek.y * (0.65 + travelUrgency * 1.1);
+      ax += wander.x * config.wanderWeight * clamp(1 - travelUrgency * 0.6, 0.18, 1);
+      ay += wander.y * config.wanderWeight * clamp(1 - travelUrgency * 0.6, 0.18, 1);
+      ax += orbit.x * clamp(0.12 - travelUrgency * 0.05, 0.02, 0.12);
+      ay += orbit.y * clamp(0.12 - travelUrgency * 0.05, 0.02, 0.12);
     }
 
     const nextVelocity = limitVector(
       boid.vx + ax,
       boid.vy + ay,
-      config.maxSpeed * deltaScale
+      travelSpeed
     );
 
     return {
