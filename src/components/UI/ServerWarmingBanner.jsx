@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import LoadingScreen from './LoadingScreen';
 import { API_BASE_URL } from '../../utils/apiBase';
 import { fetchWithRetry } from '../../utils/fetchWithRetry';
 import { getServerStatus, subscribeServerStatus } from '../../utils/serverStatus';
@@ -79,6 +80,28 @@ function formatEstimateLabel() {
   return `Usually about ${Math.round(ESTIMATED_WARMUP_MS / 1000)}s`;
 }
 
+function getWarmupScreenCopy(pathname, elapsedLabel) {
+  if (pathname.startsWith('/login') || pathname.startsWith('/signup') || pathname.startsWith('/auth')) {
+    return {
+      title: 'AZTERRA',
+      subtitle: 'Warming Up Backend',
+      quote: elapsedLabel
+        ? `Sign-in will continue automatically. Render is waking the world server now, about ${elapsedLabel} in.`
+        : 'Sign-in will continue automatically while Render wakes the world server.',
+      status: 'Preparing sign-in...',
+    };
+  }
+
+  return {
+    title: 'AZTERRA',
+    subtitle: 'Warming Up Backend',
+    quote: elapsedLabel
+      ? `The world server is stirring back to life. Usually around 30 seconds total, about ${elapsedLabel} so far.`
+      : 'The world server is stirring back to life. This usually takes around 30 seconds.',
+    status: 'Warming world server...',
+  };
+}
+
 export default function ServerWarmingBanner() {
   const location = useLocation();
   const [status, setStatus] = useState(getServerStatus());
@@ -108,6 +131,10 @@ export default function ServerWarmingBanner() {
   const progressRatio = status.phase === 'warming' ? getWarmupProgress(status.startedAt, nowMs) : 1;
   const progressLabel = `${Math.round(progressRatio * 100)}%`;
   const isAuthRoute = AUTH_ROUTE_MATCHERS.some((matcher) => matcher(location.pathname || '/'));
+  const warmupScreenCopy = useMemo(
+    () => getWarmupScreenCopy(location.pathname || '/', elapsedLabel),
+    [elapsedLabel, location.pathname]
+  );
   const shouldUseOverlay =
     showNotice &&
     (isAuthRoute || OVERLAY_ROUTE_MATCHERS.some((matcher) => matcher(location.pathname || '/'))) &&
@@ -150,7 +177,17 @@ export default function ServerWarmingBanner() {
 
   return (
     <>
-      {shouldUseOverlay && (
+      {shouldUseOverlay && status.phase === 'warming' && (
+        <LoadingScreen
+          progress={progressRatio * 100}
+          status={warmupScreenCopy.status}
+          title={warmupScreenCopy.title}
+          subtitle={warmupScreenCopy.subtitle}
+          quote={warmupScreenCopy.quote}
+        />
+      )}
+
+      {shouldUseOverlay && status.phase !== 'warming' && (
         <div className="server-status-overlay" role="presentation">
           <section
             className="server-status-card server-status-card--overlay"

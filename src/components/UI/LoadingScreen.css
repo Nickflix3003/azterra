@@ -465,6 +465,10 @@
   transition: all 0.3s ease-out;
 }
 
+.loading-screen__title-letter--space {
+  min-width: 0.45em;
+}
+
 .loading-screen__title-letter:nth-child(1) {
   --i: 0;
 }

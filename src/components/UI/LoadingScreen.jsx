@@ -2,7 +2,24 @@ import React, { useEffect, useRef } from 'react';
 import './LoadingScreen.css';
 import RadiantSunShader from '../visuals/RadiantSunShader';
 
-export default function LoadingScreen({ progress = 0, status = 'Loading...' }) {
+function renderTitleLetters(title = '') {
+    return title.split('').map((character, index) => (
+        <span
+            key={`${character}-${index}`}
+            className={`loading-screen__title-letter ${character === ' ' ? 'loading-screen__title-letter--space' : ''}`}
+        >
+            {character === ' ' ? '\u00A0' : character}
+        </span>
+    ));
+}
+
+export default function LoadingScreen({
+    progress = 0,
+    status = 'Loading...',
+    title = 'AZTERRA',
+    subtitle = 'Realm of Legends',
+    quote = '"The ancient maps whisper secrets of forgotten realms..."',
+}) {
     const particlesRef = useRef(null);
     const isComplete = progress >= 100;
 
@@ -150,16 +167,10 @@ export default function LoadingScreen({ progress = 0, status = 'Loading...' }) {
                     {/* Centered title */}
                     <div className="loading-screen__title-container">
                         <h1 className="loading-screen__title">
-                            <span className="loading-screen__title-letter">A</span>
-                            <span className="loading-screen__title-letter">Z</span>
-                            <span className="loading-screen__title-letter">T</span>
-                            <span className="loading-screen__title-letter">E</span>
-                            <span className="loading-screen__title-letter">R</span>
-                            <span className="loading-screen__title-letter">R</span>
-                            <span className="loading-screen__title-letter">A</span>
+                            {renderTitleLetters(title)}
                         </h1>
                         <div className="loading-screen__title-underline"></div>
-                        <p className="loading-screen__subtitle">Realm of Legends</p>
+                        <p className="loading-screen__subtitle">{subtitle}</p>
                     </div>
 
                 </div>
@@ -193,7 +204,7 @@ export default function LoadingScreen({ progress = 0, status = 'Loading...' }) {
                 {/* Flavor text */}
                 <div className="loading-screen__footer">
                     <p className="loading-screen__quote">
-                        "The ancient maps whisper secrets of forgotten realms..."
+                        {quote}
                     </p>
                 </div>
             </div>
