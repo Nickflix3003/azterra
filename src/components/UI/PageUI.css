@@ -1573,7 +1573,7 @@ body,
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   MOBILE POLISH — Touch targets, landscape layout, dvh fixes
+   MOBILE POLISH — Touch targets, portrait layout, dvh fixes
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ── Touch target minimums (48px) ────────────────────────── */
@@ -1620,10 +1620,10 @@ body,
   }
 }
 
-/* ── Landscape phone: content layout adjustments ─────────── */
+/* ── Mobile: content layout adjustments (portrait-first) ────── */
 
 @media (max-width: 900px) {
-  /* Page layout: remove excess padding so content fills landscape viewport */
+  /* Page layout: remove excess padding so content fills mobile viewport */
   .page-fullscreen {
     min-height: 100dvh;
     min-height: 100vh;
@@ -1681,7 +1681,7 @@ body,
     border-radius: 0;
   }
 
-  /* Auth pages: compact on landscape mobile */
+  /* Auth pages: compact on mobile */
   .auth-page {
     min-height: 100dvh;
     min-height: 100vh;

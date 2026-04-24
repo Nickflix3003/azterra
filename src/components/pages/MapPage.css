@@ -183,30 +183,36 @@
   margin: 0;
 }
 
-/* ── Mobile map frame: use dvh for accurate viewport height ─ */
+/* ── Mobile map frame: portrait-first, fill true viewport height ─ */
 @media (max-width: 900px) {
   .map-page {
     gap: 0;
     padding: 0;
-    /* Use dynamic viewport height to avoid iOS address bar overlap */
-    min-height: 100dvh;
-    min-height: 100vh; /* fallback */
+    /* Explicit height (not min-height) so flex children can fill via flex:1 */
+    height: 100dvh;
+    height: 100vh; /* fallback for browsers without dvh */
+    max-width: 100vw;
+    overflow: hidden;
   }
 
   .map-page__frame {
     /* Fill all remaining space after the slim toolbar */
-    min-height: 0;
     flex: 1;
+    min-height: 0;
+    height: 0; /* combined with flex:1 this ensures correct flex stretching */
     border-radius: 0;
     border-left: none;
     border-right: none;
     border-bottom: none;
     box-shadow: none;
+    overflow: hidden;
   }
 
-  /* Prevent the map from being crushed in landscape by timeline */
   .map-page__canvas {
-    min-height: 200px;
+    /* Fill frame completely — no artificial minimum height */
+    height: 100%;
+    width: 100%;
+    min-height: 0;
   }
 }
 
@@ -328,11 +334,10 @@
   color: #ffd700;
 }
 
-/* ── General mobile layout override ─────────────────────── */
+/* ── General mobile layout override ──────────────────── */
 @media (max-width: 900px) {
   .map-page__overlay-controls {
     position: static;
     align-items: flex-start;
   }
 }
-

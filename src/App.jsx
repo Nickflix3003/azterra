@@ -22,7 +22,6 @@ import LoginPage from './components/pages/LoginPage';
 import SignupPage from './components/pages/SignupPage';
 import Header from './components/UI/Header';
 import PageLayout from './components/UI/PageLayout';
-import OrientationPrompt from './components/UI/OrientationPrompt';
 import './components/UI/PageUI.css';
 import AuthCallback from './components/auth/AuthCallback';
 import AuthLandingPage from './components/pages/AuthLandingPage';
@@ -54,7 +53,6 @@ function isAuthCallbackPath(pathname, baseUrl) {
 function HashApp() {
   return (
     <HashRouter>
-      <OrientationPrompt />
       <div className="app-shell">
         <a className="skip-link" href="#main-content">
           Skip to main content

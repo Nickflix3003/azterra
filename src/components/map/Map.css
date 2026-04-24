@@ -8,17 +8,19 @@ html, body, #root {
   padding: 0;
 }
 
-/* ── Mobile: use dynamic viewport height to avoid iOS chrome overlap ── */
+/* ── Mobile: fill parent container (portrait-first) ── */
 @media (max-width: 900px) {
   .map-wrapper {
-    height: calc(100dvh - var(--header-height));
-    height: calc(100vh - var(--header-height)); /* fallback */
+    /* Fill the flex parent (map-page__canvas) — parent has explicit height
+       set by the flex layout in MapPage.css, so 100% works correctly */
+    height: 100%;
+    width: 100%;
+    min-height: 0;
   }
 
   .leaflet-map {
-    /* Ensure Leaflet fills its container correctly on mobile */
     height: 100% !important;
-    /* Improve touch performance */
+    width: 100% !important;
     touch-action: none;
   }
 }
@@ -2766,4 +2768,6 @@ html, body, #root {
     align-items: stretch;
     flex-direction: column;
   }
+}
+
 }
