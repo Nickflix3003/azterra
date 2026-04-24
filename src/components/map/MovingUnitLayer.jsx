@@ -14,6 +14,7 @@ const DEFAULT_BOID_CONFIG = Object.freeze({
   separationRadius: 0.24,
   idleOrbitRadius: 0.48,
 });
+const TROOP_WORLD_SCALE = 160;
 
 function getKindLabel(kind) {
   switch (kind) {
@@ -85,16 +86,28 @@ function headingFromVelocity(vx, vy, fallback = 0) {
     : fallback;
 }
 
+function getWorldScaledBoidConfig(unit) {
+  const config = { ...DEFAULT_BOID_CONFIG, ...(unit.boidConfig || {}) };
+  return {
+    ...config,
+    maxSpeed: Math.max(0.005, config.maxSpeed) * TROOP_WORLD_SCALE,
+    maxForce: Math.max(0.002, config.maxForce) * TROOP_WORLD_SCALE,
+    neighborRadius: Math.max(0.1, config.neighborRadius) * TROOP_WORLD_SCALE,
+    separationRadius: Math.max(0.05, config.separationRadius) * TROOP_WORLD_SCALE,
+    idleOrbitRadius: Math.max(0.14, config.idleOrbitRadius) * TROOP_WORLD_SCALE,
+  };
+}
+
 function buildInitialTroopBoids(unit) {
   const renderCount = Math.max(0, Math.round(Number(unit.renderCount) || 0));
-  const config = { ...DEFAULT_BOID_CONFIG, ...(unit.boidConfig || {}) };
+  const config = getWorldScaledBoidConfig(unit);
   const orbitRadius = Math.max(0.18, config.idleOrbitRadius * 0.82);
 
   return Array.from({ length: renderCount }, (_, index) => {
     const hash = hashIndex(unit.id, index);
     const angle = ((index / Math.max(renderCount, 1)) * Math.PI * 2) + ((hash % 360) * Math.PI) / 180;
     const radius = orbitRadius * (0.5 + ((hash % 100) / 100) * 0.55);
-    const tangentialSpeed = 0.006 + ((hash % 25) / 25) * 0.008;
+    const tangentialSpeed = config.maxSpeed * (0.18 + ((hash % 25) / 25) * 0.12);
     const lat = unit.lat + Math.sin(angle) * radius;
     const lng = unit.lng + Math.cos(angle) * radius;
     const vx = -Math.sin(angle) * tangentialSpeed;
@@ -114,24 +127,29 @@ function buildInitialTroopBoids(unit) {
 }
 
 function simulateTroopBoids(unit, previousBoids, deltaScale, elapsedMs) {
-  const config = { ...DEFAULT_BOID_CONFIG, ...(unit.boidConfig || {}) };
+  const config = getWorldScaledBoidConfig(unit);
   const anchor = { lat: unit.lat, lng: unit.lng };
   const routeTarget = {
     lat: unit.routeTargetLat ?? unit.lat,
     lng: unit.routeTargetLng ?? unit.lng,
   };
   const anchorMoving = Boolean(unit.anchorMoving);
-  const maxSpeed = Math.max(0.005, config.maxSpeed) * deltaScale;
-  const maxForce = Math.max(0.002, config.maxForce) * deltaScale;
-  const neighborRadius = Math.max(0.1, config.neighborRadius);
-  const separationRadius = Math.max(0.05, config.separationRadius);
-  const idleOrbitRadius = Math.max(0.14, config.idleOrbitRadius);
+  const maxSpeed = config.maxSpeed * deltaScale;
+  const maxForce = config.maxForce * deltaScale;
+  const neighborRadius = config.neighborRadius;
+  const separationRadius = config.separationRadius;
+  const idleOrbitRadius = config.idleOrbitRadius;
   const anchorPullWeight = config.anchorPullWeight * deltaScale;
   const separationWeight = config.separationWeight * deltaScale;
   const alignmentWeight = config.alignmentWeight * deltaScale;
   const cohesionWeight = config.cohesionWeight * deltaScale;
   const arrivalWeight = config.arrivalWeight * deltaScale;
   const orbitWave = Math.sin(elapsedMs / 1200);
+  const routeDx = routeTarget.lng - anchor.lng;
+  const routeDy = routeTarget.lat - anchor.lat;
+  const routeDistance = Math.hypot(routeDx, routeDy);
+  const routeHeadingX = routeDistance > 0.000001 ? routeDx / routeDistance : 0;
+  const routeHeadingY = routeDistance > 0.000001 ? routeDy / routeDistance : 0;
 
   return previousBoids.map((boid, index) => {
     let separationX = 0;
@@ -187,6 +205,8 @@ function simulateTroopBoids(unit, previousBoids, deltaScale, elapsedMs) {
     if (anchorMoving) {
       steerX += (routeTarget.lng - boid.lng) * arrivalWeight * 0.4;
       steerY += (routeTarget.lat - boid.lat) * arrivalWeight * 0.4;
+      steerX += routeHeadingX * arrivalWeight * maxSpeed * 0.18;
+      steerY += routeHeadingY * arrivalWeight * maxSpeed * 0.18;
     } else {
       const dx = boid.lng - anchor.lng;
       const dy = boid.lat - anchor.lat;
