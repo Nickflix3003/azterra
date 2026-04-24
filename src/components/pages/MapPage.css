@@ -153,10 +153,186 @@
   display: none;
 }
 
+/* ── Dual toolbar: desktop vs. mobile ─────────────────────────────────────── */
+
+/* Mobile toolbar hidden on desktop */
+.map-toolbar--mobile { display: none; }
+
+/* Desktop toolbar hidden on mobile */
+@media (max-width: 900px) {
+  .map-toolbar--desktop { display: none; }
+  .map-toolbar--mobile  { display: flex; }
+}
+
+/* ── Mobile toolbar: slim strip ──────────────────────────── */
+.map-toolbar--mobile {
+  padding: 0.4rem 0.65rem 0.4rem 3.8rem; /* left indent for hamburger button */
+  gap: 0.6rem;
+  min-height: 52px;
+}
+
+.map-ribbon__sigil--sm {
+  width: 32px;
+  height: 32px;
+  font-size: 0.9rem;
+  border-radius: 9px;
+}
+
+.map-title--mobile {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+/* ── Mobile map frame: use dvh for accurate viewport height ─ */
+@media (max-width: 900px) {
+  .map-page {
+    gap: 0;
+    padding: 0;
+    /* Use dynamic viewport height to avoid iOS address bar overlap */
+    min-height: 100dvh;
+    min-height: 100vh; /* fallback */
+  }
+
+  .map-page__frame {
+    /* Fill all remaining space after the slim toolbar */
+    min-height: 0;
+    flex: 1;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    box-shadow: none;
+  }
+
+  /* Prevent the map from being crushed in landscape by timeline */
+  .map-page__canvas {
+    min-height: 200px;
+  }
+}
+
+/* ── Mobile FAB (Floating Action Button) ──────────────────── */
+
+/* Hidden on desktop */
+.map-mobile-fab-group {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .map-mobile-fab-group {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.5rem;
+    position: fixed;
+    bottom: 5.5rem; /* sit above the timeline bar */
+    right: 1rem;
+    z-index: 50;
+  }
+
+  /* Adjust bottom offset when timeline is active (expanded timeline is taller) */
+  .map-mobile-fab-group--timeline-active {
+    bottom: 10rem;
+  }
+}
+
+/* FAB toggle button */
+.map-mobile-fab {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 215, 0, 0.35);
+  background: linear-gradient(145deg, rgba(22, 18, 14, 0.97), rgba(14, 12, 10, 0.99));
+  color: #ffd700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(255, 215, 0, 0.1);
+  transition: background 0.18s ease, transform 0.16s ease, box-shadow 0.18s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.map-mobile-fab svg {
+  width: 22px;
+  height: 22px;
+}
+
+.map-mobile-fab:hover,
+.map-mobile-fab:active {
+  background: linear-gradient(145deg, rgba(32, 26, 20, 0.99), rgba(20, 16, 12, 1));
+  transform: scale(1.05);
+  box-shadow:
+    0 12px 30px rgba(0, 0, 0, 0.65),
+    0 0 0 1px rgba(255, 215, 0, 0.22);
+}
+
+.map-mobile-fab--open {
+  background: rgba(255, 215, 0, 0.14);
+  border-color: rgba(255, 215, 0, 0.55);
+  color: #ffe5ba;
+}
+
+/* FAB expanded menu items */
+.map-mobile-fab-menu {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4rem;
+  animation: fab-menu-in 0.18s cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+@keyframes fab-menu-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.94); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.map-mobile-fab-item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0 0.85rem;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: linear-gradient(145deg, rgba(18, 15, 12, 0.97), rgba(12, 10, 8, 0.99));
+  color: #f5e5c9;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+  transition: background 0.15s ease, border-color 0.15s ease;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  font-family: inherit;
+}
+
+.map-mobile-fab-item svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.map-mobile-fab-item:hover,
+.map-mobile-fab-item:active {
+  background: rgba(255, 215, 0, 0.12);
+  border-color: rgba(255, 215, 0, 0.3);
+  color: #ffe5ba;
+}
+
+.map-mobile-fab-item--active {
+  background: rgba(255, 215, 0, 0.16);
+  border-color: rgba(255, 215, 0, 0.45);
+  color: #ffd700;
+}
+
+/* ── General mobile layout override ─────────────────────── */
 @media (max-width: 900px) {
   .map-page__overlay-controls {
     position: static;
     align-items: flex-start;
   }
-
 }
+

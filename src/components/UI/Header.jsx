@@ -106,7 +106,21 @@ const NAV_ICONS = {
       <path d="M6 9v2M6 10h2M14 15v2M14 16h2M10 5v2M10 6h2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
       <path d="m9 20 2-2 2 2-2 2-2-2z" fill="none" stroke="currentColor" strokeWidth="1.2" />
     </svg>
-  )
+  ),
+  // Hamburger / close icons
+  menu: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <line x1="3" y1="6"  x2="21" y2="6"  />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  ),
+  close: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <line x1="18" y1="6"  x2="6"  y2="18" />
+      <line x1="6"  y1="6"  x2="18" y2="18" />
+    </svg>
+  ),
 };
 
 const baseNavLinks = [
@@ -126,7 +140,7 @@ const baseNavLinks = [
       { to: "/magic/wild", label: "Wild Magic" },
     ]
   },
-  { 
+  {
     to: "/compendium",
     label: "Compendium",
     icon: NAV_ICONS.compendium,
@@ -154,6 +168,9 @@ export default function Header() {
   const navigate = useNavigate();
   const { user, role, logout, loginGuest } = useAuth();
   const [openDropdown, setOpenDropdown] = useState(null);
+  // Mobile nav overlay open/close state
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
   const isGuest = role === 'guest';
   const logoutLabel = isGuest ? 'Exit Guest' : 'Logout';
   const brandIcon = useMemo(() => {
@@ -168,7 +185,9 @@ export default function Header() {
 
   const handleNavLeave = () => setOpenDropdown(null);
 
+  // Close mobile nav on route change
   useEffect(() => {
+    setMobileNavOpen(false);
     setOpenDropdown((prev) => {
       if (prev === 'Compendium' && !location.pathname.startsWith('/compendium')) return null;
       if (prev === 'Magic' && !location.pathname.startsWith('/magic')) return null;
@@ -176,10 +195,22 @@ export default function Header() {
     });
   }, [location.pathname]);
 
+  // Lock body scroll when mobile nav is open
+  useEffect(() => {
+    if (mobileNavOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [mobileNavOpen]);
+
   const handleLogout = () => {
     logout();
     navigate('/');
   };
+
+  const closeMobileNav = () => setMobileNavOpen(false);
 
   const navLinks = role === 'admin'
     ? [...baseNavLinks, { to: '/admin', label: 'Admin', icon: NAV_ICONS.admin }]
@@ -187,6 +218,7 @@ export default function Header() {
 
   return (
     <>
+      {/* ── Desktop sidebar ─────────────────────────────────── */}
       <aside
         className="azterra-sidebar"
         aria-label="Azterra navigation"
@@ -340,6 +372,136 @@ export default function Header() {
         </div>
       </aside>
 
+      {/* ── Mobile: hamburger button (visible only on mobile via CSS) ── */}
+      <button
+        className="mobile-menu-btn"
+        type="button"
+        onClick={() => setMobileNavOpen(true)}
+        aria-label="Open navigation menu"
+        aria-expanded={mobileNavOpen}
+        aria-controls="mobile-nav-overlay"
+      >
+        <span className="mobile-menu-btn__icon" aria-hidden="true">
+          {NAV_ICONS.menu}
+        </span>
+      </button>
+
+      {/* ── Mobile: full-screen nav overlay ───────────────────── */}
+      {mobileNavOpen && (
+        <div
+          id="mobile-nav-overlay"
+          className="mobile-nav-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Navigation menu"
+          onClick={(e) => { if (e.target === e.currentTarget) closeMobileNav(); }}
+        >
+          <nav className="mobile-nav custom-scrollbar" aria-label="Azterra mobile navigation">
+            {/* Header row */}
+            <div className="mobile-nav__header">
+              <div className="mobile-nav__brand">
+                <img src={brandIcon} alt="" className="mobile-nav__brand-img" aria-hidden="true" />
+                <span className="mobile-nav__brand-text">Azterra</span>
+              </div>
+              <button
+                type="button"
+                className="mobile-nav__close"
+                onClick={closeMobileNav}
+                aria-label="Close navigation menu"
+              >
+                <span aria-hidden="true">{NAV_ICONS.close}</span>
+              </button>
+            </div>
+
+            {/* Nav links */}
+            <div className="mobile-nav__body">
+              {navLinks.map(({ to, label, icon, children, isDisabled }) => {
+                const isActive = location.pathname === to || (to !== '/' && location.pathname.startsWith(to));
+                const hasChildren = Array.isArray(children) && children.length > 0;
+                const isOpen = openDropdown === label;
+
+                return (
+                  <div key={to} className="mobile-nav__item">
+                    <Link
+                      to={to}
+                      className={`mobile-nav__link ${isActive ? 'mobile-nav__link--active' : ''} ${isDisabled ? 'mobile-nav__link--disabled' : ''}`}
+                      onClick={hasChildren ? toggleDropdown(label) : closeMobileNav}
+                      aria-haspopup={hasChildren ? 'true' : undefined}
+                      aria-expanded={hasChildren ? isOpen : undefined}
+                    >
+                      <span className="mobile-nav__link-icon" aria-hidden="true">{icon}</span>
+                      <span className="mobile-nav__link-label">{label}</span>
+                      {hasChildren && (
+                        <span className={`mobile-nav__chevron ${isOpen ? 'mobile-nav__chevron--open' : ''}`} aria-hidden="true">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                            <polyline points="6 9 12 15 18 9" />
+                          </svg>
+                        </span>
+                      )}
+                    </Link>
+
+                    {hasChildren && isOpen && (
+                      <div className="mobile-nav__submenu">
+                        {children.map((child) => (
+                          <Link
+                            key={child.to}
+                            to={child.to}
+                            className={`mobile-nav__sublink ${location.pathname === child.to ? 'mobile-nav__sublink--active' : ''}`}
+                            onClick={closeMobileNav}
+                          >
+                            {child.label}
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Auth footer */}
+            <div className="mobile-nav__footer">
+              {!user ? (
+                <>
+                  <Link to="/login"  className="mobile-nav__auth-btn" onClick={closeMobileNav}>
+                    <span aria-hidden="true">{NAV_ICONS.login}</span> Login
+                  </Link>
+                  <Link to="/signup" className="mobile-nav__auth-btn" onClick={closeMobileNav}>
+                    <span aria-hidden="true">{NAV_ICONS.account}</span> Sign Up
+                  </Link>
+                  <button
+                    type="button"
+                    className="mobile-nav__auth-btn mobile-nav__auth-btn--muted"
+                    onClick={() => { loginGuest(); navigate('/'); closeMobileNav(); }}
+                  >
+                    <span aria-hidden="true">{NAV_ICONS.login}</span> Continue as Guest
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="mobile-nav__user-row">
+                    <span aria-hidden="true" className="mobile-nav__user-icon">{NAV_ICONS.login}</span>
+                    <div>
+                      <div className="mobile-nav__user-name">{user.name || 'User'}</div>
+                      <div className="mobile-nav__user-role">{role}</div>
+                    </div>
+                  </div>
+                  <Link to="/account" className="mobile-nav__auth-btn" onClick={closeMobileNav}>
+                    <span aria-hidden="true">{NAV_ICONS.account}</span> Account Settings
+                  </Link>
+                  <button
+                    type="button"
+                    className="mobile-nav__auth-btn mobile-nav__auth-btn--muted"
+                    onClick={() => { handleLogout(); closeMobileNav(); }}
+                  >
+                    <span aria-hidden="true">{NAV_ICONS.logout}</span> {logoutLabel}
+                  </button>
+                </>
+              )}
+            </div>
+          </nav>
+        </div>
+      )}
     </>
   );
 }

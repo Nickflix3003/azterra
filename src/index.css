@@ -38,6 +38,8 @@ html {
   box-sizing: border-box;
   width: 100%;
   height: 100%;
+  /* Prevent elastic over-scroll bounce from revealing background on iOS */
+  overscroll-behavior: none;
 }
 
 *, *::before, *::after {
@@ -48,6 +50,9 @@ body {
   margin: 0;
   width: 100%;
   height: 100%;
+  /* Use dvh on mobile so body fills the true visible area, not behind browser chrome */
+  min-height: 100dvh;
+  min-height: 100vh; /* dvh fallback */
   overflow: hidden;
   background:
     radial-gradient(circle at 18% 18%, rgba(207, 170, 104, 0.1), transparent 40%),

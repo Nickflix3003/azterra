@@ -8,6 +8,22 @@ html, body, #root {
   padding: 0;
 }
 
+/* ── Mobile: use dynamic viewport height to avoid iOS chrome overlap ── */
+@media (max-width: 900px) {
+  .map-wrapper {
+    height: calc(100dvh - var(--header-height));
+    height: calc(100vh - var(--header-height)); /* fallback */
+  }
+
+  .leaflet-map {
+    /* Ensure Leaflet fills its container correctly on mobile */
+    height: 100% !important;
+    /* Improve touch performance */
+    touch-action: none;
+  }
+}
+
+
 /* Reusable custom scrollbar */
 .custom-scrollbar {
   scrollbar-width: thin;

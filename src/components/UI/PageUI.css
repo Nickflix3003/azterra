@@ -1571,3 +1571,163 @@ body,
   overflow: visible;
   outline: 2px solid #ffd700;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MOBILE POLISH — Touch targets, landscape layout, dvh fixes
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Touch target minimums (48px) ────────────────────────── */
+/* Applied site-wide for interactive elements on touch devices */
+
+@media (pointer: coarse) {
+  /* Buttons and links that might be too small */
+  button,
+  [role="button"],
+  .azterra-nav__link,
+  .compendium-tab,
+  .close-button,
+  .side-panel-location-item,
+  .side-panel-atlas-btn {
+    min-height: 44px;
+  }
+
+  /* Ensure close button is always tappable */
+  .close-button {
+    width: 44px;
+    height: 44px;
+    font-size: 24px;
+  }
+
+  /* Zoom buttons on map */
+  .zoom-button {
+    width: 48px;
+    height: 48px;
+    font-size: 1.4rem;
+  }
+
+  /* Compendium tabs — make them taller for touch */
+  .compendium-tab {
+    padding: 0.75rem 1.25rem;
+  }
+
+  /* Filter checkboxes — larger hit area */
+  .filter-option input[type="checkbox"],
+  input[type="checkbox"],
+  input[type="radio"] {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+  }
+}
+
+/* ── Landscape phone: content layout adjustments ─────────── */
+
+@media (max-width: 900px) {
+  /* Page layout: remove excess padding so content fills landscape viewport */
+  .page-fullscreen {
+    min-height: 100dvh;
+    min-height: 100vh;
+  }
+
+  /* Compendium page: smaller heading and tighter padding in landscape */
+  .page-content-full {
+    padding-bottom: 60px; /* room for bottom tab bar */
+  }
+
+  /* Characters / cards page: reduce padding in landscape */
+  .characters-page,
+  .almanac-page,
+  .worldraces-page {
+    padding: 1rem 1rem 3.5rem;
+  }
+
+  /* Card grids: let them wrap tighter in landscape */
+  .character-cards,
+  .character-card-list {
+    gap: 0.75rem;
+  }
+
+  /* Section headings: slightly smaller on mobile */
+  .section-title,
+  .page-title {
+    font-size: clamp(1.2rem, 4vw, 1.8rem);
+  }
+
+  /* Compendium tab bar: ensure it fits in landscape height */
+  .compendium-tabbar-wrapper {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
+    background: rgba(10, 8, 6, 0.95);
+    backdrop-filter: blur(8px);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .compendium-tabbar {
+    padding: 0.3rem 0.75rem;
+  }
+
+  .compendium-tab {
+    font-size: 0.82rem;
+    padding: 0.5rem 0.85rem;
+  }
+
+  /* Admin page: full-width on mobile */
+  .admin-table-wrap {
+    margin: 0 -0.5rem;
+    border-radius: 0;
+  }
+
+  /* Auth pages: compact on landscape mobile */
+  .auth-page {
+    min-height: 100dvh;
+    min-height: 100vh;
+    padding: 1rem;
+    align-items: flex-start;
+    padding-top: 3.5rem; /* below hamburger */
+  }
+
+  .auth-modal__content {
+    max-height: 85dvh;
+    max-height: 85vh;
+    overflow-y: auto;
+  }
+}
+
+/* ── iOS safe area insets ─────────────────────────────────── */
+/* Ensure content isn't hidden behind rounded corners or home indicator */
+
+@supports (padding: env(safe-area-inset-bottom)) {
+  @media (max-width: 900px) {
+    .map-mobile-fab-group {
+      bottom: calc(5.5rem + env(safe-area-inset-bottom));
+    }
+
+    .mobile-nav {
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .compendium-tabbar-wrapper {
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .side-panel {
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+  }
+}
+
+/* ── dvh fix: pages that use 100vh should use 100dvh on mobile ── */
+
+@media (max-width: 900px) {
+  /* Ensure the app shell fills the true visible viewport */
+  .app-shell,
+  .app-content {
+    min-height: 100dvh;
+    min-height: 100vh; /* fallback for browsers without dvh */
+  }
+}
+
